@@ -24,10 +24,10 @@ spring:
       host: ${MONGODB_HOST:localhost}
       port: ${MONGODB_PORT:27017}
       database: ${MONGODB_DATABASE:moyun_novel_system}
-    
-    # MongoDB索引自动创建
-    mongodb:
+      # MongoDB索引自动创建
       auto-index-creation: true
+
+
 
     # Redis配置
     redis:
