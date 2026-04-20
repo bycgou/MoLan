@@ -1,0 +1,115 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: ai-novel-system
+
+  # MySQL配置
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:moyun_novel_system}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+
+  data:
+    # MongoDB配置
+    mongodb:
+      host: ${MONGODB_HOST:localhost}
+      port: ${MONGODB_PORT:27017}
+      database: ${MONGODB_DATABASE:moyun_novel_system}
+    
+    # MongoDB索引自动创建
+    mongodb:
+      auto-index-creation: true
+
+    # Redis配置
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+
+  # RabbitMQ配置
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}   # 旧配置
+    # host: ${RABBITMQ_HOST:host.docker.internal} # 新配置
+
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: /
+    connection-timeout: 3000
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: 2
+        max-concurrency: 5
+        prefetch: 1
+        auto-startup: true
+    # 配置消息转换器为JSON格式（避免反序列化安全问题）
+    template:
+      message-converter: jsonMessageConverter
+
+  # Spring AMQP 反序列化信任配置
+  amqp:
+    deserialization:
+      trust-all: true  # 信任所有类（仅用于开发环境，生产环境应配置具体类）
+
+  # 缓存配置
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000
+      cache-null-values: false
+
+# MyBatis-Plus配置（用于用户模块）
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.novel.system.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# LLM配置（全部由用户在前端配置）
+# 不再使用默认配置，所有模型配置存储在数据库 llm_config 表中
+
+# Redis Stack向量数据库配置
+redis-stack:
+  vector:
+    index-name: novel_summary_idx
+    dimension: 1536
+    distance-metric: cosine
+
+# 生成配置
+jwt:
+  # 必须配置！至少32字节的随机密钥，不可使用默认值
+  # 生成方式: openssl rand -base64 48
+  secret: ${JWT_SECRET:changeme_generate_with_openssl_rand_base64_48}
+  expiration: 86400000
+
+generation:
+  max-retry-count: 3
+  chapter-word-count-min: 1000
+  chapter-word-count-max: 1500
+  outline-word-count-max: 500
+  summary-word-count-max: 300
+
+logging:
+  level:
+    com.novel.system: INFO
+    org.springframework.data.redis: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

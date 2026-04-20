@@ -1,0 +1,221 @@
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import type { ApiResponse } from '@/types'
+
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 180000, // 增加到180秒（3分钟），LLM调用可能需要更长时间
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+// ========== 请求拦截器：自动附加 Token ==========
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error),
+)
+
+// ========== 响应拦截器：统一错误处理 ==========
+api.interceptors.response.use(
+  (response) => {
+    return response
+  },
+  (error) => {
+    const status = error.response?.status
+    const msg = error.response?.data?.message
+
+    if (status === 401) {
+      // 清除本地 token 并跳转登录
+      localStorage.removeItem('token')
+      ElMessage.error('登录已过期，请重新登录')
+      window.location.href = '/login'
+    } else if (status === 500) {
+      ElMessage.error(msg || '服务器内部错误')
+    } else if (status === 403) {
+      ElMessage.error('没有权限访问该资源')
+    } else if (status === 404) {
+      ElMessage.error(msg || '请求的资源不存在')
+    } else if (status === 400) {
+      ElMessage.error(msg || '请求参数错误')
+    } else if (!error.response) {
+      ElMessage.error('网络连接失败，请检查网络')
+    } else {
+      ElMessage.error(msg || `请求失败 (${status})`)
+    }
+
+    return Promise.reject(error)
+  },
+)
+
+export default api
+
+// ============================================================
+// 认证 API
+// ============================================================
+export const authApi = {
+  login: (data: import('@/types').LoginRequest) =>
+    api.post<ApiResponse<import('@/types').UserVO>>('/auth/login', data).then(res => res.data),
+  register: (data: import('@/types').RegisterRequest) =>
+    api.post<ApiResponse<import('@/types').UserVO>>('/auth/register', data).then(res => res.data),
+  getCurrentUser: () =>
+    api.get<ApiResponse<import('@/types').UserVO>>('/auth/me').then(res => res.data),
+}
+
+// ============================================================
+// 小说 API
+// ============================================================
+export const novelApi = {
+  createNovel: (data: import('@/types').CreateNovelRequest) =>
+    api.post<ApiResponse<import('@/types').NovelVO>>('/novel', data).then(res => res.data),
+  getNovelList: () =>
+    api.get<ApiResponse<import('@/types').NovelVO[]>>('/novel/list').then(res => res.data),
+  getNovel: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').NovelVO>>(`/novel/${novelId}`).then(res => res.data),
+  updateNovel: (novelId: string, data: import('@/types').UpdateNovelRequest) =>
+    api.put<ApiResponse<import('@/types').NovelVO>>(`/novel/${novelId}`, data).then(res => res.data),
+  deleteNovel: (novelId: string) =>
+    api.delete<ApiResponse<null>>(`/novel/${novelId}`).then(res => res.data),
+  exportNovel: (novelId: string) =>
+    api.get(`/novel/${novelId}/export`, { responseType: 'blob' }).then(res => res.data),
+  autoGenerateOutline: (data: { novelName: string; genre: string; prompt?: string }) =>
+    api.post<ApiResponse<unknown>>('/novel/auto-generate-outline', data).then(res => res.data),
+  generateOutline: (novelId: string, params?: { chapterNum?: number; userIntent?: string; llmConfigId?: string; modelType?: string }) =>
+    api.post<ApiResponse<{ outline: string; implementationIdeas: string[] }>>(`/novel/${novelId}/outline`, null, { params }).then(res => res.data),
+  getNovelGraph: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').NovelGraphVO>>(`/novel/${novelId}/novel-graph`).then(res => res.data),
+  getTimeline: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').TimelineVO>>(`/novel/${novelId}/timeline`).then(res => res.data),
+  updateTimeline: (novelId: string, data: import('@/types').TimelineVO) =>
+    api.put<ApiResponse<import('@/types').TimelineVO>>(`/novel/${novelId}/timeline`, data).then(res => res.data),
+}
+
+// ============================================================
+// 章节 API
+// ============================================================
+export const chapterApi = {
+  generateChapter: (novelId: string, data: import('@/types').GenerateChapterRequest) =>
+    api.post<ApiResponse<import('@/types').ChapterVO>>(`/novel/${novelId}/chapter`, data).then(res => res.data),
+  generateChapterAsync: (novelId: string, data: import('@/types').GenerateChapterRequest) =>
+    api.post<ApiResponse<string>>(`/novel/${novelId}/chapter/async`, data).then(res => res.data),
+  getGenerationStatus: (novelId: string, taskId: string) =>
+    api.get<ApiResponse<unknown>>(`/novel/${novelId}/chapter/status/${taskId}`).then(res => res.data),
+  getChapterList: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').ChapterListItem[]>>(`/novel/${novelId}/chapter/list`).then(res => res.data),
+  getChapter: (novelId: string, chapterNum: number) =>
+    api.get<ApiResponse<import('@/types').ChapterVO>>(`/novel/${novelId}/chapter/${chapterNum}`).then(res => res.data),
+  getRecentChapters: (novelId: string, count: number = 10) =>
+    api.get<ApiResponse<import('@/types').ChapterVO[]>>(`/novel/${novelId}/chapter/recent`, { params: { count } }).then(res => res.data),
+  updateChapter: (novelId: string, chapterNum: number, data: Partial<import('@/types').ChapterVO>) =>
+    api.put<ApiResponse<import('@/types').ChapterVO>>(`/novel/${novelId}/chapter/${chapterNum}`, data).then(res => res.data),
+  extractSummary: (novelId: string, data: { chapterNum: number; content: string }) =>
+    api.post<ApiResponse<unknown>>(`/novel/${novelId}/chapter/extract-summary`, data).then(res => res.data),
+  saveManualChapter: (novelId: string, data: { chapterNum: number; chapterTitle: string; content: string; summaryData: unknown }) =>
+    api.post<ApiResponse<import('@/types').ChapterVO>>(`/novel/${novelId}/chapter/manual`, data).then(res => res.data),
+  deleteChapter: (novelId: string, chapterNum: number) =>
+    api.delete<ApiResponse<null>>(`/novel/${novelId}/chapter/${chapterNum}`).then(res => res.data),
+  getRecycleBin: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').ChapterVO[]>>(`/novel/${novelId}/chapter/recycle-bin`).then(res => res.data),
+  restoreChapter: (novelId: string, chapterId: string) =>
+    api.post<ApiResponse<null>>(`/novel/${novelId}/chapter/${chapterId}/restore`).then(res => res.data),
+  hardDeleteChapter: (novelId: string, chapterId: string) =>
+    api.delete<ApiResponse<null>>(`/novel/${novelId}/chapter/${chapterId}/hard`).then(res => res.data),
+  getChapterVersions: (novelId: string, chapterNum: number) =>
+    api.get<ApiResponse<import('@/types').ChapterVersionVO[]>>(`/novel/${novelId}/chapter/${chapterNum}/versions`).then(res => res.data),
+  rollbackChapter: (novelId: string, chapterNum: number, versionId: string) =>
+    api.post<ApiResponse<null>>(`/novel/${novelId}/chapter/${chapterNum}/rollback/${versionId}`).then(res => res.data),
+}
+
+// ============================================================
+// 人物 API
+// ============================================================
+export const characterApi = {
+  createCharacter: (novelId: string, data: import('@/types').CreateCharacterRequest) =>
+    api.post<ApiResponse<import('@/types').CharacterVO>>(`/novel/${novelId}/character`, data).then(res => res.data),
+  getCharacterList: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').CharacterVO[]>>(`/novel/${novelId}/character/list`).then(res => res.data),
+  getCharacter: (novelId: string, characterId: string) =>
+    api.get<ApiResponse<import('@/types').CharacterVO>>(`/novel/${novelId}/character/${characterId}`).then(res => res.data),
+  updateCharacter: (novelId: string, characterId: string, data: import('@/types').UpdateCharacterRequest) =>
+    api.put<ApiResponse<import('@/types').CharacterVO>>(`/novel/${novelId}/character/${characterId}`, data).then(res => res.data),
+  addGrowthNode: (novelId: string, characterId: string, data: import('@/types').AddGrowthNodeRequest) =>
+    api.post<ApiResponse<import('@/types').GrowthNode>>(`/novel/${novelId}/character/${characterId}/growth`, data).then(res => res.data),
+}
+
+// ============================================================
+// 伏笔/线索 API
+// ============================================================
+export const clueApi = {
+  createClue: (novelId: string, data: import('@/types').CreateClueRequest) =>
+    api.post<ApiResponse<import('@/types').ClueVO>>(`/novel/${novelId}/clue`, data).then(res => res.data),
+  getClueList: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').ClueVO[]>>(`/novel/${novelId}/clue/list`).then(res => res.data),
+  getUnrecycledClues: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').ClueVO[]>>(`/novel/${novelId}/clue/unrecycled`).then(res => res.data),
+  recycleClue: (novelId: string, clueId: string, recycleChapter: number) =>
+    api.put<ApiResponse<null>>(`/novel/${novelId}/clue/${clueId}/recycle`, null, { params: { recycleChapter } }).then(res => res.data),
+}
+
+// ============================================================
+// 模型配置 API
+// ============================================================
+export const llmConfigApi = {
+  getConfigList: () =>
+    api.get<ApiResponse<LlmConfigVO[]>>('/llm-config/list').then(res => res.data),
+  getConfig: (configId: string) =>
+    api.get<ApiResponse<import('@/types').LlmConfigVO>>(`/llm-config/${configId}`).then(res => res.data),
+  createConfig: (data: import('@/types').CreateLlmConfigRequest) =>
+    api.post<ApiResponse<import('@/types').LlmConfigVO>>('/llm-config', data).then(res => res.data),
+  updateConfig: (configId: string, data: import('@/types').UpdateLlmConfigRequest) =>
+    api.put<ApiResponse<import('@/types').LlmConfigVO>>(`/llm-config/${configId}`, data).then(res => res.data),
+  deleteConfig: (configId: string) =>
+    api.delete<ApiResponse<null>>(`/llm-config/${configId}`).then(res => res.data),
+  testConnection: (data: import('@/types').TestConnectionRequest) =>
+    api.post<ApiResponse<boolean>>('/llm-config/test', data).then(res => res.data),
+  getActiveConfig: (usageType: string = 'all') =>
+    api.get<ApiResponse<import('@/types').LlmConfigVO>>('/llm-config/active', { params: { usageType } }).then(res => res.data),
+}
+
+// ============================================================
+// 节奏系统 API
+// ============================================================
+export const rhythmApi = {
+  getRhythmStatus: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').RhythmStatusVO>>(`/novel/${novelId}/rhythm/status`).then(res => res.data),
+  getRecommendedStrand: (novelId: string) =>
+    api.get<ApiResponse<string>>(`/novel/${novelId}/rhythm/recommend`).then(res => res.data),
+  checkViolation: (novelId: string, strandType: string) =>
+    api.get<ApiResponse<boolean>>(`/novel/${novelId}/rhythm/check`, { params: { strandType } }).then(res => res.data),
+  getReadPullTrend: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').ReadPullTrendVO>>(`/novel/${novelId}/rhythm/trend`).then(res => res.data),
+  getSuggestion: (novelId: string) =>
+    api.get<ApiResponse<string>>(`/novel/${novelId}/rhythm/suggestion`).then(res => res.data),
+  analyzeReadPull: (novelId: string, data: unknown) =>
+    api.post<ApiResponse<unknown>>(`/novel/${novelId}/rhythm/read-pull`, data).then(res => res.data),
+}
+
+// ============================================================
+// 钩子检测 API
+// ============================================================
+export const hookApi = {
+  analyzeHook: (novelId: string, chapterNum: number) =>
+    api.get<ApiResponse<import('@/types').HookAnalysisVO>>(`/novel/${novelId}/chapter/${chapterNum}/hook`).then(res => res.data),
+}
+
+// ============================================================
+// 题材模板 API
+// ============================================================
+export const genreTemplateApi = {
+  getTemplateList: () =>
+    api.get<ApiResponse<import('@/types').GenreTemplateVO[]>>('/genre-template/list').then(res => res.data),
+  getTemplatesByGenre: (genre: string) =>
+    api.get<ApiResponse<import('@/types').GenreTemplateVO[]>>('/genre-template/by-genre', { params: { genre } }).then(res => res.data),
+  getTemplate: (templateId: string) =>
+    api.get<ApiResponse<import('@/types').GenreTemplateVO>>(`/genre-template/${templateId}`).then(res => res.data),
+}

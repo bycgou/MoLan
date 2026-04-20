@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.GenreTemplateMapper">
+
+    <resultMap id="GenreTemplateResult" type="com.novel.system.entity.mysql.GenreTemplate">
+        <id column="template_id" property="templateId"/>
+        <result column="template_name" property="templateName"/>
+        <result column="genre" property="genre"/>
+        <result column="description" property="description"/>
+        <result column="recommended_tags" property="recommendedTags"/>
+        <result column="plot_structure" property="plotStructure"/>
+        <result column="character_setting" property="characterSetting"/>
+        <result column="style_features" property="styleFeatures"/>
+        <result column="sample_opening" property="sampleOpening"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="status" property="status"/>
+    </resultMap>
+
+    <select id="selectAll" resultMap="GenreTemplateResult">
+        SELECT * FROM genre_template WHERE status = 1 ORDER BY genre, template_name
+    </select>
+
+    <select id="selectByGenre" resultMap="GenreTemplateResult">
+        SELECT * FROM genre_template WHERE genre = #{genre} AND status = 1
+    </select>
+
+    <select id="selectById" resultMap="GenreTemplateResult">
+        SELECT * FROM genre_template WHERE template_id = #{templateId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="templateId">
+        INSERT INTO genre_template (template_name, genre, description, recommended_tags, plot_structure,
+            character_setting, style_features, sample_opening, create_time, update_time, status)
+        VALUES (#{templateName}, #{genre}, #{description}, #{recommendedTags}, #{plotStructure},
+            #{characterSetting}, #{styleFeatures}, #{sampleOpening}, #{createTime}, #{updateTime}, #{status})
+    </insert>
+
+    <update id="updateById">
+        UPDATE genre_template
+        <set>
+            <if test="templateName != null">template_name = #{templateName},</if>
+            <if test="genre != null">genre = #{genre},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="recommendedTags != null">recommended_tags = #{recommendedTags},</if>
+            <if test="plotStructure != null">plot_structure = #{plotStructure},</if>
+            <if test="characterSetting != null">character_setting = #{characterSetting},</if>
+            <if test="styleFeatures != null">style_features = #{styleFeatures},</if>
+            <if test="sampleOpening != null">sample_opening = #{sampleOpening},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE template_id = #{templateId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM genre_template WHERE template_id = #{templateId}
+    </delete>
+
+</mapper>

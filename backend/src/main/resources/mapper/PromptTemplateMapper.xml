@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.PromptTemplateMapper">
+
+    <resultMap id="PromptTemplateResult" type="com.novel.system.entity.mysql.PromptTemplate">
+        <id column="template_id" property="templateId"/>
+        <result column="agent_type" property="agentType"/>
+        <result column="template_name" property="templateName"/>
+        <result column="system_instruction" property="systemInstruction"/>
+        <result column="few_shot_examples" property="fewShotExamples"/>
+        <result column="version" property="version"/>
+        <result column="is_active" property="isActive"/>
+        <result column="description" property="description"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="PromptTemplateResult">
+        SELECT * FROM prompt_template WHERE template_id = #{templateId}
+    </select>
+
+    <select id="selectActiveByAgentType" resultMap="PromptTemplateResult">
+        SELECT * FROM prompt_template WHERE agent_type = #{agentType} AND is_active = 1 LIMIT 1
+    </select>
+
+    <insert id="insert">
+        INSERT INTO prompt_template (template_id, agent_type, template_name, system_instruction,
+            few_shot_examples, version, is_active, description, create_time, update_time)
+        VALUES (#{templateId}, #{agentType}, #{templateName}, #{systemInstruction},
+            #{fewShotExamples}, #{version}, #{isActive}, #{description}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE prompt_template
+        <set>
+            <if test="agentType != null">agent_type = #{agentType},</if>
+            <if test="templateName != null">template_name = #{templateName},</if>
+            <if test="systemInstruction != null">system_instruction = #{systemInstruction},</if>
+            <if test="fewShotExamples != null">few_shot_examples = #{fewShotExamples},</if>
+            <if test="version != null">version = #{version},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="description != null">description = #{description},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE template_id = #{templateId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM prompt_template WHERE template_id = #{templateId}
+    </delete>
+
+</mapper>

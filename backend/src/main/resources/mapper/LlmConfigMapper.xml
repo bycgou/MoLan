@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.LlmConfigMapper">
+
+    <resultMap id="LlmConfigResult" type="com.novel.system.entity.mysql.LlmConfig">
+        <id column="config_id" property="configId"/>
+        <result column="config_name" property="configName"/>
+        <result column="api_key" property="apiKey"/>
+        <result column="base_url" property="baseUrl"/>
+        <result column="model_name" property="modelName"/>
+        <result column="model_type" property="modelType"/>
+        <result column="api_endpoint" property="apiEndpoint"/>
+        <result column="auth_type" property="authType"/>
+        <result column="max_tokens" property="maxTokens"/>
+        <result column="temperature" property="temperature"/>
+        <result column="usage_type" property="usageType"/>
+        <result column="is_active" property="isActive"/>
+        <result column="user_id" property="userId"/>
+        <result column="description" property="description"/>
+        <result column="embedding_model" property="embeddingModel"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE config_id = #{configId}
+    </select>
+
+    <select id="selectByUserId" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE user_id = #{userId} ORDER BY create_time DESC
+    </select>
+
+    <select id="selectByUserIdAndIsActive" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE user_id = #{userId} AND is_active = #{isActive}
+    </select>
+
+    <select id="selectActiveByUsageType" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE user_id = #{userId} AND usage_type = #{usageType} AND is_active = 1 LIMIT 1
+    </select>
+
+    <insert id="insert">
+        INSERT INTO llm_config (config_id, config_name, api_key, base_url, model_name, model_type,
+            api_endpoint, auth_type, max_tokens, temperature, usage_type, is_active, user_id,
+            description, embedding_model, create_time, update_time)
+        VALUES (#{configId}, #{configName}, #{apiKey}, #{baseUrl}, #{modelName}, #{modelType},
+            #{apiEndpoint}, #{authType}, #{maxTokens}, #{temperature}, #{usageType}, #{isActive}, #{userId},
+            #{description}, #{embeddingModel}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE llm_config
+        <set>
+            <if test="configName != null">config_name = #{configName},</if>
+            <if test="apiKey != null">api_key = #{apiKey},</if>
+            <if test="baseUrl != null">base_url = #{baseUrl},</if>
+            <if test="modelName != null">model_name = #{modelName},</if>
+            <if test="modelType != null">model_type = #{modelType},</if>
+            <if test="apiEndpoint != null">api_endpoint = #{apiEndpoint},</if>
+            <if test="authType != null">auth_type = #{authType},</if>
+            <if test="maxTokens != null">max_tokens = #{maxTokens},</if>
+            <if test="temperature != null">temperature = #{temperature},</if>
+            <if test="usageType != null">usage_type = #{usageType},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="embeddingModel != null">embedding_model = #{embeddingModel},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE config_id = #{configId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM llm_config WHERE config_id = #{configId}
+    </delete>
+
+    <select id="selectAllActive" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE is_active = 1 ORDER BY create_time DESC
+    </select>
+
+    <select id="selectActiveByUsageTypeGlobal" resultMap="LlmConfigResult">
+        SELECT * FROM llm_config WHERE usage_type = #{usageType} AND is_active = 1 LIMIT 1
+    </select>
+
+</mapper>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.NovelArcMapper">
+
+    <resultMap id="NovelArcResult" type="com.novel.system.entity.mysql.NovelArc">
+        <id column="arc_id" property="arcId"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="arc_name" property="arcName"/>
+        <result column="arc_outline" property="arcOutline"/>
+        <result column="chapter_count" property="chapterCount"/>
+        <result column="start_chapter" property="startChapter"/>
+        <result column="end_chapter" property="endChapter"/>
+        <result column="rhythm_tag" property="rhythmTag"/>
+        <result column="rhythm_intensity" property="rhythmIntensity"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="NovelArcResult">
+        SELECT * FROM novel_arc WHERE arc_id = #{arcId}
+    </select>
+
+    <select id="selectByNovelId" resultMap="NovelArcResult">
+        SELECT * FROM novel_arc WHERE novel_id = #{novelId} ORDER BY start_chapter ASC
+    </select>
+
+    <select id="findByChapterNum" resultMap="NovelArcResult">
+        SELECT * FROM novel_arc WHERE novel_id = #{novelId} AND #{chapterNum} BETWEEN start_chapter AND COALESCE(end_chapter, 999999) LIMIT 1
+    </select>
+
+    <insert id="insert">
+        INSERT INTO novel_arc (arc_id, novel_id, arc_name, arc_outline, chapter_count,
+            start_chapter, end_chapter, rhythm_tag, rhythm_intensity, create_time, update_time)
+        VALUES (#{arcId}, #{novelId}, #{arcName}, #{arcOutline}, #{chapterCount},
+            #{startChapter}, #{endChapter}, #{rhythmTag}, #{rhythmIntensity}, NOW(), NOW())
+    </insert>
+
+    <update id="updateById">
+        UPDATE novel_arc
+        <set>
+            <if test="arcName != null">arc_name = #{arcName},</if>
+            <if test="arcOutline != null">arc_outline = #{arcOutline},</if>
+            <if test="chapterCount != null">chapter_count = #{chapterCount},</if>
+            <if test="startChapter != null">start_chapter = #{startChapter},</if>
+            <if test="endChapter != null">end_chapter = #{endChapter},</if>
+            <if test="rhythmTag != null">rhythm_tag = #{rhythmTag},</if>
+            <if test="rhythmIntensity != null">rhythm_intensity = #{rhythmIntensity},</if>
+            update_time = NOW()
+        </set>
+        WHERE arc_id = #{arcId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM novel_arc WHERE arc_id = #{arcId}
+    </delete>
+
+</mapper>

@@ -1,0 +1,751 @@
+<template>
+  <div class="novel-detail" v-loading="loading">
+    <el-row :gutter="20">
+      <!-- 左侧：面板 -->
+      <el-col :span="8">
+        <NovelInfoPanel
+          :novel="novel"
+          @edit="router.push(`/novel/${novelId}/edit`)"
+          @manage-clues="router.push(`/novel/${novelId}/clues`)"
+          @manage-chars="router.push(`/novel/${novelId}/characters`)"
+        />
+        <RhythmPanel
+          :rhythm-status="rhythmStatus"
+          :recommended-strand="recommendedStrand"
+          @refresh="loadRhythmStatus"
+        />
+        <CharacterPanel
+          :characters="characters"
+          @add="router.push(`/novel/${novelId}/characters`)"
+        />
+      </el-col>
+
+      <!-- 右侧：章节列表 -->
+      <el-col :span="16">
+        <ChapterList
+          :chapters="chapters"
+          @recycle-bin="showRecycleBinDialog"
+          @export="exportNovel"
+          @geek-mode="geekDialogVisible = true"
+          @manual-write="showManualDialog"
+          @ai-generate="showGenerateDialog"
+          @show-graph="graphDialogVisible = true"
+          @show-timeline="showTimelineDialog"
+          @view-chapter="(num) => router.push(`/novel/${novelId}/chapter/${num}`)"
+          @edit-chapter="(num) => router.push(`/novel/${novelId}/chapter/${num}/edit`)"
+          @analyze-hook="analyzeHook"
+          @delete-chapter="deleteChapter"
+        />
+      </el-col>
+    </el-row>
+
+    <!-- 生成章节对话框 -->
+    <GenerateChapterDialog
+      v-model:visible="generateDialogVisible"
+      :llm-configs="llmConfigs"
+      :recommended-strand="recommendedStrand"
+      :generating="generating"
+      :task-id="generationTaskId"
+      :default-chapter-num="(novel?.chapterCount || 0) + 1"
+      :outline-data="outlineData"
+      @generate-outline="handleGenerateOutline"
+      @generate-chapter="handleGenerateChapter"
+      @close="stopPollingStatus"
+    />
+
+    <!-- 手动撰写章节对话框 -->
+    <el-dialog v-model="manualDialogVisible" title="手动撰写章节" width="800px" top="5vh" @closed="onManualDialogClosed">
+      <el-form :model="manualForm" label-width="80px">
+        <el-form-item label="章节号">
+          <el-input-number v-model="manualForm.chapterNum" :min="1" />
+        </el-form-item>
+        <el-form-item label="章节标题">
+          <el-input v-model="manualForm.chapterTitle" placeholder="请输入章节标题" />
+        </el-form-item>
+        <el-form-item label="章节内容">
+          <div style="border: 1px solid #ccc; width: 100%;">
+            <Toolbar
+              v-if="manualEditorVisible"
+              :editor="manualEditorRef"
+              :defaultConfig="toolbarConfig"
+              mode="simple"
+              style="border-bottom: 1px solid #ccc"
+            />
+            <Editor
+              v-if="manualEditorVisible"
+              v-model="manualForm.content"
+              :defaultConfig="editorConfig"
+              mode="simple"
+              style="height: 400px; overflow-y: hidden;"
+              @onCreated="onManualEditorCreated"
+            />
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveManual" :loading="savingManual">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 极客模式对话框 -->
+    <el-dialog v-model="geekDialogVisible" title="✍️ 极客模式 — 外部 AI 创作" width="850px" top="3vh" @closed="resetGeekForm">
+      <el-steps :active="geekStep" finish-status="success" align-center style="margin-bottom: 20px;">
+        <el-step title="① 复制提示词" />
+        <el-step title="② 粘贴正文" />
+        <el-step title="③ 粘贴摘要" />
+        <el-step title="④ 保存" />
+      </el-steps>
+
+      <!-- 步骤1: 提示词模板 -->
+      <el-card shadow="never" class="geek-step-card" :class="{ 'step-done': geekStep > 0 }">
+        <template #header>
+          <div class="step-header">
+            <span>📋 步骤1：复制下方提示词，发给 ChatGPT / Claude 等外部 AI</span>
+            <el-button size="small" type="primary" plain @click="copyGeekPrompt">复制提示词</el-button>
+          </div>
+        </template>
+        <el-input
+          v-model="geekPromptText"
+          type="textarea"
+          :rows="4"
+          readonly
+          style="font-family: monospace; font-size: 12px;"
+        />
+        <div class="step-tip">💡 把你的章节构思要求填入提示词中的 [在此描述] 位置，然后发给外部 AI</div>
+      </el-card>
+
+      <!-- 步骤2: 粘贴正文 -->
+      <el-card shadow="never" class="geek-step-card" :class="{ 'step-done': geekStep > 1 }">
+        <template #header>
+          <div class="step-header">
+            <span>📝 步骤2：将 AI 生成的章节正文粘贴到下方</span>
+          </div>
+        </template>
+        <el-form :model="geekForm" label-width="80px">
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <el-form-item label="章节号">
+                <el-input-number v-model="geekForm.chapterNum" :min="1" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="16">
+              <el-form-item label="章节标题">
+                <el-input v-model="geekForm.chapterTitle" placeholder="如：第一章 觉醒" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="章节正文">
+            <el-input v-model="geekForm.content" type="textarea" :rows="8" placeholder="在此粘贴外部 AI 生成的章节正文..." @input="geekStep = Math.max(geekStep, 1)" />
+            <div class="step-tip">字数：{{ geekWordCount }} 字</div>
+          </el-form-item>
+        </el-form>
+      </el-card>
+
+      <!-- 步骤3: 粘贴摘要JSON -->
+      <el-card shadow="never" class="geek-step-card">
+        <template #header>
+          <div class="step-header">
+            <span>🔍 步骤3（可选）：粘贴 AI 返回的剧情摘要 JSON</span>
+            <el-button size="small" plain @click="geekJsonVisible = !geekJsonVisible">
+              {{ geekJsonVisible ? '收起' : '展开' }}
+            </el-button>
+          </div>
+        </template>
+        <div v-if="geekJsonVisible">
+          <el-input v-model="geekForm.jsonString" type="textarea" :rows="5" placeholder='粘贴 AI 返回的 JSON，格式如：
+{
+  "fingerprint": "本章剧情摘要...",
+  "keywords": ["关键词1", "关键词2"],
+  "characters": ["人物A", "人物B"],
+  "locations": ["地点1"],
+  "relations": [{"source": "A", "target": "B", "relation": "师徒"}]
+}' style="font-family: monospace; font-size: 12px;" />
+          <div class="step-tip">💡 不填此项，系统会在保存时自动生成摘要（但准确度不如外部 AI）</div>
+        </div>
+        <div v-else class="step-tip" style="text-align: center; color: #909399;">
+          跳过此步骤，系统将自动提取摘要
+        </div>
+      </el-card>
+      <template #footer>
+        <el-button @click="geekDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveGeekChapter" :loading="savingGeek" :disabled="!geekForm.content.trim()">
+          💾 保存章节
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 钩子分析对话框 -->
+    <el-dialog v-model="hookDialogVisible" title="钩子强度分析" width="500px">
+      <div v-if="hookResult" class="hook-analysis">
+        <div v-for="key in ['openingAttraction', 'suspenseSetup', 'emotionTrigger', 'endingHook', 'coolPointDensity']" :key="key" class="hook-item">
+          <span class="hook-label">{{ hookLabels[key] }}</span>
+          <el-progress :percentage="(hookResult[key] || 0) * 10" :stroke-width="15" />
+        </div>
+        <div class="hook-total">
+          <el-tag :type="hookResult.pullLevel === '高' ? 'success' : hookResult.pullLevel === '中' ? 'warning' : 'danger'" size="large">
+            追读力等级：{{ hookResult.pullLevel }}（{{ hookResult.totalScore }}分）
+          </el-tag>
+        </div>
+        <div v-if="hookResult.suggestion" class="hook-suggestion">
+          <el-alert :title="hookResult.suggestion" type="info" :closable="false" />
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 回收站对话框 -->
+    <el-dialog v-model="recycleBinVisible" title="章节回收站" width="700px">
+      <el-table :data="recycleBinList" v-loading="loadingRecycleBin">
+        <el-table-column prop="chapterNum" label="章节号" width="80">
+          <template #default="scope">第{{ scope.row.chapterNum }}章</template>
+        </el-table-column>
+        <el-table-column prop="chapterTitle" label="标题" min-width="150" />
+        <el-table-column prop="wordCount" label="字数" width="100" />
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="scope">
+            <el-button type="success" size="small" @click="restoreChapter(scope.row.chapterId)">恢复</el-button>
+            <el-button type="danger" size="small" @click="hardDeleteChapter(scope.row.chapterId)">彻底删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 关系图谱对话框 -->
+    <el-dialog v-model="graphDialogVisible" title="人物关系图谱" width="900px" @opened="initGraph" @closed="destroyGraph">
+      <div v-loading="loadingGraph" style="min-height: 500px;">
+        <div id="graph-container" style="width: 100%; height: 500px;"></div>
+      </div>
+    </el-dialog>
+
+    <!-- 时间线对话框 -->
+    <el-dialog v-model="timelineDialogVisible" title="小说世界时间线" width="600px">
+      <el-form :model="timelineForm" label-width="100px" v-loading="loadingTimeline">
+        <el-form-item label="当前时间">
+          <el-input v-model="timelineForm.currentTime" placeholder="如：午夜 / 清晨" />
+        </el-form-item>
+        <el-form-item label="当前季节">
+          <el-input v-model="timelineForm.season" placeholder="如：春 / 夏" />
+        </el-form-item>
+        <el-form-item label="当前天气">
+          <el-input v-model="timelineForm.weather" placeholder="如：晴 / 大雨" />
+        </el-form-item>
+        <el-form-item label="本章天数">
+          <el-input-number v-model="timelineForm.chapterDay" :min="0" />
+        </el-form-item>
+        <el-form-item label="累计天数">
+          <el-input-number v-model="timelineForm.totalDays" :min="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="timelineDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTimeline" :loading="savingTimeline">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, shallowRef } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import * as echarts from 'echarts'
+import '@wangeditor/editor/dist/css/style.css'
+import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
+import type { IDomEditor, IToolbarConfig, IEditorConfig } from '@wangeditor/editor'
+import { novelApi, chapterApi, llmConfigApi, rhythmApi, hookApi } from '@/api'
+import type { NovelVO, ChapterListItem, CharacterVO, LlmConfigVO, RhythmStatusVO } from '@/types'
+
+// Sub-components
+import NovelInfoPanel from '@/components/novel/NovelInfoPanel.vue'
+import RhythmPanel from '@/components/novel/RhythmPanel.vue'
+import CharacterPanel from '@/components/novel/CharacterPanel.vue'
+import ChapterList from '@/components/novel/ChapterList.vue'
+import GenerateChapterDialog, { type GenerateForm } from '@/components/novel/GenerateChapterDialog.vue'
+
+const route = useRoute()
+const router = useRouter()
+const novelId = route.params.novelId as string
+
+// ---- 状态 ----
+const loading = ref(false)
+const novel = ref<NovelVO | null>(null)
+const chapters = ref<ChapterListItem[]>([])
+const characters = ref<CharacterVO[]>([])
+const llmConfigs = ref<LlmConfigVO[]>([])
+const rhythmStatus = ref<RhythmStatusVO | null>(null)
+const recommendedStrand = ref('')
+
+// ---- 对话框 ----
+const generateDialogVisible = ref(false)
+const manualDialogVisible = ref(false)
+const geekDialogVisible = ref(false)
+const hookDialogVisible = ref(false)
+const recycleBinVisible = ref(false)
+const graphDialogVisible = ref(false)
+const timelineDialogVisible = ref(false)
+
+// ---- 加载状态 ----
+const generating = ref(false)
+const savingManual = ref(false)
+const savingGeek = ref(false)
+const loadingGraph = ref(false)
+const loadingTimeline = ref(false)
+const savingTimeline = ref(false)
+const loadingRecycleBin = ref(false)
+
+// ---- 数据 ----
+const outlineData = ref<{ outline: string; implementationIdeas: string[] } | null>(null)
+const hookResult = ref<Record<string, number> & { pullLevel: string; totalScore: number; suggestion: string } | null>(null)
+const recycleBinList = ref<unknown[]>([])
+const generationTaskId = ref('')
+const generationTimer = ref<number | null>(null)
+const pollCount = ref(0)
+const MAX_POLL_COUNT = 60 // 最多轮询60次（5分钟）
+let graphChartInstance: any = null
+
+const hookLabels: Record<string, string> = {
+  openingAttraction: '开头吸引力',
+  suspenseSetup: '悬念设置',
+  emotionTrigger: '情绪调动',
+  endingHook: '结尾钩子',
+  coolPointDensity: '爽点密度',
+}
+
+// ---- 表单 ----
+const manualForm = reactive({ chapterNum: 1, chapterTitle: '', content: '' })
+const geekForm = reactive({ chapterNum: 1, chapterTitle: '', content: '', jsonString: '' })
+const geekStep = ref(0)
+const geekJsonVisible = ref(false)
+const geekWordCount = computed(() => geekForm.content.replaceAll(/\s+/g, '').length)
+const geekPromptText = computed(() => {
+  return `你是一位专业网文作家。请根据以下要求，撰写一章小说正文（2000-3000字）。
+
+要求：[在此描述你的本章写作要求，比如：主角发现了一个神秘遗迹，里面有上古传承]
+
+写完后，请额外输出一个JSON摘要，格式如下（不要省略）：
+{
+  "fingerprint": "300字以内的剧情摘要",
+  "keywords": ["关键词1", "关键词2"],
+  "characters": ["出场人物1", "出场人物2"],
+  "locations": ["地点1"],
+  "relations": [{"source": "A", "target": "B", "relation": "关系描述"}]
+}
+
+请先输出正文，然后输出JSON摘要（用---分隔）。`
+})
+async function copyGeekPrompt() {
+  try {
+    await navigator.clipboard.writeText(geekPromptText.value)
+    ElMessage.success('提示词已复制到剪贴板')
+    geekStep.value = Math.max(geekStep.value, 1)
+  } catch {
+    ElMessage.error('复制失败，请手动选中复制')
+  }
+}
+function resetGeekForm() {
+  geekForm.chapterNum = (novel.value?.chapterCount || 0) + 1
+  geekForm.chapterTitle = ''
+  geekForm.content = ''
+  geekForm.jsonString = ''
+  geekStep.value = 0
+  geekJsonVisible.value = false
+}
+const timelineForm = reactive({ currentTime: '', season: '', weather: '', chapterDay: 0, totalDays: 0 })
+
+// ---- 富文本编辑器 ----
+const manualEditorRef = shallowRef<IDomEditor | null>(null)
+const manualEditorVisible = ref(false)
+const toolbarConfig: Partial<IToolbarConfig> = {
+  excludeKeys: ['fullScreen', 'group-video', 'group-image']
+}
+const editorConfig: Partial<IEditorConfig> = {
+  placeholder: '请输入章节内容...',
+  MENU_CONF: {}
+}
+
+function onManualEditorCreated(editor: IDomEditor) {
+  manualEditorRef.value = editor
+}
+
+function onManualDialogClosed() {
+  manualEditorVisible.value = false
+  if (manualEditorRef.value) {
+    manualEditorRef.value.destroy()
+    manualEditorRef.value = null
+  }
+}
+
+// ---- 加载数据 ----
+async function loadNovel() {
+  loading.value = true
+  try {
+    const res = await novelApi.getNovel(novelId)
+    if (res.code === 200) novel.value = res.data
+  } finally { loading.value = false }
+}
+
+async function loadChapters() {
+  const res = await chapterApi.getChapterList(novelId)
+  if (res.code === 200) chapters.value = res.data
+}
+
+async function loadCharacters() {
+  const res = await characterApi.getCharacterList(novelId)
+  if (res.code === 200) {
+    characters.value = res.data
+  }
+}
+
+async function loadLlmConfigs() {
+  const res = await llmConfigApi.getConfigList()
+  if (res.code === 200) llmConfigs.value = res.data.filter((c) => c.isActive === 1)
+}
+
+async function loadRhythmStatus() {
+  try {
+    const res = await rhythmApi.getRhythmStatus(novelId)
+    if (res.code === 200) rhythmStatus.value = res.data
+    const recRes = await rhythmApi.getRecommendedStrand(novelId)
+    if (recRes.code === 200) recommendedStrand.value = recRes.data
+  } catch (e) { console.warn('节奏系统加载失败', e) }
+}
+
+// ---- 操作 ----
+function showGenerateDialog() {
+  outlineData.value = null
+  generateDialogVisible.value = true
+  loadLlmConfigs()
+  loadRhythmStatus()
+}
+
+function showManualDialog() {
+  manualForm.chapterNum = (novel.value?.chapterCount || 0) + 1
+  manualForm.chapterTitle = `第${manualForm.chapterNum}章 `
+  manualForm.content = ''
+  manualEditorVisible.value = true
+  manualDialogVisible.value = true
+}
+
+async function handleGenerateOutline(form: GenerateForm) {
+  generating.value = true
+  try {
+    const res = await novelApi.generateOutline(novelId, {
+      chapterNum: form.chapterNum,
+      userIntent: form.userIntent,
+      llmConfigId: form.configId,
+      modelType: form.strandType || 'qwen',
+    })
+    if (res.code === 200) {
+      outlineData.value = res.data as typeof outlineData.value
+      ElMessage.success('章纲生成成功！')
+    } else {
+      ElMessage.error(res.message || '生成章纲失败')
+    }
+  } catch (error: any) {
+    console.error('生成章纲失败:', error)
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      ElMessage.error('生成章纲超时，LLM模型响应较慢，请稍后重试')
+    } else if (error.response?.status === 500) {
+      ElMessage.error(error.response?.data?.message || '服务器内部错误')
+    } else if (error.response?.status === 401) {
+      ElMessage.error('登录已过期，请重新登录')
+    } else {
+      ElMessage.error('生成章纲失败，请检查网络连接或稍后重试')
+    }
+  } finally { generating.value = false }
+}
+
+async function handleGenerateChapter(form: GenerateForm & { ideaIndex: number }) {
+  generating.value = true
+  try {
+    const res = await chapterApi.generateChapterAsync(novelId, {
+      chapterNum: form.chapterNum,
+      chapterTitle: '',
+      configId: form.configId,
+      strandType: form.strandType,
+    })
+    if (res.code === 200) {
+      generationTaskId.value = res.data as string
+      ElMessage.info('章节正在后台生成，请稍候...')
+      startPollingStatus()
+    }
+  } catch { ElMessage.error('生成正文失败') }
+  finally { generating.value = false }
+}
+
+function startPollingStatus() {
+  stopPollingStatus()
+  pollCount.value = 0
+  generationTimer.value = window.setInterval(async () => {
+    if (!generationTaskId.value) return
+    pollCount.value++
+    if (pollCount.value >= MAX_POLL_COUNT) {
+      stopPollingStatus()
+      ElMessage.warning('任务超时，请稍后刷新查看')
+      return
+    }
+    try {
+      const res = await chapterApi.getGenerationStatus(novelId, generationTaskId.value)
+      if (res.code === 200 && (res.data as Record<string, unknown>)?.status === 'completed') {
+        stopPollingStatus()
+        generateDialogVisible.value = false
+        ElMessage.success('章节生成完成！')
+        loadChapters()
+        loadNovel()
+      }
+    } catch { /* ignore */ }
+  }, 5000)
+}
+
+function stopPollingStatus() {
+  if (generationTimer.value) {
+    clearInterval(generationTimer.value)
+    generationTimer.value = null
+  }
+}
+
+async function handleSaveManual() {
+  if (!manualForm.content.trim()) { ElMessage.error('请输入内容'); return }
+  savingManual.value = true
+  try {
+    const res = await chapterApi.saveManualChapter(novelId, {
+      chapterNum: manualForm.chapterNum,
+      chapterTitle: manualForm.chapterTitle || '',
+      content: manualForm.content,
+      summaryData: null,
+    })
+    if (res.code === 200) {
+      ElMessage.success('保存成功')
+      manualDialogVisible.value = false
+      loadChapters()
+      loadNovel()
+    }
+  } catch { ElMessage.error('保存失败') }
+  finally { savingManual.value = false }
+}
+
+async function handleSaveGeekChapter() {
+  if (!geekForm.content.trim()) { ElMessage.error('请输入正文'); return }
+  savingGeek.value = true
+  try {
+    let summaryData = null
+    if (geekForm.jsonString.trim()) {
+      try { summaryData = JSON.parse(geekForm.jsonString) }
+      catch { ElMessage.error('JSON格式不正确'); savingGeek.value = false; return }
+    }
+    const res = await chapterApi.saveManualChapter(novelId, {
+      chapterNum: geekForm.chapterNum,
+      chapterTitle: geekForm.chapterTitle || '',
+      content: geekForm.content,
+      summaryData,
+    })
+    if (res.code === 200) {
+      ElMessage.success('保存成功')
+      geekDialogVisible.value = false
+      loadChapters()
+      loadNovel()
+    }
+  } catch { ElMessage.error('保存失败') }
+  finally { savingGeek.value = false }
+}
+
+async function analyzeHook(chapterNum: number) {
+  try {
+    const res = await hookApi.analyzeHook(novelId, chapterNum)
+    if (res.code === 200) {
+      hookResult.value = res.data as typeof hookResult.value
+      hookDialogVisible.value = true
+    }
+  } catch { ElMessage.error('分析失败') }
+}
+
+function deleteChapter(chapterNum: number) {
+  ElMessageBox.confirm('确定删除该章节？', '提示', { type: 'warning' }).then(async () => {
+    try {
+      const res = await chapterApi.deleteChapter(novelId, chapterNum)
+      if (res.code === 200) { ElMessage.success('已移入回收站'); loadChapters(); loadNovel() }
+    } catch { ElMessage.error('删除失败') }
+  }).catch(() => {})
+}
+
+async function exportNovel() {
+  try {
+    const response = await novelApi.exportNovel(novelId)
+    const blob = new Blob([response as BlobPart], { type: 'text/plain;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `${novel.value?.novelName || 'novel'}.txt`
+    document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url); document.body.removeChild(a)
+    ElMessage.success('导出成功')
+  } catch { ElMessage.error('导出失败') }
+}
+
+async function showRecycleBinDialog() {
+  recycleBinVisible.value = true
+  loadingRecycleBin.value = true
+  try {
+    const res = await chapterApi.getRecycleBin(novelId)
+    if (res.code === 200) recycleBinList.value = res.data
+  } finally { loadingRecycleBin.value = false }
+}
+
+async function restoreChapter(chapterId: string) {
+  try {
+    const res = await chapterApi.restoreChapter(novelId, chapterId)
+    if (res.code === 200) { ElMessage.success('恢复成功'); showRecycleBinDialog(); loadChapters(); loadNovel() }
+  } catch { ElMessage.error('恢复失败') }
+}
+
+async function hardDeleteChapter(chapterId: string) {
+  ElMessageBox.confirm('彻底删除后无法恢复', '警告', { type: 'error' }).then(async () => {
+    try {
+      const res = await chapterApi.hardDeleteChapter(novelId, chapterId)
+      if (res.code === 200) { ElMessage.success('已彻底删除'); showRecycleBinDialog() }
+    } catch { ElMessage.error('删除失败') }
+  }).catch(() => {})
+}
+
+async function showTimelineDialog() {
+  timelineDialogVisible.value = true
+  loadingTimeline.value = true
+  try {
+    const res = await novelApi.getTimeline(novelId)
+    if (res.code === 200 && res.data) {
+      const data = res.data as typeof timelineForm
+      Object.assign(timelineForm, data)
+    }
+  } finally { loadingTimeline.value = false }
+}
+
+async function saveTimeline() {
+  savingTimeline.value = true
+  try {
+    const res = await novelApi.updateTimeline(novelId, timelineForm as unknown as import('@/types').TimelineVO)
+    if (res.code === 200) { ElMessage.success('保存成功'); timelineDialogVisible.value = false }
+  } catch { ElMessage.error('保存失败') }
+  finally { savingTimeline.value = false }
+}
+
+async function initGraph() {
+  loadingGraph.value = true
+  try {
+    const res = await novelApi.getNovelGraph(novelId)
+    const graphData = res.data
+    if (!graphData?.nodes?.length) {
+      ElMessage.info('暂无人物图谱数据')
+      loadingGraph.value = false
+      return
+    }
+    await nextTick()
+    const container = document.getElementById('graph-container')
+    if (!container) return
+    // 先销毁旧实例
+    if (graphChartInstance) {
+      graphChartInstance.dispose()
+    }
+    graphChartInstance = echarts.init(container)
+    graphChartInstance.setOption({
+      tooltip: {},
+      series: [{
+        type: 'graph',
+        layout: 'force',
+        data: graphData.nodes.map((n) => ({ ...n, symbolSize: 40 })),
+        links: graphData.edges.map((e) => ({ source: e.source, target: e.target, label: { show: true, formatter: e.label || '' } })),
+        roam: true,
+        label: { show: true, position: 'right' },
+        force: { repulsion: 200 },
+      }],
+    })
+  } catch { ElMessage.error('加载图谱失败') }
+  finally { loadingGraph.value = false }
+}
+
+function destroyGraph() {
+  if (graphChartInstance) {
+    graphChartInstance.dispose()
+    graphChartInstance = null
+  }
+}
+
+// ---- 生命周期 ----
+onMounted(() => {
+  loadNovel()
+  loadChapters()
+  loadCharacters()
+  loadRhythmStatus()
+})
+
+onBeforeUnmount(() => {
+  stopPollingStatus()
+  if (graphChartInstance) {
+    graphChartInstance.dispose()
+    graphChartInstance = null
+  }
+  if (manualEditorRef.value) {
+    manualEditorRef.value.destroy()
+    manualEditorRef.value = null
+  }
+})
+</script>
+
+<style scoped>
+.novel-detail {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.hook-analysis {
+  padding: 12px 0;
+}
+
+.hook-item {
+  margin-bottom: 16px;
+}
+
+.hook-label {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.hook-total {
+  text-align: center;
+  margin: 20px 0 12px;
+}
+
+.hook-suggestion {
+  margin-top: 12px;
+}
+
+/* 极客模式步骤卡片 */
+.geek-step-card {
+  margin-bottom: 12px;
+  border: 1px solid #e4e7ed;
+  transition: opacity 0.3s;
+}
+
+.geek-step-card.step-done {
+  opacity: 0.7;
+}
+
+.geek-step-card :deep(.el-card__header) {
+  padding: 10px 16px;
+  background: #f5f7fa;
+}
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.step-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+</style>

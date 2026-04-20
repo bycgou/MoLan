@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.NovelChapterVersionMapper">
+
+    <resultMap id="ChapterVersionResult" type="com.novel.system.entity.mysql.NovelChapterVersion">
+        <id column="version_id" property="versionId"/>
+        <result column="chapter_id" property="chapterId"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="chapter_num" property="chapterNum"/>
+        <result column="chapter_title" property="chapterTitle"/>
+        <result column="content" property="content"/>
+        <result column="word_count" property="wordCount"/>
+        <result column="version_desc" property="versionDesc"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <select id="selectByChapterId" resultMap="ChapterVersionResult">
+        SELECT * FROM novel_chapter_version WHERE chapter_id = #{chapterId} ORDER BY create_time DESC
+    </select>
+
+    <select id="selectById" resultMap="ChapterVersionResult">
+        SELECT * FROM novel_chapter_version WHERE version_id = #{versionId}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO novel_chapter_version (version_id, chapter_id, novel_id, chapter_num, chapter_title,
+            content, word_count, version_desc, create_time)
+        VALUES (#{versionId}, #{chapterId}, #{novelId}, #{chapterNum}, #{chapterTitle},
+            #{content}, #{wordCount}, #{versionDesc}, #{createTime})
+    </insert>
+
+</mapper>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.WorldClockMapper">
+
+    <resultMap id="WorldClockResult" type="com.novel.system.entity.mysql.WorldClock">
+        <id column="clock_id" property="clockId"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="current_time" property="currentTime"/>
+        <result column="current_date" property="currentDate"/>
+        <result column="season" property="season"/>
+        <result column="weather" property="weather"/>
+        <result column="chapter_day" property="chapterDay"/>
+        <result column="total_days" property="totalDays"/>
+        <result column="update_chapter" property="updateChapter"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectByNovelId" resultMap="WorldClockResult">
+        SELECT * FROM world_clock WHERE novel_id = #{novelId} LIMIT 1
+    </select>
+
+    <insert id="insert">
+        INSERT INTO world_clock (clock_id, novel_id, `current_time`, `current_date`, season, weather,
+            chapter_day, total_days, update_chapter, update_time)
+        VALUES (#{clockId}, #{novelId}, #{currentTime}, #{currentDate}, #{season}, #{weather},
+            #{chapterDay}, #{totalDays}, #{updateChapter}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE world_clock
+        <set>
+            <if test="currentTime != null">`current_time` = #{currentTime},</if>
+            <if test="currentDate != null">`current_date` = #{currentDate},</if>
+            <if test="season != null">season = #{season},</if>
+            <if test="weather != null">weather = #{weather},</if>
+            <if test="chapterDay != null">chapter_day = #{chapterDay},</if>
+            <if test="totalDays != null">total_days = #{totalDays},</if>
+            <if test="updateChapter != null">update_chapter = #{updateChapter},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE clock_id = #{clockId}
+    </update>
+
+    <delete id="deleteByNovelId">
+        DELETE FROM world_clock WHERE novel_id = #{novelId}
+    </delete>
+
+</mapper>

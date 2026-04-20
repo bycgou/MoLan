@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.NovelBaseMapper">
+
+    <resultMap id="NovelBaseResult" type="com.novel.system.entity.mysql.NovelBase">
+        <id column="novel_id" property="novelId"/>
+        <result column="novel_name" property="novelName"/>
+        <result column="user_id" property="userId"/>
+        <result column="genre" property="genre"/>
+        <result column="total_outline" property="totalOutline"/>
+        <result column="world_setting" property="worldSetting"/>
+        <result column="word_count" property="wordCount"/>
+        <result column="chapter_count" property="chapterCount"/>
+        <result column="status" property="status"/>
+        <result column="is_deleted" property="isDeleted"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="NovelBaseResult">
+        SELECT * FROM novel_base WHERE novel_id = #{novelId} AND is_deleted = 0
+    </select>
+
+    <select id="selectByUserId" resultMap="NovelBaseResult">
+        SELECT * FROM novel_base WHERE user_id = #{userId} AND is_deleted = 0 ORDER BY update_time DESC
+    </select>
+
+    <select id="selectByStatus" resultMap="NovelBaseResult">
+        SELECT * FROM novel_base WHERE status = #{status} AND is_deleted = 0
+    </select>
+
+    <select id="selectActiveByUserId" resultMap="NovelBaseResult">
+        SELECT * FROM novel_base WHERE user_id = #{userId} AND status IN (0, 1) AND is_deleted = 0
+    </select>
+
+    <select id="countByUserId" resultType="long">
+        SELECT COUNT(*) FROM novel_base WHERE user_id = #{userId} AND is_deleted = 0
+    </select>
+
+    <insert id="insert">
+        INSERT INTO novel_base (novel_id, novel_name, user_id, genre, total_outline, world_setting,
+            word_count, chapter_count, status, is_deleted, create_time, update_time)
+        VALUES (#{novelId}, #{novelName}, #{userId}, #{genre}, #{totalOutline}, #{worldSetting},
+            #{wordCount}, #{chapterCount}, #{status}, #{isDeleted}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE novel_base
+        <set>
+            <if test="novelName != null">novel_name = #{novelName},</if>
+            <if test="genre != null">genre = #{genre},</if>
+            <if test="totalOutline != null">total_outline = #{totalOutline},</if>
+            <if test="worldSetting != null">world_setting = #{worldSetting},</if>
+            <if test="wordCount != null">word_count = #{wordCount},</if>
+            <if test="chapterCount != null">chapter_count = #{chapterCount},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE novel_id = #{novelId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM novel_base WHERE novel_id = #{novelId}
+    </delete>
+
+    <update id="softDeleteById">
+        UPDATE novel_base SET is_deleted = 1, update_time = NOW() WHERE novel_id = #{novelId}
+    </update>
+
+    <update id="restoreById">
+        UPDATE novel_base SET is_deleted = 0, update_time = NOW() WHERE novel_id = #{novelId}
+    </update>
+
+</mapper>

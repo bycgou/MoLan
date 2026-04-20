@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.ClueBookMapper">
+
+    <resultMap id="ClueBookResult" type="com.novel.system.entity.mysql.ClueBook">
+        <id column="clue_id" property="clueId"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="clue_content" property="clueContent"/>
+        <result column="priority" property="priority"/>
+        <result column="bury_chapter" property="buryChapter"/>
+        <result column="recycle_chapter" property="recycleChapter"/>
+        <result column="status" property="status"/>
+        <result column="related_characters" property="relatedCharacters"/>
+        <result column="related_locations" property="relatedLocations"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE clue_id = #{clueId}
+    </select>
+
+    <select id="selectByNovelId" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} ORDER BY priority ASC
+    </select>
+
+    <select id="selectByNovelIdAndStatus" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} AND status = #{status} ORDER BY priority ASC
+    </select>
+
+    <select id="selectUnrecycledByNovelId" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} AND status = 0 ORDER BY priority ASC
+    </select>
+
+    <select id="selectHighPriorityUnrecycled" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} AND status = 0 AND priority = 1
+    </select>
+
+    <select id="selectByBuryChapter" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} AND bury_chapter = #{chapterNum}
+    </select>
+
+    <select id="selectRecycledByChapter" resultMap="ClueBookResult">
+        SELECT * FROM clue_book WHERE novel_id = #{novelId} AND recycle_chapter = #{chapterNum} AND status = 1
+    </select>
+
+    <insert id="insert">
+        INSERT INTO clue_book (clue_id, novel_id, clue_content, priority, bury_chapter, recycle_chapter,
+            status, related_characters, related_locations, create_time, update_time)
+        VALUES (#{clueId}, #{novelId}, #{clueContent}, #{priority}, #{buryChapter}, #{recycleChapter},
+            #{status}, #{relatedCharacters}, #{relatedLocations}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE clue_book
+        <set>
+            <if test="clueContent != null">clue_content = #{clueContent},</if>
+            <if test="priority != null">priority = #{priority},</if>
+            <if test="buryChapter != null">bury_chapter = #{buryChapter},</if>
+            <if test="recycleChapter != null">recycle_chapter = #{recycleChapter},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="relatedCharacters != null">related_characters = #{relatedCharacters},</if>
+            <if test="relatedLocations != null">related_locations = #{relatedLocations},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE clue_id = #{clueId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM clue_book WHERE clue_id = #{clueId}
+    </delete>
+
+</mapper>

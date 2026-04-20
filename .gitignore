@@ -1,0 +1,48 @@
+# ========================
+# 通用忽略规则
+# ========================
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# ========================
+# Java / Maven
+# ========================
+backend/target/
+backend/*.class
+backend/*.jar
+backend/*.war
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# ========================
+# Node / Vue 前端
+# ========================
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# ========================
+# 敏感配置 (不要提交密钥)
+# ========================
+**/application-dev.yml
+**/application-prod.yml
+**/.env
+**/application-local.yml
+
+# ========================
+# 数据库 / 备份
+# ========================
+*.sql.bak
+*.sql.gz

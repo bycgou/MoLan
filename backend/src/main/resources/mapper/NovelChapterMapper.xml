@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.NovelChapterMapper">
+
+    <resultMap id="NovelChapterResult" type="com.novel.system.entity.mysql.NovelChapter">
+        <id column="chapter_id" property="chapterId"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="arc_id" property="arcId"/>
+        <result column="chapter_num" property="chapterNum"/>
+        <result column="chapter_title" property="chapterTitle"/>
+        <result column="chapter_outline" property="chapterOutline"/>
+        <result column="implementation_idea" property="implementationIdea"/>
+        <result column="content" property="content"/>
+        <result column="word_count" property="wordCount"/>
+        <result column="rhythm_tag" property="rhythmTag"/>
+        <result column="rhythm_intensity" property="rhythmIntensity"/>
+        <result column="plot_fingerprint" property="plotFingerprint"/>
+        <result column="user_intent" property="userIntent"/>
+        <result column="generation_status" property="generationStatus"/>
+        <result column="is_deleted" property="isDeleted"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE chapter_id = #{chapterId}
+    </select>
+
+    <select id="selectByNovelId" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = false ORDER BY chapter_num ASC
+    </select>
+
+    <select id="selectByNovelIdDesc" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = false ORDER BY chapter_num DESC
+    </select>
+
+    <select id="selectDeletedByNovelId" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = true ORDER BY update_time DESC
+    </select>
+
+    <select id="selectByNovelIdAndChapterNum" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE novel_id = #{novelId} AND chapter_num = #{chapterNum} AND is_deleted = false
+    </select>
+
+    <select id="selectRecentChapters" resultMap="NovelChapterResult">
+        SELECT * FROM novel_chapter WHERE novel_id = #{novelId} AND chapter_num &gt;= #{startChapter} AND chapter_num &lt; #{endChapter} AND is_deleted = false ORDER BY chapter_num ASC
+    </select>
+
+    <select id="selectMaxChapterNum" resultType="java.lang.Integer">
+        SELECT MAX(chapter_num) FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = false
+    </select>
+
+    <select id="countByNovelId" resultType="long">
+        SELECT COUNT(*) FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = false
+    </select>
+
+    <select id="sumWordCountByNovelId" resultType="java.lang.Long">
+        SELECT SUM(word_count) FROM novel_chapter WHERE novel_id = #{novelId} AND is_deleted = false
+    </select>
+
+    <insert id="insert">
+        INSERT INTO novel_chapter (chapter_id, novel_id, arc_id, chapter_num, chapter_title,
+            chapter_outline, implementation_idea, content, word_count, rhythm_tag, rhythm_intensity,
+            plot_fingerprint, user_intent, generation_status, is_deleted, create_time, update_time)
+        VALUES (#{chapterId}, #{novelId}, #{arcId}, #{chapterNum}, #{chapterTitle},
+            #{chapterOutline}, #{implementationIdea}, #{content}, #{wordCount}, #{rhythmTag}, #{rhythmIntensity},
+            #{plotFingerprint}, #{userIntent}, #{generationStatus}, #{isDeleted}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateById">
+        UPDATE novel_chapter
+        <set>
+            <if test="arcId != null">arc_id = #{arcId},</if>
+            <if test="chapterTitle != null">chapter_title = #{chapterTitle},</if>
+            <if test="chapterOutline != null">chapter_outline = #{chapterOutline},</if>
+            <if test="implementationIdea != null">implementation_idea = #{implementationIdea},</if>
+            <if test="content != null">content = #{content},</if>
+            <if test="wordCount != null">word_count = #{wordCount},</if>
+            <if test="rhythmTag != null">rhythm_tag = #{rhythmTag},</if>
+            <if test="rhythmIntensity != null">rhythm_intensity = #{rhythmIntensity},</if>
+            <if test="plotFingerprint != null">plot_fingerprint = #{plotFingerprint},</if>
+            <if test="userIntent != null">user_intent = #{userIntent},</if>
+            <if test="generationStatus != null">generation_status = #{generationStatus},</if>
+            <if test="isDeleted != null">is_deleted = #{isDeleted},</if>
+            update_time = #{updateTime}
+        </set>
+        WHERE chapter_id = #{chapterId}
+    </update>
+
+    <update id="softDeleteById">
+        UPDATE novel_chapter SET is_deleted = true, update_time = NOW() WHERE chapter_id = #{chapterId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM novel_chapter WHERE chapter_id = #{chapterId}
+    </delete>
+
+</mapper>
