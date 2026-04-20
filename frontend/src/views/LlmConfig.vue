@@ -16,8 +16,9 @@
       style="margin-bottom: 20px"
     >
       <template #default>
-        <p>支持任意大模型API。您可以直接粘贴模型官网提供的完整API地址。</p>
-        <p>系统将优先使用您配置的活跃模型，未配置时使用默认设置。</p>
+        <p>支持所有 OpenAI 兼容 API（OpenAI / DeepSeek / 智谱 / 通义千问 / 月之暗面 / Ollama 等）。</p>
+        <p>API 地址填写到版本路径为止（如 <code>/v1</code>），系统自动追加 <code>/chat/completions</code>。</p>
+        <p>Ollama 本地模型地址示例：<code>http://localhost:11434/v1</code>，API Key 随意填写即可。</p>
       </template>
     </el-alert>
 
@@ -111,12 +112,12 @@
             v-model="form.baseUrl" 
             type="textarea"
             :rows="3"
-            placeholder="直接粘贴完整API地址，例如：https://api.deepseek.com/v1/chat/completions" 
+            placeholder="API基础地址，例如：https://api.deepseek.com/v1 或 http://localhost:11434/v1" 
           />
           <div class="form-tip">
-            <strong>直接粘贴模型官网提供的完整API地址</strong><br/>
-            例如：https://api.deepseek.com/v1/chat/completions<br/>
-            或者：https://open.bigmodel.cn/api/paas/v4/chat/completions
+            <strong>填写API基础地址（到版本路径为止，不要包含 /chat/completions）</strong><br/>
+            远程模型：https://api.deepseek.com/v1 或 https://api.openai.com/v1<br/>
+            本地Ollama：http://localhost:11434/v1（API Key可随意填写如 "ollama"）
           </div>
         </el-form-item>
         
@@ -186,13 +187,13 @@ import type { LlmConfigVO } from '@/types'
 
 // 快速配置模板
 const templates = [
-  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1/chat/completions', modelName: 'deepseek-chat' },
-  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1/chat/completions', modelName: 'gpt-4o' },
-  { name: '智谱GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', modelName: 'glm-4' },
-  { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', modelName: 'qwen-max' },
-  { name: '月之暗面', baseUrl: 'https://api.moonshot.cn/v1/chat/completions', modelName: 'moonshot-v1-128k' },
-  { name: 'Claude', baseUrl: 'https://api.anthropic.com/v1/messages', modelName: 'claude-3-opus-20240229', authType: 'anthropic' },
-  { name: '文心一言', baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions', modelName: 'ernie-4.0' },
+  { name: 'Ollama(本地)', baseUrl: 'http://localhost:11434/v1', modelName: 'qwen2.5:7b', apiKey: 'ollama' },
+  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', modelName: 'deepseek-chat' },
+  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', modelName: 'gpt-4o' },
+  { name: '智谱GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', modelName: 'glm-4' },
+  { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelName: 'qwen-max' },
+  { name: '月之暗面', baseUrl: 'https://api.moonshot.cn/v1', modelName: 'moonshot-v1-128k' },
+  { name: '文心一言', baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop', modelName: 'ernie-4.0' },
 ]
 
 const loading = ref(false)
@@ -303,6 +304,7 @@ const applyTemplate = (template: any) => {
   form.baseUrl = template.baseUrl
   form.modelName = template.modelName
   form.authType = template.authType || 'bearer'
+  form.apiKey = template.apiKey || ''
   
   dialogVisible.value = true
 }

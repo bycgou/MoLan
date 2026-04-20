@@ -120,7 +120,6 @@ public class LlmConfigServiceImpl implements LlmConfigService {
     
     private String buildApiUrl(LlmConfig config) {
         String baseUrl = config.getBaseUrl();
-        String endpoint = config.getApiEndpoint();
         
         if (baseUrl == null || baseUrl.isEmpty()) {
             throw new RuntimeException("API地址不能为空");
@@ -131,25 +130,14 @@ public class LlmConfigServiceImpl implements LlmConfigService {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
         
+        // 如果已经包含完整端点路径，直接返回
         if (baseUrl.endsWith("/chat/completions") || 
             baseUrl.endsWith("/messages") || 
             baseUrl.endsWith("/completions")) {
             return baseUrl;
         }
         
-        if (endpoint != null && !endpoint.isEmpty()) {
-            if (endpoint.startsWith("/")) {
-                endpoint = endpoint.substring(1);
-            }
-            return baseUrl + "/" + endpoint;
-        }
-        
-        boolean hasVersionPath = baseUrl.matches(".*\\/v\\d+.*");
-        
-        if (hasVersionPath) {
-            return baseUrl + "/chat/completions";
-        } else {
-            return baseUrl + "/v1/chat/completions";
-        }
+        // 否则追加 /chat/completions（OpenAI 兼容格式）
+        return baseUrl + "/chat/completions";
     }
 }

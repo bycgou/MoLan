@@ -216,75 +216,35 @@ public class LangChainConfig {
     }
     
     /**
-     * 构建完整的Base URL
-     * 
-     * 【URL处理规则】
+     * 构建Base URL — 直接使用前端传来的地址，不做任何拼接
+     *
+     * 【处理规则】
      * 1. 移除末尾的斜杠
-     * 2. 移除端点路径（如/chat/completions）
-     * 3. 检查是否已有版本路径（如/v1、/v2）
-     * 4. 如果没有版本路径，添加/v1
-     * 
-     * 【支持的URL格式】
-     * - https://api.openai.com/v1（已有版本路径，直接返回）
-     * - https://api.openai.com（没有版本路径，添加/v1）
-     * - https://dashscope.aliyuncs.com/compatible-mode/v1（已有版本路径，直接返回）
-     * 
+     * 2. 直接返回，不添加任何版本路径
+     *
+     * 【为什么不做自动拼接？】
+     * - Ollama: http://localhost:11434/v1
+     * - OpenAI: https://api.openai.com/v1
+     * - 兼容各种本地/远程模型，用户填什么就用什么
+     *
      * @param config LlmConfig配置对象
-     * @return 处理后的baseUrl
-     * @throws RuntimeException 如果baseUrl为空
+     * @return 处理后的baseUrl（原样返回，仅去除尾部斜杠）
      */
     private String buildBaseUrl(LlmConfig config) {
         String baseUrl = config.getBaseUrl();
-        
+
         if (baseUrl == null || baseUrl.trim().isEmpty()) {
             throw new RuntimeException("API地址不能为空");
         }
-        
+
         baseUrl = baseUrl.trim();
-        
-        // 移除末尾的斜杠
+
+        // 仅移除末尾的斜杠，其余不做任何处理
         while (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
-        
-        // 如果URL已经包含端点路径（如 /chat/completions），需要移除端点部分
-        // LangChain4j会自动追加 /v1/chat/completions
-        if (baseUrl.endsWith("/chat/completions")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length());
-        }
-        if (baseUrl.endsWith("/messages")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/messages".length());
-        }
-        if (baseUrl.endsWith("/completions")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/completions".length());
-        }
-        
-        // 移除末尾的斜杠（再次检查）
-        while (baseUrl.endsWith("/")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-        }
-        
-        // 检查是否已有版本路径（如 /v1, /v2, /v3 等）
-        // 使用更简单的检查方法：查找 /v 后跟数字
-        if (hasVersionPath(baseUrl)) {
-            log.debug("URL已包含版本路径，直接返回: {}", baseUrl);
-            return baseUrl;
-        }
-        
-        // 没有版本路径，添加 /v1
-        log.debug("URL不包含版本路径，添加/v1: {}", baseUrl);
-        return baseUrl + "/v1";
-    }
-    
-    /**
-     * 检查URL是否已包含版本路径
-     * 
-     * @param url URL字符串
-     * @return 如果包含版本路径返回true
-     */
-    private boolean hasVersionPath(String url) {
-        // 查找 /v 后跟一个或多个数字
-        // 例如：/v1, /v2, /v3 等
-        return url.matches(".*/v\\d+.*") || url.contains("/v1/") || url.contains("/v2/") || url.contains("/v3/");
+
+        log.debug("使用原始URL: {}", baseUrl);
+        return baseUrl;
     }
 }
