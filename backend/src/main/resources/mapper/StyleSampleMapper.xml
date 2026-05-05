@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.StyleSampleMapper">
+
+    <resultMap id="StyleSampleResult" type="com.novel.system.entity.mysql.StyleSample">
+        <id column="sample_id" property="sampleId"/>
+        <result column="card_id" property="cardId"/>
+        <result column="sample_type" property="sampleType"/>
+        <result column="content" property="content"/>
+        <result column="annotation" property="annotation"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <select id="selectByCardId" resultMap="StyleSampleResult">
+        SELECT * FROM style_sample
+        WHERE card_id = #{cardId}
+        ORDER BY sort_order ASC
+    </select>
+
+    <delete id="deleteByCardId">
+        DELETE FROM style_sample
+        WHERE card_id = #{cardId}
+    </delete>
+
+</mapper>

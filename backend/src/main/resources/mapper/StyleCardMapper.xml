@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.StyleCardMapper">
+
+    <resultMap id="StyleCardResult" type="com.novel.system.entity.mysql.StyleCard">
+        <id column="card_id" property="cardId"/>
+        <result column="name" property="name"/>
+        <result column="source_novel" property="sourceNovel"/>
+        <result column="author_name" property="authorName"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="rhythm_rules" property="rhythmRules"/>
+        <result column="dialogue_rules" property="dialogueRules"/>
+        <result column="description_rules" property="descriptionRules"/>
+        <result column="emotion_rules" property="emotionRules"/>
+        <result column="structure_rules" property="structureRules"/>
+        <result column="forbidden_rules" property="forbiddenRules"/>
+        <result column="preferred_rules" property="preferredRules"/>
+        <result column="style_description" property="styleDescription"/>
+        <result column="generation_template" property="generationTemplate"/>
+        <result column="samples_json" property="samplesJson"/>
+        <result column="stats_json" property="statsJson"/>
+        <result column="tags" property="tags"/>
+        <result column="is_public" property="isPublic"/>
+        <result column="usage_count" property="usageCount"/>
+        <result column="avg_rating" property="avgRating"/>
+        <result column="status" property="status"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectByCreatedBy" resultMap="StyleCardResult">
+        SELECT * FROM style_card
+        WHERE created_by = #{userId}
+        ORDER BY create_time DESC
+    </select>
+
+    <select id="selectPublicCards" resultMap="StyleCardResult">
+        SELECT * FROM style_card
+        WHERE is_public = true AND status = 1
+        ORDER BY usage_count DESC, avg_rating DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="searchByTag" resultMap="StyleCardResult">
+        SELECT * FROM style_card
+        WHERE tags LIKE CONCAT('%', #{tag}, '%') AND status = 1
+        ORDER BY usage_count DESC
+    </select>
+
+</mapper>

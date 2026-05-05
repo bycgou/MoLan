@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.ArcSummaryMapper">
+    
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.novel.system.entity.mysql.ArcSummary">
+        <id column="id" property="id" />
+        <result column="novel_id" property="novelId" />
+        <result column="chapter_from" property="chapterFrom" />
+        <result column="chapter_to" property="chapterTo" />
+        <result column="summary" property="summary" />
+        <result column="create_time" property="createTime" />
+    </resultMap>
+    
+    <!-- 基础列 -->
+    <sql id="Base_Column_List">
+        id, novel_id, chapter_from, chapter_to, summary, create_time
+    </sql>
+    
+    <!-- 根据小说ID和最大章节号查询 -->
+    <select id="selectByNovelIdAndRange" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM arc_summaries
+        WHERE novel_id = #{novelId}
+        AND chapter_to &lt;= #{maxChapter}
+        ORDER BY chapter_from ASC
+    </select>
+    
+    <!-- 根据小说ID查询所有弧段摘要 -->
+    <select id="selectByNovelId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM arc_summaries
+        WHERE novel_id = #{novelId}
+        ORDER BY chapter_from ASC
+    </select>
+    
+</mapper>

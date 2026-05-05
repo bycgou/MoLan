@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.NovelStyleBindingMapper">
+
+    <resultMap id="NovelStyleBindingResult" type="com.novel.system.entity.mysql.NovelStyleBinding">
+        <id column="id" property="id"/>
+        <result column="novel_id" property="novelId"/>
+        <result column="card_id" property="cardId"/>
+        <result column="bind_time" property="bindTime"/>
+    </resultMap>
+
+    <select id="selectByNovelId" resultMap="NovelStyleBindingResult">
+        SELECT * FROM novel_style_binding
+        WHERE novel_id = #{novelId}
+    </select>
+
+    <delete id="deleteByNovelId">
+        DELETE FROM novel_style_binding
+        WHERE novel_id = #{novelId}
+    </delete>
+
+    <select id="countByCardId" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM novel_style_binding
+        WHERE card_id = #{cardId}
+    </select>
+
+</mapper>

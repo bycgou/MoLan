@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//usr/lib/**)",
+      "Read(//usr/**)",
+      "Bash(find / -name \"javac\" -type f)"
+    ]
+  }
+}

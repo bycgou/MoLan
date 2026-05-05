@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.novel.system.mapper.ChapterSynopsisMapper">
+    
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.novel.system.entity.mysql.ChapterSynopsis">
+        <id column="id" property="id" />
+        <result column="chapter_id" property="chapterId" />
+        <result column="novel_id" property="novelId" />
+        <result column="chapter_num" property="chapterNum" />
+        <result column="synopsis" property="synopsis" />
+        <result column="scene_breakdown" property="sceneBreakdown" />
+        <result column="dialogue_points" property="dialoguePoints" />
+        <result column="create_time" property="createTime" />
+    </resultMap>
+    
+    <!-- 基础列 -->
+    <sql id="Base_Column_List">
+        id, chapter_id, novel_id, chapter_num, synopsis, scene_breakdown, dialogue_points, create_time
+    </sql>
+    
+    <!-- 根据章节ID查询章节简介 -->
+    <select id="selectByChapterId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM chapter_synopses
+        WHERE chapter_id = #{chapterId}
+    </select>
+    
+    <!-- 根据小说ID和章节号查询章节简介 -->
+    <select id="selectByNovelIdAndChapterNum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM chapter_synopses
+        WHERE novel_id = #{novelId} AND chapter_num = #{chapterNum}
+    </select>
+    
+    <!-- 根据小说ID查询所有章节简介 -->
+    <select id="selectByNovelId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM chapter_synopses
+        WHERE novel_id = #{novelId}
+        ORDER BY chapter_num ASC
+    </select>
+    
+</mapper>
