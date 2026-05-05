@@ -32,6 +32,10 @@
           <el-icon><Edit /></el-icon>
           <span>创建小说</span>
         </el-menu-item>
+        <el-menu-item index="/style-cards">
+          <el-icon><Brush /></el-icon>
+          <span>文风卡片库</span>
+        </el-menu-item>
         <el-menu-item index="/llm-config">
           <el-icon><Setting /></el-icon>
           <span>模型配置</span>
@@ -61,7 +65,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { HomeFilled, DataAnalysis, Document, Edit, Setting, User, SwitchButton } from '@element-plus/icons-vue'
+import { HomeFilled, DataAnalysis, Document, Edit, Setting, User, SwitchButton, Brush } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
 
 const route = useRoute()

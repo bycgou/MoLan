@@ -21,6 +21,8 @@ public class GenerationResultResponse {
     private String status;
     /** 错误信息（生成失败时） */
     private String errorMessage;
+    /** 校验失败摘要（校验未通过时） */
+    private String validationSummary;
     
     public GenerationResultResponse() {
     }
@@ -98,5 +100,13 @@ public class GenerationResultResponse {
     
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+    
+    public String getValidationSummary() {
+        return validationSummary;
+    }
+    
+    public void setValidationSummary(String validationSummary) {
+        this.validationSummary = validationSummary;
     }
 }

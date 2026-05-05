@@ -35,6 +35,16 @@
             #{startChapter}, #{endChapter}, #{rhythmTag}, #{rhythmIntensity}, NOW(), NOW())
     </insert>
 
+    <insert id="insertBatch" parameterType="java.util.List">
+        INSERT INTO novel_arc (arc_id, novel_id, arc_name, arc_outline, chapter_count,
+            start_chapter, end_chapter, rhythm_tag, rhythm_intensity, create_time, update_time)
+        VALUES
+        <foreach collection="list" item="arc" separator=",">
+            (#{arc.arcId}, #{arc.novelId}, #{arc.arcName}, #{arc.arcOutline}, #{arc.chapterCount},
+            #{arc.startChapter}, #{arc.endChapter}, #{arc.rhythmTag}, #{arc.rhythmIntensity}, NOW(), NOW())
+        </foreach>
+    </insert>
+
     <update id="updateById">
         UPDATE novel_arc
         <set>
@@ -52,6 +62,10 @@
 
     <delete id="deleteById">
         DELETE FROM novel_arc WHERE arc_id = #{arcId}
+    </delete>
+
+    <delete id="deleteByNovelId">
+        DELETE FROM novel_arc WHERE novel_id = #{novelId}
     </delete>
 
 </mapper>

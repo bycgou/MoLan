@@ -7,12 +7,14 @@ import com.novel.system.entity.mysql.ClueBook;
 import com.novel.system.entity.mysql.NovelArc;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.NovelChapter;
+import com.novel.system.entity.mysql.NovelStyleBinding;
 import com.novel.system.entity.mysql.WorldClock;
 import com.novel.system.entity.mongo.CharacterState;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.mapper.NovelArcMapper;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.mapper.NovelChapterMapper;
+import com.novel.system.mapper.NovelStyleBindingMapper;
 import com.novel.system.mapper.WorldClockMapper;
 import com.novel.system.service.chapter.ChapterGenerationRequest;
 import com.novel.system.service.chapter.ChapterGenerationResponse;
@@ -28,15 +30,13 @@ import com.novel.system.ai.chain.ValidationService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import com.novel.system.config.RabbitMQConfig;
-import com.novel.system.dto.vo.ChapterGenerateMessage;
-import com.novel.system.dto.vo.GenerationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.novel.system.dto.vo.GenerationContext;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -51,13 +51,15 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     private final NovelBaseMapper novelBaseMapper;
     private final NovelChapterMapper novelChapterMapper;
     private final NovelArcMapper novelArcMapper;
+    private final NovelStyleBindingMapper novelStyleBindingMapper;
     private final WorldClockMapper worldClockMapper;
     private final CharacterStateService characterStateService;
     private final ClueBookService clueBookService;
     private final RagService ragService;
     private final ValidationService validationService;
     private final StringRedisTemplate redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final ContextBuilderService contextBuilderService;
+    private final ChapterVersionService chapterVersionService;
     private final com.novel.system.repository.mongo.NovelGraphRepository novelGraphRepository;
     private final ObjectMapper objectMapper;
     private final com.novel.system.ai.chain.ChapterGenerationChain chapterGenerationChain;
@@ -122,9 +124,8 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             String worldSetting = novel.getWorldSetting() != null ? novel.getWorldSetting() : "世界观待配置";
             
             // 8. 组装上下文信息供 Chain 使用
-            String contextPrompt = buildOutlineContext(
-                novel.getTotalOutline(), arcInfo, worldClockInfo, worldSetting,
-                characterStates, lastFingerprint, request.getUserIntent(), unrecycledClues);
+            String contextPrompt = contextBuilderService.buildOutlineContext(
+                request.getNovelId(), request.getChapterNum(), novel, arcInfo);
             
             // 9. 调用 ChapterGenerationChain（LangChain4j AI Services + @Tool）
             String outlineJson = chapterGenerationChain.executeOutlineChain(
@@ -226,10 +227,41 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             );
             
             // 4. 调用 ChapterGenerationChain 写作链
-            String writingContext = buildWritingContext(context, selectedIdea, assembledContext);
-            String chapterContent = chapterGenerationChain.executeWritingChain(
-                request.getNovelId(), request.getChapterNum(),
-                context.getOutline(), writingContext, request.getLlmConfigId());
+            // 4.1 保存现有章节的版本快照（如果是重新生成）
+            NovelChapter existingChapter = novelChapterMapper.selectByNovelIdAndChapterNum(
+                request.getNovelId(), request.getChapterNum());
+            if (existingChapter != null) {
+                chapterVersionService.saveSnapshot(existingChapter);
+            }
+            
+            // 4.2 获取小说信息用于构建写作上下文
+            NovelBase novelInfo = novelBaseMapper.selectById(request.getNovelId());
+            NovelChapter tempChapter = new NovelChapter();
+            tempChapter.setChapterOutline(context.getOutline());
+            
+            String writingContext = contextBuilderService.buildWritingContext(
+                context.getNovelId(), request.getChapterNum(), tempChapter, novelInfo, selectedIdea);
+
+            // 查询文风卡片ID：优先使用请求中指定的，其次查询小说绑定的
+            String effectiveStyleCardId = request.getStyleCardId();
+            if (effectiveStyleCardId == null || effectiveStyleCardId.isEmpty()) {
+                NovelStyleBinding binding = novelStyleBindingMapper.selectByNovelId(request.getNovelId());
+                if (binding != null && binding.getCardId() != null) {
+                    effectiveStyleCardId = binding.getCardId();
+                    log.info("使用小说绑定的文风卡片: {}", effectiveStyleCardId);
+                }
+            }
+
+            String chapterContent;
+            if (effectiveStyleCardId != null && !effectiveStyleCardId.isEmpty()) {
+                chapterContent = chapterGenerationChain.executeWritingChain(
+                    request.getNovelId(), request.getChapterNum(),
+                    context.getOutline(), writingContext, effectiveStyleCardId, request.getLlmConfigId());
+            } else {
+                chapterContent = chapterGenerationChain.executeWritingChain(
+                    request.getNovelId(), request.getChapterNum(),
+                    context.getOutline(), writingContext, request.getLlmConfigId());
+            }
             
             // 5. 多重校验
             ValidationResult validationResult = validateContent(request, context, chapterContent);
@@ -241,9 +273,15 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
                 String retryContext = writingContext + "\n\n[校验反馈] 上次生成未通过校验，原因: " 
                     + (validationResult.getSummary() != null ? validationResult.getSummary() : "未知")
                     + "。请针对性修改这些问题。";
-                chapterContent = chapterGenerationChain.executeWritingChain(
-                    request.getNovelId(), request.getChapterNum(),
-                    context.getOutline(), retryContext, request.getLlmConfigId());
+                if (effectiveStyleCardId != null && !effectiveStyleCardId.isEmpty()) {
+                    chapterContent = chapterGenerationChain.executeWritingChain(
+                        request.getNovelId(), request.getChapterNum(),
+                        context.getOutline(), retryContext, effectiveStyleCardId, request.getLlmConfigId());
+                } else {
+                    chapterContent = chapterGenerationChain.executeWritingChain(
+                        request.getNovelId(), request.getChapterNum(),
+                        context.getOutline(), retryContext, request.getLlmConfigId());
+                }
                 validationResult = validateContent(request, context, chapterContent);
                 retryCount++;
             }
@@ -271,6 +309,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             response.setContent(chapter.getContent());
             response.setWordCount(chapter.getWordCount());
             response.setPlotFingerprint(summary.getContent());
+            response.setValidationSummary(validationResult.getSummary());
             
             log.info("章节生成完成，小说ID: {}, 章节号: {}, 字数: {}", 
                 request.getNovelId(), request.getChapterNum(), chapter.getWordCount());
@@ -296,24 +335,49 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     @Override
     public String generateChapterAsync(ChapterGenerationRequest request) {
         String taskId = UUID.randomUUID().toString();
-        log.info("发布章节生成任务到MQ，任务ID: {}", taskId);
+        log.info("启动异步章节生成任务，任务ID: {}", taskId);
         
-        ChapterGenerateMessage message = new ChapterGenerateMessage(
-            taskId,
-            request.getNovelId(),
-            request.getChapterNum(),
-            request.getLlmConfigId(),
-            request.getUserIntent(),
-            request.getSelectedIdeaIndex()
-        );
+        // 立即更新任务状态
+        updateTaskStatus(taskId, "GENERATING", "章节生成中...");
         
-        rabbitTemplate.convertAndSend(
-            RabbitMQConfig.NOVEL_EXCHANGE,
-            RabbitMQConfig.ROUTING_KEY_GENERATE,
-            message
-        );
+        // 异步执行，不阻塞主线程
+        CompletableFuture.runAsync(() -> {
+            try {
+                ChapterGenerationResponse response = generateChapter(request);
+                updateTaskStatus(taskId, response);
+                log.info("异步章节生成完成，任务ID: {}", taskId);
+            } catch (Exception e) {
+                log.error("异步章节生成失败，任务ID: " + taskId, e);
+                updateTaskStatus(taskId, "FAILED", "章节生成失败: " + e.getMessage());
+            }
+        });
         
         return taskId;
+    }
+    
+    /**
+     * 更新任务状态到Redis
+     */
+    private void updateTaskStatus(String taskId, String status, String message) {
+        try {
+            String statusKey = "novel:task:status:" + taskId;
+            ChapterGenerationResponse response = new ChapterGenerationResponse();
+            response.setSuccess("COMPLETED".equals(status));
+            response.setStatus(ChapterGenerationResponse.GenerationStatus.valueOf(status));
+            response.setErrorMessage(message);
+            redisTemplate.opsForValue().set(statusKey, objectMapper.writeValueAsString(response), 24, TimeUnit.HOURS);
+        } catch (Exception e) {
+            log.error("保存任务状态到Redis失败", e);
+        }
+    }
+    
+    private void updateTaskStatus(String taskId, ChapterGenerationResponse response) {
+        try {
+            String statusKey = "novel:task:status:" + taskId;
+            redisTemplate.opsForValue().set(statusKey, objectMapper.writeValueAsString(response), 24, TimeUnit.HOURS);
+        } catch (Exception e) {
+            log.error("保存任务状态到Redis失败", e);
+        }
     }
     
     @Override
@@ -621,37 +685,17 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
      * 
      * @see ChapterGenerationChain#executeOutlineChain 使用这个上下文的方法
      */
-    private String buildOutlineContext(String totalOutline, ArcInfo arcInfo, WorldClockInfo worldClockInfo,
-                                       String worldSetting, String characterStates, String lastFingerprint,
-                                       String userIntent, List<String> unrecycledClues) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("===小说总纲===\n").append(totalOutline != null ? truncate(totalOutline, 4000) : "总纲待配置").append("\n\n");
-        sb.append("===卷信息===\n");
-        sb.append("卷名: ").append(arcInfo.getArcName()).append("\n");
-        sb.append("卷纲: ").append(arcInfo.getArcOutline() != null ? truncate(arcInfo.getArcOutline(), 1500) : "待配置").append("\n");
-        sb.append("章节数: ").append(arcInfo.getStartChapter()).append("-").append(arcInfo.getEndChapter()).append("\n\n");
-        sb.append("===世界观===\n").append(worldSetting).append("\n\n");
-        sb.append("===世界状态===\n");
-        sb.append("时间: ").append(worldClockInfo.getTime()).append("\n");
-        sb.append("季节: ").append(worldClockInfo.getSeason()).append("\n");
-        sb.append("天气: ").append(worldClockInfo.getWeather()).append("\n\n");
-        sb.append("===人物状态===\n").append(characterStates).append("\n\n");
-        sb.append("===上一章剧情===\n").append(lastFingerprint).append("\n\n");
-        sb.append("===用户意图===\n").append(userIntent != null ? userIntent : "无特殊要求").append("\n\n");
-        sb.append("===未回收伏笔===\n").append(formatClues(unrecycledClues));
-        return sb.toString();
-    }
-    
-    private String buildWritingContext(GenerationContext context, String selectedIdea, String assembledContext) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("===选定的实现思路===\n").append(selectedIdea != null ? selectedIdea : "无").append("\n\n");
-        sb.append("===上下文信息===\n").append(assembledContext).append("\n\n");
-        sb.append("===小说总纲(摘要)===\n").append(context.getTotalOutline() != null ? truncate(context.getTotalOutline(), 2000) : "无").append("\n\n");
-        sb.append("===卷纲===\n").append(context.getArcOutline() != null ? context.getArcOutline() : "无").append("\n\n");
-        sb.append("===世界观===\n").append(context.getWorldSetting()).append("\n\n");
-        sb.append("===人物状态===\n").append(context.getCharacterStates()).append("\n\n");
-        sb.append("===上一章剧情===\n").append(context.getLastChapterFingerprint() != null ? context.getLastChapterFingerprint() : "无（首章）");
-        return sb.toString();
+    /**
+     * 截断字符串到指定长度
+     */
+    private String truncate(String str, int maxLength) {
+        if (str == null) {
+            return "";
+        }
+        if (str.length() <= maxLength) {
+            return str;
+        }
+        return str.substring(0, maxLength) + "...";
     }
     
     /**
@@ -755,11 +799,6 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         else if (s.startsWith("```")) s = s.substring(3);
         if (s.endsWith("```")) s = s.substring(0, s.length() - 3);
         return s.trim();
-    }
-    
-    private String truncate(String text, int maxLen) {
-        if (text == null) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
     }
     
     @Data

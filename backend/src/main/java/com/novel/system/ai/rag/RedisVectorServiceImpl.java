@@ -88,15 +88,15 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             String redisKey = METADATA_PREFIX + key;
             
             redisTemplate.opsForValue().set(redisKey, jsonDoc);
-            
+
             // 维护索引缓存
             String novelId = (String) metadata.get("novelId");
             if (novelId != null) {
                 String idxKey = INDEX_PREFIX + novelId;
                 redisTemplate.opsForSet().add(idxKey, key);
             }
-            
-            log.debug("向量保存成功: {}", key);
+
+            log.info("向量保存成功: key={}, 向量维度={}, novelId={}", key, vector.length, novelId);
             
         } catch (Exception e) {
             log.error("保存向量失败: {}", e.getMessage());
@@ -131,7 +131,9 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             
             // 按相似度排序并返回前topK个结果
             results.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
-            return results.stream().limit(topK).collect(Collectors.toList());
+            List<VectorSearchResult> topResults = results.stream().limit(topK).collect(Collectors.toList());
+            log.info("向量搜索完成: novelId={}, 候选数={}, 返回数={}", targetNovelId, results.size(), topResults.size());
+            return topResults;
             
         } catch (Exception e) {
             log.error("向量搜索失败: {}", e.getMessage());

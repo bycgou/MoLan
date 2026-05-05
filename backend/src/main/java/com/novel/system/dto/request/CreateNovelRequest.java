@@ -21,7 +21,16 @@ public class CreateNovelRequest {
     
     /** 小说题材（如：玄幻、言情、悬疑等） */
     private String genre;
-    
+
+    /** 小说类型标签（JSON数组，如["爽文","穿越"]） */
+    private String novelType;
+
+    /** 故事基调（JSON数组，如["轻松","温馨"]） */
+    private String tone;
+
+    /** 禁止雷点（JSON数组，如["NTR","虐主"]） */
+    private String tabooList;
+
     /** 小说总纲 */
     private String totalOutline;
     

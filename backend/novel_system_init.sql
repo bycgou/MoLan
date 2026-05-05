@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS novel_base (
     novel_name VARCHAR(100) NOT NULL COMMENT '小说名称',
     user_id VARCHAR(36) NOT NULL COMMENT '所属用户ID',
     genre VARCHAR(50) NOT NULL COMMENT '小说题材（如：玄幻、言情、悬疑等）',
+    novel_type JSON COMMENT '小说类型标签，如["爽文","穿越","重生"]',
+    tone JSON COMMENT '故事基调，如["轻松","温馨","搞笑"]',
+    taboo_list JSON COMMENT '禁止雷点，如["NTR","虐主","悲剧"]',
     total_outline TEXT COMMENT '小说总纲，包含主线剧情、卷划分、高潮节点、结局等',
     world_setting TEXT COMMENT '世界观设定，包含力量体系、地理环境、社会势力等',
     word_count INT DEFAULT 0 COMMENT '总字数',
@@ -265,8 +268,85 @@ SELECT
     NOW()
 FROM sys_user WHERE username = 'admin';
 
+-- 11. 文风卡片表 (style_card)
+CREATE TABLE IF NOT EXISTS style_card (
+  card_id         VARCHAR(32) PRIMARY KEY COMMENT '卡片ID',
+  name            VARCHAR(100) NOT NULL COMMENT '卡片名称（如：诡秘之主风格）',
+  source_novel    VARCHAR(200) COMMENT '来源小说名称',
+  author_name     VARCHAR(100) COMMENT '作者名称',
+  created_by      VARCHAR(32) NOT NULL COMMENT '创建者用户ID',
+  rhythm_rules    JSON COMMENT '节奏规则',
+  dialogue_rules  JSON COMMENT '对话规则',
+  description_rules JSON COMMENT '描写规则',
+  emotion_rules   JSON COMMENT '情绪表达规则',
+  structure_rules JSON COMMENT '段落结构规则',
+  forbidden_rules JSON COMMENT '禁用词汇和句式',
+  preferred_rules JSON COMMENT '偏好词汇和句式',
+  style_description TEXT COMMENT '文风的自然语言描述',
+  generation_template TEXT COMMENT '生成指令模板',
+  samples_json    JSON COMMENT '原文样本片段',
+  stats_json      JSON COMMENT '程序化提取的统计数据',
+  tags            VARCHAR(500) COMMENT '标签，逗号分隔',
+  is_public       BOOLEAN DEFAULT false COMMENT '是否公开',
+  usage_count     INT DEFAULT 0 COMMENT '使用次数',
+  avg_rating      DECIMAL(2,1) COMMENT '平均评分',
+  status          INT DEFAULT 0 COMMENT '状态：0=分析中, 1=可用, 2=分析失败',
+  create_time     DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_created_by(created_by),
+  INDEX idx_status(status),
+  INDEX idx_is_public(is_public)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文风卡片表';
+
+-- 12. 文风样本片段表 (style_sample)
+CREATE TABLE IF NOT EXISTS style_sample (
+  sample_id       VARCHAR(32) PRIMARY KEY COMMENT '样本ID',
+  card_id         VARCHAR(32) NOT NULL COMMENT '关联的文风卡片ID',
+  sample_type     VARCHAR(50) COMMENT '样本类型：悬疑/对话/战斗/心理/描写',
+  content         TEXT NOT NULL COMMENT '样本内容（原文片段）',
+  annotation      VARCHAR(500) COMMENT 'AI对这段的风格注释',
+  sort_order      INT DEFAULT 0 COMMENT '排序顺序',
+  create_time     DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  INDEX idx_card(card_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文风样本片段表';
+
+-- 13. 用户文风卡片库 (user_style_library)
+CREATE TABLE IF NOT EXISTS user_style_library (
+  id              VARCHAR(32) PRIMARY KEY COMMENT '记录ID',
+  user_id         VARCHAR(32) NOT NULL COMMENT '用户ID',
+  card_id         VARCHAR(32) NOT NULL COMMENT '文风卡片ID',
+  is_favorite     BOOLEAN DEFAULT false COMMENT '是否收藏',
+  add_time        DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '添加时间',
+  UNIQUE INDEX idx_user_card(user_id, card_id),
+  INDEX idx_user(user_id),
+  INDEX idx_card(card_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户文风卡片库';
+
+-- 14. 小说文风绑定表 (novel_style_binding)
+CREATE TABLE IF NOT EXISTS novel_style_binding (
+  id              VARCHAR(32) PRIMARY KEY COMMENT '记录ID',
+  novel_id        VARCHAR(32) NOT NULL COMMENT '小说ID',
+  card_id         VARCHAR(32) NOT NULL COMMENT '文风卡片ID',
+  bind_time       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '绑定时间',
+  UNIQUE INDEX idx_novel(novel_id),
+  INDEX idx_card(card_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='小说文风绑定表';
+
+-- 创建文风相关索引
+CREATE INDEX idx_style_card_created_by ON style_card(created_by);
+CREATE INDEX idx_style_sample_card_id ON style_sample(card_id);
+
 -- 提交事务
 COMMIT;
+
+-- =============================================
+-- 增量更新：novel_base 添加类型/基调/雷点字段
+-- 如果是已有数据库，请手动执行以下语句
+-- =============================================
+ALTER TABLE novel_base
+    ADD COLUMN novel_type JSON COMMENT '小说类型标签，如["爽文","穿越","重生"]' AFTER genre,
+    ADD COLUMN tone JSON COMMENT '故事基调，如["轻松","温馨","搞笑"]' AFTER novel_type,
+    ADD COLUMN taboo_list JSON COMMENT '禁止雷点，如["NTR","虐主","悲剧"]' AFTER tone;
 
 -- 显示创建结果
 SELECT '数据库初始化完成' AS result;

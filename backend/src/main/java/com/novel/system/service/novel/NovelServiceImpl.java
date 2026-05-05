@@ -59,6 +59,9 @@ public class NovelServiceImpl implements NovelService {
         novel.setNovelName(request.getNovelName());
         novel.setUserId(userId);
         novel.setGenre(request.getGenre() != null ? request.getGenre() : "玄幻");
+        novel.setNovelType(request.getNovelType());
+        novel.setTone(request.getTone());
+        novel.setTabooList(request.getTabooList());
         novel.setTotalOutline(request.getTotalOutline());
         novel.setWorldSetting(request.getWorldSetting());
         novel.setStatus(0);
@@ -142,6 +145,9 @@ public class NovelServiceImpl implements NovelService {
 
         if (request.getNovelName() != null) novel.setNovelName(request.getNovelName());
         if (request.getGenre() != null) novel.setGenre(request.getGenre());
+        if (request.getNovelType() != null) novel.setNovelType(request.getNovelType());
+        if (request.getTone() != null) novel.setTone(request.getTone());
+        if (request.getTabooList() != null) novel.setTabooList(request.getTabooList());
         if (request.getTotalOutline() != null) novel.setTotalOutline(request.getTotalOutline());
         if (request.getWorldSetting() != null) novel.setWorldSetting(request.getWorldSetting());
         if (request.getStatus() != null) novel.setStatus(request.getStatus());
@@ -292,6 +298,7 @@ public class NovelServiceImpl implements NovelService {
         genRequest.setSelectedIdeaIndex(request.getSelectedIdeaIndex());
         genRequest.setModelType(request.getModelType() != null ? request.getModelType() : "qwen");
         genRequest.setLlmConfigId(request.getLlmConfigId());
+        genRequest.setStyleCardId(request.getStyleCardId());
 
         ChapterGenerationResponse response = chapterGenerationService.generateChapter(genRequest);
 
@@ -321,6 +328,7 @@ public class NovelServiceImpl implements NovelService {
         genRequest.setSelectedIdeaIndex(request.getSelectedIdeaIndex());
         genRequest.setModelType(request.getModelType() != null ? request.getModelType() : "qwen");
         genRequest.setLlmConfigId(request.getLlmConfigId());
+        genRequest.setStyleCardId(request.getStyleCardId());
 
         return chapterGenerationService.generateChapterAsync(genRequest);
     }
@@ -339,6 +347,7 @@ public class NovelServiceImpl implements NovelService {
             result.setPlotFingerprint(response.getPlotFingerprint());
             result.setStatus(response.getStatus() != null ? response.getStatus().name() : "UNKNOWN");
             result.setErrorMessage(response.getErrorMessage());
+            result.setValidationSummary(response.getValidationSummary());
         } else {
             result.setStatus("UNKNOWN");
             result.setErrorMessage("任务不存在或已过期");
@@ -356,6 +365,9 @@ public class NovelServiceImpl implements NovelService {
         response.setNovelId(novel.getNovelId());
         response.setNovelName(novel.getNovelName());
         response.setGenre(novel.getGenre());
+        response.setNovelType(novel.getNovelType());
+        response.setTone(novel.getTone());
+        response.setTabooList(novel.getTabooList());
         response.setTotalOutline(novel.getTotalOutline());
         response.setWorldSetting(novel.getWorldSetting());
         response.setWordCount(novel.getWordCount());

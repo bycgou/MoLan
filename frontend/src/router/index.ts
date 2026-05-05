@@ -30,6 +30,11 @@ const router = createRouter({
       component: () => import('@/views/CreateNovel.vue'),
     },
     {
+      path: '/create-wizard',
+      name: 'CreateWizard',
+      component: () => import('@/views/CreateNovelWizard.vue'),
+    },
+    {
       path: '/novel/:novelId',
       name: 'NovelDetail',
       component: () => import('@/views/NovelDetail.vue'),
@@ -63,6 +68,11 @@ const router = createRouter({
       path: '/llm-config',
       name: 'LlmConfig',
       component: () => import('@/views/LlmConfig.vue'),
+    },
+    {
+      path: '/style-cards',
+      name: 'StyleCards',
+      component: () => import('@/views/style/StyleCardLibrary.vue'),
     },
     {
       path: '/:pathMatch(.*)*',

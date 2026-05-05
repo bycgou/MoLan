@@ -73,13 +73,24 @@ public class SummaryAgentServiceImpl implements SummaryAgentService {
         
         请严格按照以下JSON格式输出：
         {
-          "fingerprint": "300字以内的剧情指纹摘要",
+          "strand_type": "quest/fire/constellation",
+          "fingerprint": "一句话描述",
+          "narrative_summary": "200-300字的叙事摘要",
+          "character_updates": {
+            "人物名": {"职务": "当前职务", "处境": "当前处境", "关键变化": "本章变化"}
+          },
+          "key_event": "本章最关键的单一事件",
+          "used_tropes": ["意象1", "意象2"],
+          "new_foreshadowing": [{"desc": "新伏笔描述", "deadline": "建议回收章节"}],
+          "resolved_foreshadowing": ["已回收伏笔描述"],
+          "story_momentum": "当前故事势能: 上升/下降/转折/高潮前蓄力/高潮后余波",
           "keywords": ["关键词1", "关键词2", "关键词3"],
           "characters": ["出场人物1", "出场人物2"],
           "locations": ["出场地点1", "出场地点2"],
           "relations": [
             {"source": "人物A", "target": "人物B", "relation": "师徒/敌对/恋人等"}
-          ]
+          ],
+          "hook_level": "低/中/高"
         }
         """;
     }
@@ -91,8 +102,63 @@ public class SummaryAgentServiceImpl implements SummaryAgentService {
             String cleanResponse = cleanMarkdownJson(responseText);
             JsonNode rootNode = objectMapper.readTree(cleanResponse);
             
+            // 解析新增字段
+            result.setStrandType(rootNode.has("strand_type") ? rootNode.get("strand_type").asText() : "quest");
             result.setFingerprint(rootNode.has("fingerprint") ? rootNode.get("fingerprint").asText() : truncateToWords(responseText, 300));
+            result.setNarrativeSummary(rootNode.has("narrative_summary") ? rootNode.get("narrative_summary").asText() : null);
+            result.setKeyEvent(rootNode.has("key_event") ? rootNode.get("key_event").asText() : null);
+            result.setStoryMomentum(rootNode.has("story_momentum") ? rootNode.get("story_momentum").asText() : null);
+            result.setHookLevel(rootNode.has("hook_level") ? rootNode.get("hook_level").asText() : "中");
             
+            // 解析人物更新信息
+            if (rootNode.has("character_updates") && rootNode.get("character_updates").isObject()) {
+                Map<String, Map<String, String>> characterUpdates = new HashMap<>();
+                JsonNode updatesNode = rootNode.get("character_updates");
+                updatesNode.fields().forEachRemaining(entry -> {
+                    String charName = entry.getKey();
+                    JsonNode charNode = entry.getValue();
+                    Map<String, String> charInfo = new HashMap<>();
+                    if (charNode.has("职务")) charInfo.put("职务", charNode.get("职务").asText());
+                    if (charNode.has("处境")) charInfo.put("处境", charNode.get("处境").asText());
+                    if (charNode.has("关键变化")) charInfo.put("关键变化", charNode.get("关键变化").asText());
+                    characterUpdates.put(charName, charInfo);
+                });
+                result.setCharacterUpdates(characterUpdates);
+            }
+            
+            // 解析使用的意象/场景
+            if (rootNode.has("used_tropes") && rootNode.get("used_tropes").isArray()) {
+                List<String> usedTropes = new ArrayList<>();
+                for (JsonNode node : rootNode.get("used_tropes")) {
+                    usedTropes.add(node.asText());
+                }
+                result.setUsedTropes(usedTropes);
+            }
+            
+            // 解析新埋下的伏笔
+            if (rootNode.has("new_foreshadowing") && rootNode.get("new_foreshadowing").isArray()) {
+                List<Map<String, String>> newForeshadowing = new ArrayList<>();
+                for (JsonNode node : rootNode.get("new_foreshadowing")) {
+                    if (node.has("desc") && node.has("deadline")) {
+                        Map<String, String> clue = new HashMap<>();
+                        clue.put("desc", node.get("desc").asText());
+                        clue.put("deadline", node.get("deadline").asText());
+                        newForeshadowing.add(clue);
+                    }
+                }
+                result.setNewForeshadowing(newForeshadowing);
+            }
+            
+            // 解析已回收的伏笔
+            if (rootNode.has("resolved_foreshadowing") && rootNode.get("resolved_foreshadowing").isArray()) {
+                List<String> resolvedForeshadowing = new ArrayList<>();
+                for (JsonNode node : rootNode.get("resolved_foreshadowing")) {
+                    resolvedForeshadowing.add(node.asText());
+                }
+                result.setResolvedForeshadowing(resolvedForeshadowing);
+            }
+            
+            // 解析原有字段
             List<String> keywords = new ArrayList<>();
             if (rootNode.has("keywords") && rootNode.get("keywords").isArray()) {
                 for (JsonNode node : rootNode.get("keywords")) keywords.add(node.asText());

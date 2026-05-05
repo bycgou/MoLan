@@ -136,11 +136,12 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- RabbitMQ -->
+        <!-- RabbitMQ - 已移除，改用 CompletableFuture 异步执行
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
+        -->
     </dependencies>
 
     <build>

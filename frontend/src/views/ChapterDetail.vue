@@ -32,7 +32,7 @@
       <el-divider />
       
       <div class="chapter-content" v-if="chapter?.content">
-        {{ chapter.content }}
+        <p v-for="(para, idx) in chapterParagraphs" :key="idx">{{ para }}</p>
       </div>
       
       <el-empty v-else description="暂无内容" />
@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, RefreshLeft } from '@element-plus/icons-vue'
 import { chapterApi, novelApi } from '@/api'
@@ -79,6 +79,14 @@ const chapterNum = ref(parseInt(route.params.chapterNum as string))
 const loading = ref(false)
 const chapter = ref<any>(null)
 const totalChapters = ref(0)
+
+const chapterParagraphs = computed(() => {
+  if (!chapter.value?.content) return []
+  return chapter.value.content
+    .split(/\n{2,}/)  // 按双换行分段
+    .map((p: string) => p.trim())
+    .filter((p: string) => p.length > 0)
+})
 const versionDialogVisible = ref(false)
 const loadingVersions = ref(false)
 const versionList = ref<any[]>([])
@@ -232,7 +240,10 @@ onMounted(() => {
   line-height: 2;
   font-size: 16px;
   color: #303133;
-  white-space: pre-wrap;
+}
+
+.chapter-content p {
   text-indent: 2em;
+  margin: 0 0 1em;
 }
 </style>

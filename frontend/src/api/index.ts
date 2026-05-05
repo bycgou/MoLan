@@ -130,6 +130,13 @@ export const chapterApi = {
     api.get<ApiResponse<import('@/types').ChapterVersionVO[]>>(`/novel/${novelId}/chapter/${chapterNum}/versions`).then(res => res.data),
   rollbackChapter: (novelId: string, chapterNum: number, versionId: string) =>
     api.post<ApiResponse<null>>(`/novel/${novelId}/chapter/${chapterNum}/rollback/${versionId}`).then(res => res.data),
+  /**
+   * SSE 流式生成章节
+   * 返回 fetch 请求体，前端需自行发送 POST 请求并监听 ReadableStream
+   */
+  getStreamWriteUrl: () => {
+    return '/api/chapter/stream-write'
+  },
 }
 
 // ============================================================
@@ -167,7 +174,7 @@ export const clueApi = {
 // ============================================================
 export const llmConfigApi = {
   getConfigList: () =>
-    api.get<ApiResponse<LlmConfigVO[]>>('/llm-config/list').then(res => res.data),
+    api.get<ApiResponse<import('@/types').LlmConfigVO[]>>('/llm-config/list').then(res => res.data),
   getConfig: (configId: string) =>
     api.get<ApiResponse<import('@/types').LlmConfigVO>>(`/llm-config/${configId}`).then(res => res.data),
   createConfig: (data: import('@/types').CreateLlmConfigRequest) =>
@@ -218,4 +225,22 @@ export const genreTemplateApi = {
     api.get<ApiResponse<import('@/types').GenreTemplateVO[]>>('/genre-template/by-genre', { params: { genre } }).then(res => res.data),
   getTemplate: (templateId: string) =>
     api.get<ApiResponse<import('@/types').GenreTemplateVO>>(`/genre-template/${templateId}`).then(res => res.data),
+}
+
+// ============================================================
+// 向导流程 API
+// ============================================================
+export const wizardApi = {
+  generateVolumeOutlines: (data: import('@/types').WizardSettingsRequest) =>
+    api.post<ApiResponse<import('@/types').ArcOutlineDTO[]>>('/wizard/generate-volume-outlines', data).then(res => res.data),
+  saveNovel: (data: import('@/types').WizardSaveRequest) =>
+    api.post<ApiResponse<import('@/types').NovelVO>>('/wizard/save', data).then(res => res.data),
+  generateArcChapterOutlines: (novelId: string, arcIndex: number) =>
+    api.post<ApiResponse<import('@/types').ArcChapterOutlineDTO[]>>(`/wizard/novel/${novelId}/arc/${arcIndex}/chapter-outlines`).then(res => res.data),
+  confirmChapterOutlines: (novelId: string, arcIndex: number, data: import('@/types').ArcChapterOutlineDTO[]) =>
+    api.put<ApiResponse<null>>(`/wizard/novel/${novelId}/arc/${arcIndex}/chapter-outlines`, data).then(res => res.data),
+  batchGenerate: (novelId: string) =>
+    api.post<ApiResponse<string>>(`/wizard/novel/${novelId}/batch-generate`).then(res => res.data),
+  getBatchStatus: (novelId: string, taskId: string) =>
+    api.get<ApiResponse<import('@/types').BatchGenerationProgress>>(`/wizard/novel/${novelId}/batch-status/${taskId}`).then(res => res.data),
 }

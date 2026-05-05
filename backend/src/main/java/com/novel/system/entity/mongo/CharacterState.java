@@ -114,7 +114,9 @@ public class CharacterState {
     public void setRelationshipMap(Map<String, Integer> relationshipMap) {
         this.relationshipMap = relationshipMap;
     }
-    
+
+
+
     /**
      * 人物当前状态
      */

@@ -19,6 +19,12 @@ public class NovelResponse {
     private String novelName;
     /** 小说题材 */
     private String genre;
+    /** 小说类型标签 */
+    private String novelType;
+    /** 故事基调 */
+    private String tone;
+    /** 禁止雷点 */
+    private String tabooList;
     /** 小说总纲 */
     private String totalOutline;
     /** 世界观设定 */

@@ -34,10 +34,13 @@ public class EmbeddingService {
             log.warn("未找到Embedding模型，返回空向量");
             return new float[1536];
         }
-        
-        // 截断超长文本
-        String truncated = text.length() > 8000 ? text.substring(0, 8000) : text;
+
+        // 截断超长文本（DashScope text-embedding-v2 上限 2048 tokens ≈ 2000中文字符）
+        String truncated = text.length() > 2000 ? text.substring(0, 2000) : text;
+        long start = System.currentTimeMillis();
         Embedding embedding = model.embed(truncated).content();
+        long elapsed = System.currentTimeMillis() - start;
+        log.info("Embedding完成: 文本长度={}, 向量维度={}, 耗时={}ms", truncated.length(), embedding.vector().length, elapsed);
         return embedding.vector();
     }
     
@@ -57,7 +60,7 @@ public class EmbeddingService {
         
         List<TextSegment> segments = new ArrayList<>();
         for (String text : texts) {
-            String truncated = text.length() > 8000 ? text.substring(0, 8000) : text;
+            String truncated = text.length() > 2000 ? text.substring(0, 2000) : text;
             segments.add(TextSegment.from(truncated));
         }
         
@@ -91,12 +94,23 @@ public class EmbeddingService {
     
     /**
      * 获取EmbeddingModel
+     * 优先查找 usageType=embedding 的配置，找不到再回退到 all
      */
     private EmbeddingModel getEmbeddingModel() {
         try {
-            // 修复：使用 getAnyActiveConfig 获取任意活跃配置
-            LlmConfig config = llmConfigService.getAnyActiveConfig("all");
-            if (config == null) return null;
+            // 1. 优先查找专门配置的向量化模型
+            LlmConfig config = llmConfigService.getAnyActiveConfig("embedding");
+            if (config != null) {
+                log.info("使用专用向量化模型: {}", config.getModelName());
+                return langChainConfig.createEmbeddingModel(config);
+            }
+            // 2. 回退到 all 用途的配置
+            config = llmConfigService.getAnyActiveConfig("all");
+            if (config == null) {
+                log.warn("未找到任何活跃LLM配置，返回null");
+                return null;
+            }
+            log.warn("未找到usageType=embedding的配置，回退使用聊天模型配置: {}", config.getModelName());
             return langChainConfig.createEmbeddingModel(config);
         } catch (Exception e) {
             log.error("获取EmbeddingModel失败: {}", e.getMessage());

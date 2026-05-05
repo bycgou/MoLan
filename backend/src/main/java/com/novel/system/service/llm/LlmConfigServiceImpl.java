@@ -98,17 +98,41 @@ public class LlmConfigServiceImpl implements LlmConfigService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Authorization", "Bearer " + config.getApiKey());
             
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName());
-            requestBody.put("max_tokens", 50);
-            requestBody.put("messages", List.of(
-                Map.of("role", "user", "content", "请回复：连接成功")
-            ));
+            // 根据模型类型选择不同的测试端点
+            String url = buildApiUrl(config);
+            Map<String, Object> requestBody;
+            
+            if (isEmbeddingModel(config)) {
+                // Embedding模型
+                requestBody = new HashMap<>();
+                requestBody.put("model", config.getModelName());
+                
+                // 优先使用 Ollama 原生端点（兼容性更好）
+                String baseUrl = config.getBaseUrl().trim();
+                while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+                
+                if (baseUrl.contains("localhost:11434") || baseUrl.contains("127.0.0.1:11434")) {
+                    // Ollama 本地：使用原生 /api/embed 端点
+                    url = baseUrl.replace("/v1", "") + "/api/embed";
+                    requestBody.put("input", List.of("测试连接"));
+                } else {
+                    // 远程 API：使用 OpenAI 兼容端点
+                    url = buildEmbeddingUrl(config);
+                    requestBody.put("input", "测试连接");
+                }
+            } else {
+                // Chat模型：调用 /v1/chat/completions
+                requestBody = new HashMap<>();
+                requestBody.put("model", config.getModelName());
+                requestBody.put("max_tokens", 50);
+                requestBody.put("messages", List.of(
+                    Map.of("role", "user", "content", "请回复：连接成功")
+                ));
+            }
             
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
             
-            String url = buildApiUrl(config);
-            log.info("测试连接URL: {}", url);
+            log.info("测试连接URL: {}, 模型类型: {}", url, config.getModelType());
             
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
             return response.getStatusCode().is2xxSuccessful();
@@ -116,6 +140,54 @@ public class LlmConfigServiceImpl implements LlmConfigService {
             log.error("模型连接测试失败: {}", e.getMessage());
             return false;
         }
+    }
+    
+    /**
+     * 判断是否为Embedding模型
+     */
+    private boolean isEmbeddingModel(LlmConfig config) {
+        String type = config.getModelType();
+        String name = config.getModelName();
+        
+        // 检查modelType字段
+        if ("embedding".equalsIgnoreCase(type)) {
+            return true;
+        }
+        
+        // 检查模型名称关键字
+        if (name != null && (name.contains("embedding") || name.contains("embed"))) {
+            return true;
+        }
+        
+        // 检查embeddingModel字段是否被设置（且modelName相同）
+        if (config.getEmbeddingModel() != null && !config.getEmbeddingModel().isEmpty()
+            && config.getEmbeddingModel().equals(name)) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 构建Embedding API URL
+     */
+    private String buildEmbeddingUrl(LlmConfig config) {
+        String baseUrl = config.getBaseUrl().trim();
+        while (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        
+        // 如果已经包含完整端点路径，直接返回
+        if (baseUrl.endsWith("/embeddings") || baseUrl.endsWith("/v1/embeddings")) {
+            return baseUrl;
+        }
+        
+        // 追加 /embeddings（OpenAI 兼容格式）
+        // 如果以 /v1 结尾，直接加 /embeddings；否则加 /v1/embeddings
+        if (baseUrl.endsWith("/v1")) {
+            return baseUrl + "/embeddings";
+        }
+        return baseUrl + "/v1/embeddings";
     }
     
     private String buildApiUrl(LlmConfig config) {

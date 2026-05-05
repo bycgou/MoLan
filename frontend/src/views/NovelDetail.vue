@@ -50,6 +50,7 @@
       :outline-data="outlineData"
       @generate-outline="handleGenerateOutline"
       @generate-chapter="handleGenerateChapter"
+      @generate-chapter-stream="handleGenerateChapterStream"
       @close="stopPollingStatus"
     />
 
@@ -241,18 +242,44 @@
         <el-button type="primary" @click="saveTimeline" :loading="savingTimeline">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 流式生成对话框 -->
+    <el-dialog v-model="streamDialogVisible" :title="streamingStatus === 'generating' ? 'AI 正在流式生成...' : streamingStatus === 'completed' ? '生成完成' : '生成出错'" width="800px" :close-on-click-modal="streamingStatus !== 'generating'" :close-on-press-escape="streamingStatus !== 'generating'" :show-close="streamingStatus !== 'generating'">
+      <div style="white-space: pre-wrap; line-height: 2; font-size: 16px; max-height: 500px; overflow-y: auto; padding: 16px; background: #f5f7fa; border-radius: 8px;">
+        {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
+      </div>
+      <div v-if="streamValidationSummary" style="margin-top: 12px; padding: 8px 12px; background: #fdf6ec; border-radius: 4px; font-size: 13px; color: #e6a23c;">
+        校验提示：{{ streamValidationSummary }}
+      </div>
+      <template #footer>
+        <template v-if="streamingStatus === 'generating'">
+          <el-button type="danger" @click="cancelStreamGeneration">取消生成</el-button>
+        </template>
+        <template v-else-if="streamingStatus === 'completed'">
+          <el-button type="primary" @click="handleStreamSave">保存</el-button>
+          <el-button @click="handleStreamEdit">编辑</el-button>
+          <el-button type="danger" plain @click="handleStreamDelete">删除</el-button>
+          <el-button @click="handleStreamRegenerate">重新生成</el-button>
+          <el-button @click="streamDialogVisible = false">关闭</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="handleStreamRegenerate">重新生成</el-button>
+          <el-button @click="streamDialogVisible = false">关闭</el-button>
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, shallowRef } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import '@wangeditor/editor/dist/css/style.css'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import type { IDomEditor, IToolbarConfig, IEditorConfig } from '@wangeditor/editor'
-import { novelApi, chapterApi, llmConfigApi, rhythmApi, hookApi } from '@/api'
+import { novelApi, chapterApi, characterApi, llmConfigApi, rhythmApi, hookApi } from '@/api'
 import type { NovelVO, ChapterListItem, CharacterVO, LlmConfigVO, RhythmStatusVO } from '@/types'
 
 // Sub-components
@@ -350,6 +377,12 @@ function resetGeekForm() {
   geekStep.value = 0
   geekJsonVisible.value = false
 }
+// ---- 流式生成状态 ----
+const streamingContent = ref('')
+const streamDialogVisible = ref(false)
+const streamingStatus = ref<'generating' | 'completed' | 'error'>('generating')
+const streamChapterNum = ref(0)
+const streamValidationSummary = ref('')
 const timelineForm = reactive({ currentTime: '', season: '', weather: '', chapterDay: 0, totalDays: 0 })
 
 // ---- 富文本编辑器 ----
@@ -390,9 +423,13 @@ async function loadChapters() {
 }
 
 async function loadCharacters() {
-  const res = await characterApi.getCharacterList(novelId)
-  if (res.code === 200) {
-    characters.value = res.data
+  try {
+    const res = await characterApi.getCharacterList(novelId)
+    if (res.code === 200) {
+      characters.value = res.data
+    }
+  } catch (e) {
+    console.warn('加载人物列表失败:', e)
   }
 }
 
@@ -433,7 +470,6 @@ async function handleGenerateOutline(form: GenerateForm) {
       chapterNum: form.chapterNum,
       userIntent: form.userIntent,
       llmConfigId: form.configId,
-      modelType: form.strandType || 'qwen',
     })
     if (res.code === 200) {
       outlineData.value = res.data as typeof outlineData.value
@@ -473,6 +509,138 @@ async function handleGenerateChapter(form: GenerateForm & { ideaIndex: number })
   finally { generating.value = false }
 }
 
+async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: number }) {
+  generating.value = true
+  streamingContent.value = ''
+  streamingStatus.value = 'generating'
+  streamChapterNum.value = form.chapterNum
+  streamValidationSummary.value = ''
+  try {
+    // POST 流式生成请求
+    const token = localStorage.getItem('token') || ''
+    const body = JSON.stringify({
+      novelId,
+      chapterNum: form.chapterNum,
+      outline: outlineData.value?.outline || '',
+      llmConfigId: form.configId,
+    })
+
+    const response = await fetch('/api/chapter/stream-write', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body,
+    })
+
+    if (!response.ok) {
+      const errText = await response.text()
+      ElMessage.error(`流式生成失败: ${errText}`)
+      streamingStatus.value = 'error'
+      return
+    }
+
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+    if (!reader) { streamingStatus.value = 'error'; return }
+
+    generateDialogVisible.value = false
+    streamDialogVisible.value = true
+
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        // 处理缓冲区剩余内容
+        if (buffer.trim()) {
+          processSSELine(buffer.trim())
+        }
+        break
+      }
+      const chunk = decoder.decode(value, { stream: true })
+      buffer += chunk
+      // 按换行分割，保留最后一行（可能不完整）
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        processSSELine(line)
+      }
+    }
+
+    function processSSELine(line: string) {
+      // 检测命名事件：event: complete
+      if (line.startsWith('event:') && line.includes('complete')) {
+        return // 标记下一行是complete数据
+      }
+      if (line.startsWith('data:')) {
+        const data = line.slice(5).trim()
+        if (data) {
+          streamingContent.value += data
+        }
+      }
+    }
+
+    // 流式生成完成（后端会发 complete 事件后关闭 emitter）
+    streamingStatus.value = 'completed'
+    generating.value = false
+    loadChapters()
+    loadNovel()
+    loadCharacters()
+    loadRhythmStatus()
+  } catch (error: any) {
+    streamingStatus.value = 'error'
+    generating.value = false
+    ElMessage.error('流式生成失败: ' + (error.message || '未知错误'))
+  }
+}
+
+/** 取消流式生成 */
+async function cancelStreamGeneration() {
+  try {
+    await fetch(`/api/chapter/cancel?novelId=${novelId}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
+    })
+    ElMessage.info('已发送取消请求')
+    streamingStatus.value = 'error'
+  } catch { ElMessage.error('取消失败') }
+}
+
+/** 流式完成 -> 保存（内容已在后端自动保存，此处刷新即可） */
+async function handleStreamSave() {
+  ElMessage.success('章节已自动保存')
+  streamDialogVisible.value = false
+  loadChapters()
+  loadNovel()
+}
+
+/** 流式完成 -> 跳转编辑页 */
+function handleStreamEdit() {
+  streamDialogVisible.value = false
+  router.push(`/novel/${novelId}/chapter/${streamChapterNum.value}/edit`)
+}
+
+/** 流式完成 -> 删除章节 */
+async function handleStreamDelete() {
+  try {
+    await ElMessageBox.confirm('确定删除刚生成的章节？', '提示', { type: 'warning' })
+    const res = await chapterApi.deleteChapter(novelId, streamChapterNum.value)
+    if (res.code === 200) {
+      ElMessage.success('已移入回收站')
+      streamDialogVisible.value = false
+      loadChapters()
+      loadNovel()
+    }
+  } catch {}
+}
+
+/** 流式完成/出错 -> 重新生成 */
+function handleStreamRegenerate() {
+  streamDialogVisible.value = false
+  showGenerateDialog()
+}
+
 function startPollingStatus() {
   stopPollingStatus()
   pollCount.value = 0
@@ -486,12 +654,23 @@ function startPollingStatus() {
     }
     try {
       const res = await chapterApi.getGenerationStatus(novelId, generationTaskId.value)
-      if (res.code === 200 && (res.data as Record<string, unknown>)?.status === 'completed') {
-        stopPollingStatus()
-        generateDialogVisible.value = false
-        ElMessage.success('章节生成完成！')
-        loadChapters()
-        loadNovel()
+      if (res.code === 200) {
+        const data = res.data as Record<string, unknown>
+        if (data?.status === 'completed') {
+          stopPollingStatus()
+          generateDialogVisible.value = false
+          if (data.validationSummary && data.validationSummary !== '所有校验通过') {
+            ElMessage.warning(`章节生成完成（有校验提示）: ${data.validationSummary}`)
+          } else {
+            ElMessage.success('章节生成完成！')
+          }
+          loadChapters()
+          loadNovel()
+        } else if (data?.status === 'failed' || data?.status === 'error') {
+          stopPollingStatus()
+          const errorMsg = (data.errorMessage as string) || '章节生成失败'
+          ElMessage.error(`生成失败: ${errorMsg}`)
+        }
       }
     } catch { /* ignore */ }
   }, 5000)
@@ -747,5 +926,16 @@ onBeforeUnmount(() => {
   color: #909399;
   margin-top: 8px;
   line-height: 1.5;
+}
+
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+  color: #409eff;
+  font-weight: bold;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 </style>

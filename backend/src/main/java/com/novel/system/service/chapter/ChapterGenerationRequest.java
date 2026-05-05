@@ -12,7 +12,8 @@ public class ChapterGenerationRequest {
     private Integer selectedIdeaIndex; // 用户选择的实现思路索引
     private String modelType; // 模型类型（兼容旧接口）
     private String llmConfigId; // 模型配置ID（优先使用）
-    
+    private String styleCardId; // 文风卡片ID（可选，用于注入文风风格）
+
     public ChapterGenerationRequest() {
     }
     
@@ -78,5 +79,13 @@ public class ChapterGenerationRequest {
     
     public void setLlmConfigId(String llmConfigId) {
         this.llmConfigId = llmConfigId;
+    }
+
+    public String getStyleCardId() {
+        return styleCardId;
+    }
+
+    public void setStyleCardId(String styleCardId) {
+        this.styleCardId = styleCardId;
     }
 }

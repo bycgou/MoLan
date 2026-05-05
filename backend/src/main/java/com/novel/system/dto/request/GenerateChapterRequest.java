@@ -25,6 +25,9 @@ public class GenerateChapterRequest {
     
     /** 模型配置ID（优先使用，对应LlmConfig的configId） */
     private String llmConfigId;
+
+    /** 文风卡片ID（可选） */
+    private String styleCardId;
     
     /** 前端发送 configId → 映射到 llmConfigId */
     @JsonAlias({"configId"})
@@ -59,4 +62,7 @@ public class GenerateChapterRequest {
     
     public String getLlmConfigId() { return llmConfigId; }
     public void setLlmConfigId(String llmConfigId) { this.llmConfigId = llmConfigId; }
+
+    public String getStyleCardId() { return styleCardId; }
+    public void setStyleCardId(String styleCardId) { this.styleCardId = styleCardId; }
 }

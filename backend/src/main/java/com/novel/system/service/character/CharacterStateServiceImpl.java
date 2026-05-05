@@ -126,4 +126,47 @@ public class CharacterStateServiceImpl implements CharacterStateService {
             .filter(node -> currentChapter >= node.getTriggerChapter())
             .anyMatch(node -> node.getNewTraits() != null && node.getNewTraits().contains(trait));
     }
+    
+    /**
+     * 格式化人物状态为 Prompt 格式
+     * @param novelId 小说ID
+     * @return 格式化的人物状态字符串
+     */
+    @Override
+    public String formatForPrompt(String novelId) {
+        List<CharacterState> characters = getCharactersByNovelId(novelId);
+        if (characters == null || characters.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (CharacterState character : characters) {
+            // 使用 characterName 字段
+            String charName = character.getCharacterName() != null ? character.getCharacterName() : "未知";
+            sb.append(charName).append("：");
+
+            // 处境/位置
+            if (character.getCurrentStatus() != null && character.getCurrentStatus().getLocation() != null) {
+                sb.append("处境：").append(character.getCurrentStatus().getLocation()).append("，");
+            }
+
+            // 情绪
+            if (character.getCurrentStatus() != null && character.getCurrentStatus().getEmotion() != null) {
+                sb.append("情绪：").append(character.getCurrentStatus().getEmotion()).append("，");
+            }
+
+            // 核心特质
+            if (character.getCoreTraits() != null && !character.getCoreTraits().isEmpty()) {
+                sb.append("特质：").append(String.join("、", character.getCoreTraits())).append("，");
+            }
+
+            // 去掉最后的逗号
+            if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '，') {
+                sb.setLength(sb.length() - 1);
+            }
+            sb.append("\n");
+        }
+
+        return sb.toString();
+    }
 }

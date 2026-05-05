@@ -2,10 +2,21 @@ server:
   port: 8080
   servlet:
     context-path: /api
+  tomcat:
+    max-http-form-post-size: 100MB
+    max-swallow-size: 100MB
 
 spring:
   application:
     name: ai-novel-system
+
+  # 文件上传配置
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 2MB
 
   # MySQL配置
   datasource:

@@ -184,7 +184,42 @@ public class ValidationServiceImpl implements ValidationService {
                               clueResult.isPassed() && settingResult.isPassed() && rhythmResult.isPassed();
             
             result.setPassed(allPassed);
-            result.setSummary(allPassed ? "所有校验通过" : "存在校验失败的项");
+            if (allPassed) {
+                result.setSummary("所有校验通过");
+            } else {
+                // 构建详细的失败原因摘要
+                StringBuilder detailSummary = new StringBuilder();
+                detailSummary.append("校验未通过，具体问题：");
+                
+                if (!oocResult.isPassed()) {
+                    detailSummary.append(String.format("\n[OOC检测] 总分:%d (阈值:%d)",
+                        oocResult.getTotalScore(), MIN_SCORE_THRESHOLD));
+                }
+                if (!logicResult.isPassed()) {
+                    detailSummary.append(String.format("\n[逻辑校验] %s, 因果链:%s, 一致性:%s",
+                        logicResult.getConflictDescription(),
+                        logicResult.getCausalChainStatus(),
+                        logicResult.getConsistencyStatus()));
+                }
+                if (!clueResult.isPassed()) {
+                    detailSummary.append(String.format("\n[伏笔校验] 埋设:%d个, 回收:%d个, 遗漏:%s, 回收不合理:%s",
+                        clueResult.getBuriedCount(), clueResult.getRecycledCount(),
+                        clueResult.getMissingClues(), clueResult.getUnnaturalRecycle()));
+                }
+                if (!settingResult.isPassed()) {
+                    detailSummary.append(String.format("\n[设定校验] 世界观规则:%s, 世界时钟:%s, 冲突:%s",
+                        settingResult.getWorldRuleStatus(),
+                        settingResult.getWorldClockStatus(),
+                        settingResult.getConflicts()));
+                }
+                if (!rhythmResult.isPassed()) {
+                    detailSummary.append(String.format("\n[节奏校验] 预期:%s, 实际:%s",
+                        rhythmResult.getExpectedRhythm(),
+                        rhythmResult.getActualRhythm()));
+                }
+                
+                result.setSummary(detailSummary.toString());
+            }
             result.setOocResult(oocResult);
             result.setLogicResult(logicResult);
             result.setClueResult(clueResult);
@@ -192,6 +227,9 @@ public class ValidationServiceImpl implements ValidationService {
             result.setRhythmResult(rhythmResult);
             
             log.info("综合校验完成，结果: {}", allPassed ? "通过" : "失败");
+            if (!allPassed) {
+                log.info("校验失败详情: {}", result.getSummary());
+            }
             
         } catch (Exception e) {
             log.error("综合校验失败: {}", e.getMessage());
@@ -324,24 +362,35 @@ public class ValidationServiceImpl implements ValidationService {
     
     private LogicResult parseLogicResponse(String response) {
         LogicResult result = new LogicResult();
-        
+
         try {
-            boolean causalValid = !response.contains("因果链") || 
-                                 (response.contains("通顺") || response.contains("合理"));
-            boolean consistencyValid = !response.contains("矛盾") && !response.contains("冲突");
-            
+            // 因果链判断
+            boolean causalValid = !response.contains("因果链不通") &&
+                                 !(response.contains("因果") && response.contains("问题")) ||
+                                 response.contains("通顺") || response.contains("合理");
+
+            // 一致性判断：有"矛盾/冲突"但被否定（无/没有/未发现）则通过
+            boolean hasConflictWord = response.contains("矛盾") || response.contains("冲突");
+            boolean isNegated = response.contains("无矛盾") || response.contains("无冲突") ||
+                               response.contains("没有矛盾") || response.contains("没有冲突") ||
+                               response.contains("未发现矛盾") || response.contains("未发现冲突") ||
+                               response.contains("不存在矛盾") || response.contains("不存在冲突") ||
+                               response.contains("未见矛盾") || response.contains("未见冲突") ||
+                               response.contains("一致性良好") || response.contains("逻辑通顺");
+            boolean consistencyValid = !hasConflictWord || isNegated;
+
             result.setPassed(causalValid && consistencyValid);
             result.setCausalChainStatus(causalValid ? "通顺" : "存在问题");
             result.setConsistencyStatus(consistencyValid ? "一致" : "存在矛盾");
             result.setConflictDescription(extractConflictDescription(response));
-            
+
         } catch (Exception e) {
             result.setPassed(true);
             result.setConflictDescription("无冲突");
             result.setCausalChainStatus("通顺");
             result.setConsistencyStatus("一致");
         }
-        
+
         return result;
     }
     
@@ -371,23 +420,33 @@ public class ValidationServiceImpl implements ValidationService {
     
     private SettingResult parseSettingResponse(String response) {
         SettingResult result = new SettingResult();
-        
+
         try {
-            boolean worldRuleValid = !response.contains("违反") && !response.contains("冲突");
-            boolean worldClockValid = !response.contains("时间") || !response.contains("矛盾");
-            
+            // 世界观规则：有"违反/冲突"但被否定则通过
+            boolean hasViolationWord = response.contains("违反") || response.contains("冲突");
+            boolean isViolationNegated = response.contains("未违反") || response.contains("没有违反") ||
+                                        response.contains("无违反") || response.contains("未发现违反") ||
+                                        response.contains("不存在冲突") || response.contains("无冲突") ||
+                                        response.contains("没有冲突") || response.contains("未发现冲突") ||
+                                        response.contains("未见冲突") || response.contains("设定一致") ||
+                                        response.contains("符合设定");
+            boolean worldRuleValid = !hasViolationWord || isViolationNegated;
+
+            // 世界时钟
+            boolean worldClockValid = !response.contains("时间矛盾") && !response.contains("时间线错误");
+
             result.setPassed(worldRuleValid && worldClockValid);
             result.setWorldRuleStatus(worldRuleValid ? "符合" : "不符合");
             result.setWorldClockStatus(worldClockValid ? "一致" : "不一致");
             result.setConflicts(extractConflicts(response));
-            
+
         } catch (Exception e) {
             result.setPassed(true);
             result.setWorldRuleStatus("符合");
             result.setWorldClockStatus("一致");
             result.setConflicts("无");
         }
-        
+
         return result;
     }
     
@@ -415,7 +474,12 @@ public class ValidationServiceImpl implements ValidationService {
         Pattern pattern = Pattern.compile(key + ".*?(\\d+)分?");
         Matcher matcher = pattern.matcher(response);
         if (matcher.find()) {
-            return Math.min(100, Math.max(0, Integer.parseInt(matcher.group(1))));
+            int score = Integer.parseInt(matcher.group(1));
+            // 如果分数 <= 10，LLM 可能使用 1-10 制，归一化到 1-100
+            if (score <= 10) {
+                score = score * 10;
+            }
+            return Math.min(100, Math.max(0, score));
         }
         return 80;
     }

@@ -52,4 +52,11 @@ public interface CharacterStateService {
      * 获取出场人物（根据地点）
      */
     List<CharacterState> getCharactersByLocation(String novelId, String location);
+    
+    /**
+     * 格式化人物状态为 Prompt 格式
+     * @param novelId 小说ID
+     * @return 格式化的人物状态字符串
+     */
+    String formatForPrompt(String novelId);
 }

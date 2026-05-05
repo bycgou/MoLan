@@ -7,6 +7,9 @@
         <result column="novel_name" property="novelName"/>
         <result column="user_id" property="userId"/>
         <result column="genre" property="genre"/>
+        <result column="novel_type" property="novelType"/>
+        <result column="tone" property="tone"/>
+        <result column="taboo_list" property="tabooList"/>
         <result column="total_outline" property="totalOutline"/>
         <result column="world_setting" property="worldSetting"/>
         <result column="word_count" property="wordCount"/>
@@ -38,9 +41,14 @@
     </select>
 
     <insert id="insert">
-        INSERT INTO novel_base (novel_id, novel_name, user_id, genre, total_outline, world_setting,
+        INSERT INTO novel_base (novel_id, novel_name, user_id, genre, novel_type, tone, taboo_list,
+            total_outline, world_setting,
             word_count, chapter_count, status, is_deleted, create_time, update_time)
-        VALUES (#{novelId}, #{novelName}, #{userId}, #{genre}, #{totalOutline}, #{worldSetting},
+        VALUES (#{novelId}, #{novelName}, #{userId}, #{genre},
+            #{novelType, jdbcType=VARCHAR},
+            #{tone, jdbcType=VARCHAR},
+            #{tabooList, jdbcType=VARCHAR},
+            #{totalOutline}, #{worldSetting},
             #{wordCount}, #{chapterCount}, #{status}, #{isDeleted}, #{createTime}, #{updateTime})
     </insert>
 
@@ -49,6 +57,9 @@
         <set>
             <if test="novelName != null">novel_name = #{novelName},</if>
             <if test="genre != null">genre = #{genre},</if>
+            <if test="novelType != null">novel_type = #{novelType, jdbcType=VARCHAR},</if>
+            <if test="tone != null">tone = #{tone, jdbcType=VARCHAR},</if>
+            <if test="tabooList != null">taboo_list = #{tabooList, jdbcType=VARCHAR},</if>
             <if test="totalOutline != null">total_outline = #{totalOutline},</if>
             <if test="worldSetting != null">world_setting = #{worldSetting},</if>
             <if test="wordCount != null">word_count = #{wordCount},</if>

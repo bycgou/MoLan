@@ -1,7 +1,9 @@
 package com.novel.system.config;
 
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import com.novel.system.entity.mysql.LlmConfig;
@@ -40,7 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * // 从数据库获取配置
  * LlmConfig config = llmConfigService.getConfigById(configId);
  * 
- * // 创建ChatLanguageModel
+ * // 创建模型
  * ChatLanguageModel model = langChainConfig.createChatModel(config);
  * 
  * // 使用模型
@@ -49,21 +51,40 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * @author AI Assistant
  * @since 1.0.0
- * @see LlmConfig 模型配置实体
- * @see ChatLanguageModel LangChain4j的聊天模型接口
+ * @see LlmConfig 数据库配置实体
+ * @see OpenAiChatModel LangChain4j的OpenAI实现
  */
 @Slf4j
 @Component
 public class LangChainConfig {
     
     /**
-     * 模型实例缓存
-     * key: configId, value: ChatLanguageModel实例
-     * 
-     * 【缓存策略】
-     * - 使用ConcurrentHashMap保证线程安全
-     * - 使用computeIfAbsent实现惰性加载
-     * - 配置更新时清除缓存
+     * 任务类型枚举
+     * 不同的任务类型使用不同的温度参数
+     */
+    public enum TaskType {
+        /** 正文写作：使用用户配置的温度值 */
+        CREATIVE(null),
+        /** JSON提取：低随机性，确保输出结构化 */
+        STRUCTURED(0.3f),
+        /** 章节简介：适中温度 */
+        SYNOPSIS(0.5f);
+        
+        private final Float temperature;
+        
+        TaskType(Float temperature) {
+            this.temperature = temperature;
+        }
+        
+        public Float getTemperature() {
+            return temperature;
+        }
+    }
+    
+    /**
+     * 模型缓存
+     * key: 配置ID
+     * value: ChatLanguageModel实例
      */
     private final Map<String, ChatLanguageModel> modelCache = new ConcurrentHashMap<>();
     
@@ -100,6 +121,30 @@ public class LangChainConfig {
     }
     
     /**
+     * 创建带任务类型的聊天模型
+     * @param config LLM配置
+     * @param taskType 任务类型
+     * @return ChatLanguageModel 实例
+     */
+    public ChatLanguageModel createChatModel(LlmConfig config, TaskType taskType) {
+        // 如果任务类型指定了温度，使用任务类型的温度
+        Double temperature = taskType.getTemperature() != null 
+            ? taskType.getTemperature().doubleValue() 
+            : config.getTemperature();
+        
+        // 创建临时配置
+        LlmConfig tempConfig = new LlmConfig();
+        tempConfig.setConfigId(config.getConfigId() + "_" + taskType.name());
+        tempConfig.setBaseUrl(config.getBaseUrl());
+        tempConfig.setApiKey(config.getApiKey());
+        tempConfig.setModelName(config.getModelName());
+        tempConfig.setTemperature(temperature);
+        tempConfig.setMaxTokens(config.getMaxTokens());
+        
+        return modelCache.computeIfAbsent(tempConfig.getConfigId(), id -> buildChatModel(tempConfig));
+    }
+    
+    /**
      * 创建EmbeddingModel
      * 
      * 【EmbeddingModel的作用】
@@ -126,7 +171,43 @@ public class LangChainConfig {
     public void evictCache(String configId) {
         modelCache.remove(configId);
         embeddingModelCache.remove(configId);
-        log.info("已清除模型缓存: {}", configId);
+        log.info("已清除模型缓存: configId={}", configId);
+    }
+    
+    /**
+     * 创建流式聊天模型
+     * @param config LLM配置
+     * @return StreamingChatLanguageModel 实例
+     */
+    public StreamingChatLanguageModel createStreamingChatModel(LlmConfig config) {
+        String baseUrl = buildBaseUrl(config);
+        String apiKey = config.getApiKey();
+        String modelName = config.getModelName();
+        
+        log.info("创建StreamingChatLanguageModel: model={}, baseUrl={}", modelName, baseUrl);
+        
+        // 根据baseUrl判断超时时间
+        Duration timeout;
+        if (baseUrl.contains("dashscope") || baseUrl.contains("aliyuncs.com")) {
+            timeout = Duration.ofSeconds(300);
+        } else {
+            timeout = Duration.ofSeconds(120);
+        }
+        
+        OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = 
+            OpenAiStreamingChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(apiKey != null ? apiKey : "***")
+                .modelName(modelName)
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .timeout(timeout);
+        
+        // 设置maxTokens（如果配置了的话）
+        if (config.getMaxTokens() != null && config.getMaxTokens() > 0) {
+            builder.maxTokens(config.getMaxTokens());
+        }
+        
+        return builder.build();
     }
     
     /**
@@ -190,21 +271,21 @@ public class LangChainConfig {
     private EmbeddingModel buildEmbeddingModel(LlmConfig config) {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
-        
-        // 根据baseUrl判断使用哪个Embedding模型
+
+        // 优先使用用户配置的 modelName，回退到旧逻辑
         String embeddingModelName;
-        if (config.getEmbeddingModel() != null && !config.getEmbeddingModel().isEmpty()) {
-            // 用户指定了Embedding模型
+        if (config.getModelName() != null && !config.getModelName().isEmpty()) {
+            // 用户在配置中指定了模型名称（推荐方式）
+            embeddingModelName = config.getModelName();
+        } else if (config.getEmbeddingModel() != null && !config.getEmbeddingModel().isEmpty()) {
+            // 兼容旧的 embeddingModel 字段
             embeddingModelName = config.getEmbeddingModel();
         } else if (baseUrl.contains("dashscope") || baseUrl.contains("aliyuncs.com")) {
-            // 阿里云DashScope使用text-embedding-v2
             embeddingModelName = "text-embedding-v2";
-            log.info("检测到阿里云DashScope API，使用Embedding模型: {}", embeddingModelName);
         } else {
-            // 默认使用OpenAI的text-embedding-ada-002
             embeddingModelName = "text-embedding-ada-002";
         }
-        
+
         log.info("创建EmbeddingModel: model={}, baseUrl={}", embeddingModelName, baseUrl);
         
         return OpenAiEmbeddingModel.builder()

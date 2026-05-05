@@ -17,6 +17,7 @@ public class ChapterGenerationResponse {
     private Integer wordCount;
     private String plotFingerprint;
     private String errorMessage;
+    private String validationSummary;
     private GenerationStatus status;
     
     public ChapterGenerationResponse() {
@@ -114,6 +115,14 @@ public class ChapterGenerationResponse {
     
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+    
+    public String getValidationSummary() {
+        return validationSummary;
+    }
+    
+    public void setValidationSummary(String validationSummary) {
+        this.validationSummary = validationSummary;
     }
     
     public GenerationStatus getStatus() {

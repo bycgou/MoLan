@@ -28,6 +28,10 @@
       <el-form-item label="本章意图">
         <el-input v-model="form.userIntent" type="textarea" :rows="3" placeholder="可选：描述你对本章的特殊要求" />
       </el-form-item>
+      <el-form-item label="写作风格">
+        <StyleSelector v-model="form.styleCardId" :show-preview="true" />
+        <div class="form-tip">可选：选择文风卡片，AI 会模仿该风格写作</div>
+      </el-form-item>
     </el-form>
 
     <!-- 章纲预览 -->
@@ -47,8 +51,11 @@
       <el-button v-if="!outlineData" type="primary" @click="$emit('generate-outline', form)" :loading="generating">
         生成章纲
       </el-button>
-      <el-button v-if="outlineData" type="primary" @click="$emit('generate-chapter', { ...form, ideaIndex: selectedIdeaIndex })" :loading="generating">
-        生成正文
+      <el-button v-if="outlineData" @click="$emit('generate-chapter', { ...form, ideaIndex: selectedIdeaIndex })" :loading="generating">
+        后台生成
+      </el-button>
+      <el-button v-if="outlineData" type="primary" @click="$emit('generate-chapter-stream', { ...form, ideaIndex: selectedIdeaIndex })" :loading="generating">
+        流式生成
       </el-button>
     </template>
   </el-dialog>
@@ -58,6 +65,7 @@
 import { ref, reactive, watch } from 'vue'
 import type { LlmConfigVO } from '@/types'
 import { formatStrand } from '@/utils/format'
+import StyleSelector from '@/components/StyleSelector.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -73,6 +81,7 @@ defineEmits<{
   'update:visible': [value: boolean]
   'generate-outline': [form: GenerateForm]
   'generate-chapter': [form: GenerateForm & { ideaIndex: number }]
+  'generate-chapter-stream': [form: GenerateForm & { ideaIndex: number }]
   close: []
 }>()
 
@@ -89,6 +98,7 @@ const form = reactive<GenerateForm>({
   configId: '',
   strandType: 'quest',
   userIntent: '',
+  styleCardId: '',
 })
 
 watch(() => props.defaultChapterNum, (val) => {

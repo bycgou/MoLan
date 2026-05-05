@@ -106,6 +106,14 @@
           <el-input v-model="form.modelName" placeholder="例如：deepseek-chat, gpt-4o, glm-4" />
           <div class="form-tip">填写API要求的模型标识符</div>
         </el-form-item>
+
+        <el-form-item label="模型类型">
+          <el-select v-model="form.modelType" placeholder="选择模型类型" style="width: 100%">
+            <el-option label="Chat（对话模型）" value="chat" />
+            <el-option label="Embedding（向量模型）" value="embedding" />
+          </el-select>
+          <div class="form-tip">Embedding 模型用于文本向量化（如 qwen3-embedding、nomic-embed-text）</div>
+        </el-form-item>
         
         <el-form-item label="API地址">
           <el-input 
@@ -139,6 +147,7 @@
                 <el-option label="正文" value="writing" />
                 <el-option label="摘要" value="summary" />
                 <el-option label="审核" value="audit" />
+                <el-option label="向量化" value="embedding" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -194,6 +203,10 @@ const templates = [
   { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelName: 'qwen-max' },
   { name: '月之暗面', baseUrl: 'https://api.moonshot.cn/v1', modelName: 'moonshot-v1-128k' },
   { name: '文心一言', baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop', modelName: 'ernie-4.0' },
+  // Embedding 模型模板
+  { name: 'DashScope Embedding', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelName: 'text-embedding-v2', modelType: 'embedding', usageType: 'embedding' },
+  { name: 'OpenAI Embedding', baseUrl: 'https://api.openai.com/v1', modelName: 'text-embedding-ada-002', modelType: 'embedding', usageType: 'embedding' },
+  { name: 'Ollama Embedding', baseUrl: 'http://localhost:11434/v1', modelName: 'nomic-embed-text', apiKey: 'ollama', modelType: 'embedding', usageType: 'embedding' },
 ]
 
 const loading = ref(false)
@@ -210,6 +223,7 @@ const form = reactive({
   configName: '',
   provider: 'openai',
   modelName: '',
+  modelType: 'chat',
   baseUrl: '',
   authType: 'bearer',
   apiKey: '',
@@ -266,7 +280,8 @@ const getUsageTypeText = (type: string) => {
     outline: '大纲',
     writing: '正文',
     summary: '摘要',
-    audit: '审核'
+    audit: '审核',
+    embedding: '向量化'
   }
   return map[type] || type
 }
@@ -277,7 +292,8 @@ const getUsageTypeTag = (type: string) => {
     outline: 'warning',
     writing: 'success',
     summary: 'info',
-    audit: 'danger'
+    audit: 'danger',
+    embedding: ''
   }
   return map[type] || ''
 }
@@ -305,7 +321,9 @@ const applyTemplate = (template: any) => {
   form.modelName = template.modelName
   form.authType = template.authType || 'bearer'
   form.apiKey = template.apiKey || ''
-  
+  if (template.modelType) form.modelType = template.modelType
+  if (template.usageType) form.usageType = template.usageType
+
   dialogVisible.value = true
 }
 
@@ -322,6 +340,7 @@ const showEditDialog = (config: any) => {
   Object.assign(form, {
     configName: config.configName,
     modelName: config.modelName,
+    modelType: config.provider === 'embedding' ? 'embedding' : 'chat',
     baseUrl: config.apiBaseUrl || config.baseUrl || '',
     authType: config.authType || 'bearer',
     apiKey: '',  // 不填入脱敏值，留空表示不修改
@@ -336,6 +355,7 @@ const showEditDialog = (config: any) => {
 const resetForm = () => {
   form.configName = ''
   form.modelName = ''
+  form.modelType = 'chat'
   form.baseUrl = ''
   form.authType = 'bearer'
   form.apiKey = ''
@@ -357,7 +377,7 @@ const handleTest = async () => {
   testing.value = true
   try {
     const testData = {
-      provider: form.provider,
+      provider: form.modelType === 'embedding' ? 'embedding' : form.provider,
       apiKey: form.apiKey,
       apiBaseUrl: form.baseUrl,  // 映射 baseUrl → apiBaseUrl
       modelName: form.modelName
@@ -386,7 +406,7 @@ const handleSubmit = async () => {
     // 构建符合后端的数据结构
     const submitData: Record<string, unknown> = {
       configName: form.configName,
-      provider: form.provider,
+      provider: form.modelType === 'embedding' ? 'embedding' : form.provider,
       modelName: form.modelName,
       apiBaseUrl: form.baseUrl,
       authType: form.authType,
@@ -403,9 +423,9 @@ const handleSubmit = async () => {
     
     let response
     if (isEdit.value) {
-      response = await llmConfigApi.updateConfig(editingId.value, submitData)
+      response = await llmConfigApi.updateConfig(editingId.value, submitData as any)
     } else {
-      response = await llmConfigApi.createConfig(submitData)
+      response = await llmConfigApi.createConfig(submitData as any)
     }
     
     if (response.code === 200) {

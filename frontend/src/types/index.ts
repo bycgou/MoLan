@@ -42,6 +42,9 @@ export interface NovelVO {
   novelId: string
   novelName: string
   genre: string
+  novelType?: string // JSON数组
+  tone?: string // JSON数组
+  tabooList?: string // JSON数组
   totalOutline: string
   worldSetting: string
   status: number // 0=草稿, 1=连载中, 2=已完结
@@ -54,6 +57,9 @@ export interface NovelVO {
 export interface CreateNovelRequest {
   novelName: string
   genre: string
+  novelType?: string
+  tone?: string
+  tabooList?: string
   totalOutline: string
   worldSetting: string
 }
@@ -61,6 +67,9 @@ export interface CreateNovelRequest {
 export interface UpdateNovelRequest {
   novelName?: string
   genre?: string
+  novelType?: string
+  tone?: string
+  tabooList?: string
   totalOutline?: string
   worldSetting?: string
   status?: number
@@ -327,4 +336,60 @@ export interface HookAnalysisVO {
   pullLevel: string // 高/中/低
   totalScore: number // 总分
   suggestion: string // 改进建议
+}
+
+// ============================================================
+// 向导流程相关
+// ============================================================
+
+export interface ArcOutlineDTO {
+  arcName: string
+  arcOutline: string
+  startChapter: number
+  endChapter: number
+  chapterCount: number
+  rhythmTag: string
+  rhythmIntensity: number
+}
+
+export interface ArcChapterOutlineDTO {
+  chapterNum: number
+  chapterTitle: string
+  outline: string
+  implementationIdeas: string[]
+}
+
+export interface BatchGenerationProgress {
+  taskId: string
+  status: string // GENERATING, COMPLETED, FAILED
+  totalChapters: number
+  completedChapters: number
+  currentChapterNum: number
+  currentPhase: string
+  errorMessage?: string
+}
+
+export interface WizardSettingsRequest {
+  novelName: string
+  genre: string
+  novelType?: string
+  tone?: string
+  tabooList?: string
+  totalOutline: string
+  worldSetting: string
+  prompt: string
+  styleCardId?: string
+  llmConfigId?: string
+}
+
+export interface WizardSaveRequest {
+  novelName: string
+  genre: string
+  novelType?: string
+  tone?: string
+  tabooList?: string
+  totalOutline: string
+  worldSetting: string
+  styleCardId?: string
+  arcs: ArcOutlineDTO[]
 }

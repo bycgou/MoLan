@@ -4,6 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>创建新小说</span>
+          <el-button text @click="router.push('/create-wizard')">切换到向导模式 →</el-button>
         </div>
       </template>
       
@@ -30,6 +31,72 @@
               <el-option label="悬疑" value="悬疑" />
             </el-option-group>
           </el-select>
+        </el-form-item>
+
+        <el-form-item label="故事类型">
+          <el-select v-model="form.novelTypes" multiple placeholder="选择故事类型标签（可多选）" style="width: 100%">
+            <el-option label="爽文" value="爽文" />
+            <el-option label="甜宠" value="甜宠" />
+            <el-option label="成长" value="成长" />
+            <el-option label="虐恋" value="虐恋" />
+            <el-option label="种田" value="种田" />
+            <el-option label="穿越" value="穿越" />
+            <el-option label="重生" value="重生" />
+            <el-option label="系统流" value="系统流" />
+            <el-option label="无敌流" value="无敌流" />
+            <el-option label="升级流" value="升级流" />
+            <el-option label="后宫" value="后宫" />
+            <el-option label="赘婿" value="赘婿" />
+            <el-option label="回归" value="回归" />
+            <el-option label="逆袭" value="逆袭" />
+          </el-select>
+          <div class="form-tip">影响AI的故事结构和节奏走向</div>
+        </el-form-item>
+
+        <el-form-item label="故事基调">
+          <el-select v-model="form.tones" multiple placeholder="选择故事基调（可多选）" style="width: 100%">
+            <el-option label="轻松" value="轻松" />
+            <el-option label="温馨" value="温馨" />
+            <el-option label="搞笑" value="搞笑" />
+            <el-option label="治愈" value="治愈" />
+            <el-option label="热血" value="热血" />
+            <el-option label="紧张" value="紧张" />
+            <el-option label="沉重" value="沉重" />
+            <el-option label="甜蜜" value="甜蜜" />
+            <el-option label="阴暗" value="阴暗" />
+            <el-option label="荒诞" value="荒诞" />
+          </el-select>
+          <div class="form-tip">影响AI的叙事语气和情感氛围</div>
+        </el-form-item>
+
+        <el-form-item label="禁止雷点">
+          <el-select v-model="form.taboos" multiple placeholder="选择要避免的内容（可多选）" style="width: 100%">
+            <el-option label="NTR（绿帽）" value="NTR" />
+            <el-option label="圣母" value="圣母" />
+            <el-option label="虐主" value="虐主" />
+            <el-option label="悲剧结局" value="悲剧" />
+            <el-option label="狗血" value="狗血" />
+            <el-option label="降智" value="降智" />
+            <el-option label="后宫起火" value="后宫起火" />
+            <el-option label="烂尾" value="烂尾" />
+            <el-option label="太监（断更）" value="太监" />
+          </el-select>
+          <div class="form-tip">AI生成时会严格避免这些内容</div>
+        </el-form-item>
+        
+        <!-- 文风选择器 -->
+        <el-form-item label="写作风格">
+          <StyleSelector 
+            v-model="form.styleCardId" 
+            :show-preview="true"
+            @create="router.push('/style-cards')"
+          />
+          <div class="form-tip">
+            可选：选择一个文风卡片，AI会模仿该风格写作
+            <el-button type="primary" link @click="router.push('/style-cards')">
+              上传小说创建新风格 →
+            </el-button>
+          </div>
         </el-form-item>
         
         <!-- 题材模板预览 -->
@@ -103,13 +170,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { novelApi, genreTemplateApi } from '@/api'
+import { styleApi } from '@/api/style'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import StyleSelector from '@/components/StyleSelector.vue'
 
 const router = useRouter()
+const route = useRoute()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const generating = ref(false)
@@ -119,9 +189,13 @@ const activeCollapse = ref(['tropes'])
 const form = reactive({
   novelName: '',
   genre: '',
+  novelTypes: [] as string[],
+  tones: [] as string[],
+  taboos: [] as string[],
   prompt: '',
   totalOutline: '',
-  worldSetting: ''
+  worldSetting: '',
+  styleCardId: ''  // 文风卡片ID
 })
 
 const rules: FormRules = {
@@ -162,8 +236,24 @@ const handleSubmit = async () => {
     await formRef.value.validate()
     submitting.value = true
     
-    const response = await novelApi.createNovel(form)
+    const response = await novelApi.createNovel({
+      novelName: form.novelName,
+      genre: form.genre,
+      novelType: form.novelTypes.length > 0 ? JSON.stringify(form.novelTypes) : undefined,
+      tone: form.tones.length > 0 ? JSON.stringify(form.tones) : undefined,
+      tabooList: form.taboos.length > 0 ? JSON.stringify(form.taboos) : undefined,
+      totalOutline: form.totalOutline,
+      worldSetting: form.worldSetting
+    })
     if (response.code === 200) {
+      // 如果选择了文风卡片，绑定到小说
+      if (form.styleCardId) {
+        try {
+          await styleApi.bindNovel(response.data.novelId, form.styleCardId)
+        } catch (e) {
+          console.warn('绑定文风卡片失败:', e)
+        }
+      }
       ElMessage.success('小说创建成功！')
       router.push(`/novel/${response.data.novelId}`)
     } else {
@@ -181,6 +271,10 @@ const resetForm = () => {
   formRef.value?.resetFields()
   genreTemplate.value = null
   form.prompt = ''
+  form.styleCardId = ''
+  form.novelTypes = []
+  form.tones = []
+  form.taboos = []
 }
 
 const handleAutoGenerate = async () => {
@@ -212,6 +306,13 @@ const handleAutoGenerate = async () => {
     generating.value = false
   }
 }
+
+onMounted(() => {
+  const styleCardId = route.query.styleCardId as string
+  if (styleCardId) {
+    form.styleCardId = styleCardId
+  }
+})
 </script>
 
 <style scoped>
@@ -225,6 +326,9 @@ const handleAutoGenerate = async () => {
 }
 
 .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 18px;
   font-weight: bold;
 }

@@ -6,6 +6,8 @@ import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.ai.rag.RagService;
+import com.novel.system.ai.rag.EmbeddingService;
+import com.novel.system.ai.rag.RedisVectorService;
 import com.novel.system.repository.mongo.NovelGraphRepository;
 import com.novel.system.entity.mongo.NovelGraph;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,8 @@ public class ChapterSaveService {
     private final NovelChapterMapper novelChapterMapper;
     private final RagService ragService;
     private final NovelGraphRepository novelGraphRepository;
+    private final EmbeddingService embeddingService;
+    private final RedisVectorService redisVectorService;
     
     @Transactional
     public void saveGenerationResult(String novelId, int chapterNum, String chapterTitle,
@@ -62,7 +66,26 @@ public class ChapterSaveService {
         
         // 保存摘要
         ragService.saveSummary(summary);
-        
+
+        // 向量化章节内容（异步增强RAG检索）
+        try {
+            String textToEmbed = chapterContent.length() > 2000
+                    ? chapterContent.substring(0, 2000) : chapterContent;
+            float[] vector = embeddingService.embed(textToEmbed);
+            if (vector.length > 0) {
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("novelId", novelId);
+                metadata.put("chapterNum", chapterNum);
+                metadata.put("chapterTitle", chapterTitle);
+                metadata.put("wordCount", wordCount);
+                String vectorKey = novelId + ":ch" + chapterNum;
+                redisVectorService.saveVector(vectorKey, vector, metadata);
+                log.info("章节向量化完成: 小说ID={}, 章节号={}, 向量维度={}", novelId, chapterNum, vector.length);
+            }
+        } catch (Exception e) {
+            log.warn("章节向量化失败（不影响保存）: {}", e.getMessage());
+        }
+
         // 更新小说字数统计
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel != null) {

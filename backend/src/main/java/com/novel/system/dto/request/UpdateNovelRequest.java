@@ -17,7 +17,16 @@ public class UpdateNovelRequest {
     
     /** 小说题材 */
     private String genre;
-    
+
+    /** 小说类型标签（JSON数组） */
+    private String novelType;
+
+    /** 故事基调（JSON数组） */
+    private String tone;
+
+    /** 禁止雷点（JSON数组） */
+    private String tabooList;
+
     /** 小说总纲 */
     private String totalOutline;
     

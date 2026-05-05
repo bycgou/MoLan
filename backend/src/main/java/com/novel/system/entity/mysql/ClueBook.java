@@ -30,4 +30,10 @@ public class ClueBook {
     private LocalDateTime createTime;
     /** 更新时间 */
     private LocalDateTime updateTime;
+    
+    /**
+     * 伏笔回收截止章节
+     * 建议在该章节前回收伏笔，用于 deadline 紧急提示
+     */
+    private Integer deadline;
 }

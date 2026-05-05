@@ -1,5 +1,6 @@
 package com.novel.system.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,6 +14,7 @@ public class CharacterResponse {
     /** 所属小说ID */
     private String novelId;
     /** 人物名称 */
+    @JsonProperty("name")
     private String characterName;
     /** 核心特质列表 */
     private List<String> coreTraits;
@@ -73,7 +75,16 @@ public class CharacterResponse {
     public void setCoreTraits(List<String> coreTraits) {
         this.coreTraits = coreTraits;
     }
-    
+
+    /** 角色标签（前端兼容字段，取核心特质第一项） */
+    @JsonProperty("role")
+    public String getRole() {
+        if (coreTraits != null && !coreTraits.isEmpty()) {
+            return String.join("/", coreTraits);
+        }
+        return voiceStyle != null ? voiceStyle : "未设置";
+    }
+
     public String getVoiceStyle() {
         return voiceStyle;
     }

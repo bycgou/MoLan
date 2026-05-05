@@ -2,6 +2,7 @@ package com.novel.system.entity.mysql;
 
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 章节实体
@@ -42,4 +43,34 @@ public class NovelChapter {
     private LocalDateTime createTime;
     /** 更新时间 */
     private LocalDateTime updateTime;
+    
+    /**
+     * 结尾钩子
+     * 章节结尾的悬念，用于承接下一章
+     */
+    private String hook;
+    
+    /**
+     * 关键情节点（JSON格式）
+     * 本章的关键事件列表，用于事件去重
+     */
+    private String keyPoints;
+    
+    /**
+     * 章节摘要
+     * 冗余存储，加速查询，避免每次从正文提取
+     */
+    private String chapterSummary;
+    
+    /**
+     * 本章使用的意象/场景（JSON格式）
+     * 用于意象去重，禁止近5章重复使用
+     */
+    private String usedTropes;
+    
+    /**
+     * 关联的章节简介ID
+     * 指向 chapter_synopses 表的 ID
+     */
+    private Long synopsisId;
 }
