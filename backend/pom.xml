@@ -21,6 +21,9 @@
     <properties>
         <java.version>17</java.version>
         <spring-ai.version>1.0.0-M1</spring-ai.version>
+        <mcp-sdk.version>0.10.0</mcp-sdk.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
     <dependencies>
@@ -84,6 +87,13 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
             <version>0.35.0</version>
+        </dependency>
+
+        <!-- Java MCP SDK - Model Context Protocol -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>${mcp-sdk.version}</version>
         </dependency>
 
         <!-- 工具类 -->
