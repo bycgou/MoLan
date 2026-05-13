@@ -31,15 +31,12 @@ public class EventNode {
     private String eventId;
 
     /** 所属小说ID */
-    @Indexed
     private String novelId;
 
     /** 事件发生的章节号 */
-    @Indexed
     private Integer chapter;
 
     /** 事件类型: dialogue, action, discovery, foreshadow, conflict, transition */
-    @Indexed
     private String type;
 
     /** 参与角色名称列表 */
@@ -56,7 +53,6 @@ public class EventNode {
     private List<String> linkedEvents;
 
     /** 重要性评分 1-10 */
-    @Indexed
     private Integer importance;
 
     /** 标签列表（用于分类检索） */
