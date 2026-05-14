@@ -153,7 +153,10 @@ public class WizardServiceImpl implements WizardService {
 
         List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
-        String llmConfigId = novel != null ? novel.getLlmConfigId() : null;
+        if (novel == null) {
+            throw new RuntimeException("小说不存在: " + novelId);
+        }
+        String llmConfigId = novel.getLlmConfigId();
         if (arcIndex < 0 || arcIndex >= arcs.size()) {
             throw new RuntimeException("卷索引无效: " + arcIndex);
         }
@@ -252,7 +255,10 @@ public class WizardServiceImpl implements WizardService {
     @Override
     public String batchGenerateChapters(String novelId) {
         NovelBase novel = novelBaseMapper.selectById(novelId);
-        String llmConfigId = novel != null ? novel.getLlmConfigId() : null;
+        if (novel == null) {
+            throw new RuntimeException("小说不存在: " + novelId);
+        }
+        String llmConfigId = novel.getLlmConfigId();
         String styleCardId = styleCardService.getBoundCardId(novelId);
         String taskId = UUID.randomUUID().toString();
         log.info("启动批量章节生成任务，小说ID: {}, 任务ID: {}", novelId, taskId);
