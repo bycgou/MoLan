@@ -148,6 +148,8 @@ public class WizardServiceImpl implements WizardService {
         log.info("生成卷章纲，小说ID: {}, 卷索引: {}", novelId, arcIndex);
 
         List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
+        NovelBase novel = novelBaseMapper.selectById(novelId);
+        String llmConfigId = novel != null ? novel.getLlmConfigId() : null;
         if (arcIndex < 0 || arcIndex >= arcs.size()) {
             throw new RuntimeException("卷索引无效: " + arcIndex);
         }
@@ -163,6 +165,7 @@ public class WizardServiceImpl implements WizardService {
             ChapterGenerationRequest genRequest = new ChapterGenerationRequest();
             genRequest.setNovelId(novelId);
             genRequest.setChapterNum(ch);
+            genRequest.setLlmConfigId(llmConfigId);
 
             try {
                 ChapterGenerationResponse response = chapterGenerationService.generateOutline(genRequest);
@@ -244,6 +247,8 @@ public class WizardServiceImpl implements WizardService {
 
     @Override
     public String batchGenerateChapters(String novelId) {
+        NovelBase novel = novelBaseMapper.selectById(novelId);
+        String llmConfigId = novel != null ? novel.getLlmConfigId() : null;
         String taskId = UUID.randomUUID().toString();
         log.info("启动批量章节生成任务，小说ID: {}, 任务ID: {}", novelId, taskId);
 
@@ -281,6 +286,7 @@ public class WizardServiceImpl implements WizardService {
                         ChapterGenerationRequest genRequest = new ChapterGenerationRequest();
                         genRequest.setNovelId(novelId);
                         genRequest.setChapterNum(chapter.getChapterNum());
+                        genRequest.setLlmConfigId(llmConfigId);
 
                         ChapterGenerationResponse response = chapterGenerationService.generateChapter(genRequest);
 
