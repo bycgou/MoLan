@@ -86,12 +86,14 @@ public class EventExtractionService {
                     node.setCreateTime(LocalDateTime.now());
 
                     // 解析角色列表
-                    List<String> chars = (List<String>) data.getOrDefault("characters", Collections.emptyList());
-                    node.setCharacters(chars != null ? chars : Collections.emptyList());
+                    List<?> rawChars = (List<?>) data.getOrDefault("characters", Collections.emptyList());
+                    List<String> chars = rawChars.stream().map(Object::toString).toList();
+                    node.setCharacters(chars);
 
                     // 解析标签列表
-                    List<String> tags = (List<String>) data.getOrDefault("tags", Collections.emptyList());
-                    node.setTags(tags != null ? tags : Collections.emptyList());
+                    List<?> rawTags = (List<?>) data.getOrDefault("tags", Collections.emptyList());
+                    List<String> tags = rawTags.stream().map(Object::toString).toList();
+                    node.setTags(tags);
 
                     node.setLinkedEvents(Collections.emptyList());
 
