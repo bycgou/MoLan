@@ -485,15 +485,6 @@ const handleRemoveArc = (index: number) => {
 
 // Step 3: 保存小说
 const handleSaveNovel = async () => {
-  if (!formRef.value) return
-
-  try {
-    await formRef.value.validate()
-  } catch {
-    ElMessage.warning('请先完善设定信息')
-    return
-  }
-
   if (arcs.value.length === 0) {
     ElMessage.warning('请先生成卷纲')
     return
