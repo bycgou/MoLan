@@ -84,6 +84,9 @@ public class StoryStateServiceImpl implements StoryStateService {
         if (state.getLastCompressChapter() == null) {
             state.setLastCompressChapter(0);
         }
+        if (chapterNum - state.getLastCompressChapter() >= 20) {
+            compressBackstory(state, chapterNum);
+        }
 
         log.info("更新故事状态: novelId={}, chapter={}, version={}", novelId, chapterNum, state.getVersion());
         return save(state);
@@ -218,6 +221,40 @@ public class StoryStateServiceImpl implements StoryStateService {
             sb.append("上一重大事件：").append(state.getSceneContext().getLastMajorEvent()).append("\n");
         }
         return sb.isEmpty() ? "无" : sb.toString();
+    }
+
+    /**
+     * 压缩背景：将现有背景摘要 + 近期重大事件合并为紧凑摘要
+     * 每20章触发一次，保留关键伏笔、角色变化、实力变化
+     */
+    private void compressBackstory(StoryState state, int currentChapter) {
+        try {
+            String existingBackstory = state.getCompressedBackstory();
+            String recentEvents = "";
+            if (state.getRecentMajorEvents() != null && !state.getRecentMajorEvents().isEmpty()) {
+                recentEvents = state.getRecentMajorEvents().stream()
+                    .map(e -> "第" + e.getChapter() + "章：" + e.getEvent())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            }
+
+            String systemPrompt = "你是小说背景压缩助手。只输出压缩后的摘要，不超过500字。" +
+                "保留所有重要伏笔（已埋/已回收状态）、角色关系变化、实力变化、关键物品归属。" +
+                "删除已解决的冲突和不再相关的日常细节。";
+            String userMessage = String.format(
+                "当前背景摘要：\n%s\n\n近期重大事件：\n%s\n\n请合并为一份紧凑的背景摘要。",
+                existingBackstory != null ? existingBackstory : "无",
+                recentEvents);
+
+            String compressed = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
+            if (compressed != null && !compressed.isBlank()) {
+                state.setCompressedBackstory(compressed);
+                state.setLastCompressChapter(currentChapter);
+                log.info("背景压缩完成: novelId={}, chapter={}, 压缩后{}字",
+                    state.getNovelId(), currentChapter, compressed.length());
+            }
+        } catch (Exception e) {
+            log.warn("背景压缩失败（不影响基本更新）: {}", e.getMessage());
+        }
     }
 
     /**

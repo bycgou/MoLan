@@ -114,14 +114,21 @@ public class ContextBuilderService {
         }
 
         // === 故事状态（核心枢纽，第一优先级数据源）===
+        StoryState storyState = null;
         try {
-            StoryState storyState = storyStateService.getOrCreate(novelId);
+            storyState = storyStateService.getOrCreate(novelId);
             String stateText = storyStateService.formatForPrompt(storyState);
             if (stateText != null && !stateText.isEmpty()) {
                 sb.append(tokenBudgetService.truncateToBudget(stateText, budget.getAllocated("storyState")));
             }
         } catch (Exception e) {
             log.warn("获取故事状态失败: {}", e.getMessage());
+        }
+        // 压缩历史背景
+        if (storyState != null && storyState.getCompressedBackstory() != null && !storyState.getCompressedBackstory().isEmpty()) {
+            sb.append("【历史背景摘要（前文关键信息压缩）】\n");
+            sb.append(tokenBudgetService.truncateToBudget(storyState.getCompressedBackstory(), 500));
+            sb.append("\n\n");
         }
 
         // === 人物当前状态 ===
@@ -310,14 +317,21 @@ public class ContextBuilderService {
         }
 
         // === 故事状态（核心枢纽）===
+        StoryState storyState = null;
         try {
-            StoryState storyState = storyStateService.getOrCreate(novelId);
+            storyState = storyStateService.getOrCreate(novelId);
             String stateText = storyStateService.formatForPrompt(storyState);
             if (stateText != null && !stateText.isEmpty()) {
                 sb.append(tokenBudgetService.truncateToBudget(stateText, budget.getAllocated("storyState")));
             }
         } catch (Exception e) {
             log.warn("获取故事状态失败: {}", e.getMessage());
+        }
+        // 压缩历史背景
+        if (storyState != null && storyState.getCompressedBackstory() != null && !storyState.getCompressedBackstory().isEmpty()) {
+            sb.append("【历史背景摘要（前文关键信息压缩）】\n");
+            sb.append(tokenBudgetService.truncateToBudget(storyState.getCompressedBackstory(), 500));
+            sb.append("\n\n");
         }
 
         // === 伏笔 deadline 紧急提示 ===
