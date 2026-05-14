@@ -8,17 +8,21 @@ public final class JsonExtractor {
     private JsonExtractor() {}
 
     public static String extractJson(String response) {
-        if (response == null) return "{}";
+        return extractJson(response, "{}");
+    }
+
+    public static String extractJson(String response, String defaultJson) {
+        if (response == null) return defaultJson;
         String trimmed = response.trim();
         if (trimmed.startsWith("```json")) {
             trimmed = trimmed.replaceAll("^```json\\s*", "").replaceAll("\\s*```$", "");
         } else if (trimmed.startsWith("```")) {
             trimmed = trimmed.replaceAll("^```\\s*", "").replaceAll("\\s*```$", "");
         }
-        int start = trimmed.indexOf('{');
-        int startArr = trimmed.indexOf('[');
-        if (startArr >= 0 && (start < 0 || startArr < start)) {
-            start = startArr;
+        int start = trimmed.indexOf('[');
+        int startObj = trimmed.indexOf('{');
+        if (start < 0 || (startObj >= 0 && startObj < start)) {
+            start = startObj;
         }
         if (start > 0) trimmed = trimmed.substring(start);
         int endObj = trimmed.lastIndexOf('}');

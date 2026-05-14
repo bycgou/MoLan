@@ -70,7 +70,7 @@ public class EventExtractionService {
             );
 
             String response = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
-            String jsonStr = JsonExtractor.extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response, "[]");
             List<Map<String, Object>> extracted = objectMapper.readValue(
                 jsonStr, new TypeReference<>() {});
 

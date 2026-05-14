@@ -358,7 +358,7 @@ public class ChapterPostProcessService {
             );
 
             String response = model.generate(prompt);
-            String jsonStr = JsonExtractor.extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response, "[]");
 
             List<Map<String, Object>> clues = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
