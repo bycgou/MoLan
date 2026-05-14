@@ -131,6 +131,18 @@ public class ContextBuilderService {
             sb.append("\n\n");
         }
 
+        // 校验警告注入
+        if (storyState != null
+            && storyState.getNarrativeFlags() != null
+            && storyState.getNarrativeFlags().getWarnings() != null
+            && !storyState.getNarrativeFlags().getWarnings().isEmpty()) {
+            sb.append("【前章校验警告（本章必须避免以下问题）】\n");
+            for (String warning : storyState.getNarrativeFlags().getWarnings()) {
+                sb.append("- ").append(warning).append("\n");
+            }
+            sb.append("\n");
+        }
+
         // === 人物当前状态 ===
         String charStates = characterStateService.formatForPrompt(novelId);
         if (charStates != null && !charStates.isEmpty()) {
@@ -332,6 +344,18 @@ public class ContextBuilderService {
             sb.append("【历史背景摘要（前文关键信息压缩）】\n");
             sb.append(tokenBudgetService.truncateToBudget(storyState.getCompressedBackstory(), 500));
             sb.append("\n\n");
+        }
+
+        // 校验警告注入
+        if (storyState != null
+            && storyState.getNarrativeFlags() != null
+            && storyState.getNarrativeFlags().getWarnings() != null
+            && !storyState.getNarrativeFlags().getWarnings().isEmpty()) {
+            sb.append("【前章校验警告（本章必须避免以下问题）】\n");
+            for (String warning : storyState.getNarrativeFlags().getWarnings()) {
+                sb.append("- ").append(warning).append("\n");
+            }
+            sb.append("\n");
         }
 
         // === 伏笔 deadline 紧急提示 ===

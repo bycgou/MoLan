@@ -52,4 +52,14 @@ public interface StoryStateService {
      * 程序化兜底：追加主角物品
      */
     void updateProtagonistInventory(String novelId, List<String> items);
+
+    /**
+     * 写入校验警告，供下章生成时参考
+     */
+    void addWarnings(String novelId, List<String> warnings);
+
+    /**
+     * 清除校验警告（已注入上下文后调用）
+     */
+    void clearWarnings(String novelId);
 }

@@ -400,6 +400,27 @@ public class StoryStateServiceImpl implements StoryStateService {
         return sb.toString();
     }
 
+    @Override
+    public void addWarnings(String novelId, List<String> warnings) {
+        if (warnings == null || warnings.isEmpty()) return;
+        StoryState state = getOrCreate(novelId);
+        if (state.getNarrativeFlags() == null) {
+            state.setNarrativeFlags(new StoryState.NarrativeFlagsState());
+        }
+        state.getNarrativeFlags().setWarnings(warnings);
+        save(state);
+        log.info("写入校验警告: novelId={}, warnings={}", novelId, warnings);
+    }
+
+    @Override
+    public void clearWarnings(String novelId) {
+        StoryState state = getOrCreate(novelId);
+        if (state.getNarrativeFlags() != null && state.getNarrativeFlags().getWarnings() != null) {
+            state.getNarrativeFlags().getWarnings().clear();
+            save(state);
+        }
+    }
+
     private StoryState createDefaultState(String novelId) {
         StoryState state = new StoryState();
         state.setNovelId(novelId);
