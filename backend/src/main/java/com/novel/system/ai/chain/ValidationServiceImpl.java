@@ -1,16 +1,18 @@
 package com.novel.system.ai.chain;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.llm.PromptTemplateService;
 import com.novel.system.ai.chain.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 校验服务实现 - 基于LLM的真实校验
@@ -22,7 +24,8 @@ public class ValidationServiceImpl implements ValidationService {
     
     private final LlmService llmService;
     private final PromptTemplateService promptTemplateService;
-    
+    private final ObjectMapper objectMapper;
+
     private static final int OOC_THRESHOLD = 30;
     private static final int MIN_SCORE_THRESHOLD = 70;
     
@@ -42,13 +45,14 @@ public class ValidationServiceImpl implements ValidationService {
             log.info("OOC检测完成，总分: {}, 是否OOC: {}", result.getTotalScore(), result.isPassed());
             
         } catch (Exception e) {
-            log.error("OOC检测失败: {}", e.getMessage());
-            result.setPassed(true);
-            result.setTotalScore(80);
-            result.setLanguageStyleScore(80);
-            result.setBehaviorMotivationScore(80);
-            result.setKnowledgeLevelScore(80);
-            result.setGrowthAdaptationScore(80);
+            log.error("OOC检测失败: {}", e.getMessage(), e);
+            // 异常时不通过，需要人工审核
+            result.setPassed(false);
+            result.setTotalScore(0);
+            result.setLanguageStyleScore(0);
+            result.setBehaviorMotivationScore(0);
+            result.setKnowledgeLevelScore(0);
+            result.setGrowthAdaptationScore(0);
         }
         
         return result;
@@ -70,11 +74,11 @@ public class ValidationServiceImpl implements ValidationService {
             log.info("逻辑校验完成，是否通过: {}", result.isPassed());
             
         } catch (Exception e) {
-            log.error("逻辑校验失败: {}", e.getMessage());
-            result.setPassed(true);
-            result.setConflictDescription("无冲突");
-            result.setCausalChainStatus("通顺");
-            result.setConsistencyStatus("一致");
+            log.error("逻辑校验失败: {}", e.getMessage(), e);
+            result.setPassed(false);
+            result.setConflictDescription("校验服务异常: " + e.getMessage());
+            result.setCausalChainStatus("未知");
+            result.setConsistencyStatus("未知");
         }
         
         return result;
@@ -96,12 +100,12 @@ public class ValidationServiceImpl implements ValidationService {
             log.info("伏笔校验完成，埋设: {}个, 回收: {}个", result.getBuriedCount(), result.getRecycledCount());
             
         } catch (Exception e) {
-            log.error("伏笔校验失败: {}", e.getMessage());
-            result.setPassed(true);
+            log.error("伏笔校验失败: {}", e.getMessage(), e);
+            result.setPassed(false);
             result.setBuriedCount(0);
             result.setRecycledCount(0);
-            result.setMissingClues("无");
-            result.setUnnaturalRecycle("无");
+            result.setMissingClues("校验服务异常");
+            result.setUnnaturalRecycle("未知");
         }
         
         return result;
@@ -123,11 +127,11 @@ public class ValidationServiceImpl implements ValidationService {
             log.info("设定校验完成，是否通过: {}", result.isPassed());
             
         } catch (Exception e) {
-            log.error("设定校验失败: {}", e.getMessage());
-            result.setPassed(true);
-            result.setWorldRuleStatus("符合");
-            result.setWorldClockStatus("一致");
-            result.setConflicts("无");
+            log.error("设定校验失败: {}", e.getMessage(), e);
+            result.setPassed(false);
+            result.setWorldRuleStatus("校验服务异常");
+            result.setWorldClockStatus("未知");
+            result.setConflicts("校验服务异常: " + e.getMessage());
         }
         
         return result;
@@ -149,11 +153,11 @@ public class ValidationServiceImpl implements ValidationService {
             log.info("节奏校验完成，预期: {}, 实际: {}", result.getExpectedRhythm(), result.getActualRhythm());
             
         } catch (Exception e) {
-            log.error("节奏校验失败: {}", e.getMessage());
-            result.setPassed(true);
+            log.error("节奏校验失败: {}", e.getMessage(), e);
+            result.setPassed(false);
             result.setExpectedRhythm(request.getRhythmTag());
-            result.setActualRhythm(request.getRhythmTag());
-            result.setEmotionCurve("符合预期");
+            result.setActualRhythm("未知");
+            result.setEmotionCurve("校验服务异常: " + e.getMessage());
         }
         
         return result;
@@ -162,15 +166,33 @@ public class ValidationServiceImpl implements ValidationService {
     @Override
     public ValidationResult validateAll(ValidationRequest request) {
         log.info("开始综合校验，小说ID: {}, 章节号: {}", request.getNovelId(), request.getChapterNum());
-        
+
         ValidationResult result = new ValidationResult();
-        
+
         try {
-            CompletableFuture<OOCResult> oocFuture = CompletableFuture.supplyAsync(() -> validateOOC(request));
-            CompletableFuture<LogicResult> logicFuture = CompletableFuture.supplyAsync(() -> validateLogic(request));
-            CompletableFuture<ClueResult> clueFuture = CompletableFuture.supplyAsync(() -> validateClue(request));
-            CompletableFuture<SettingResult> settingFuture = CompletableFuture.supplyAsync(() -> validateSetting(request));
-            CompletableFuture<RhythmResult> rhythmFuture = CompletableFuture.supplyAsync(() -> validateRhythm(request));
+            // 捕获当前线程的SecurityContext，传播到子线程
+            SecurityContext securityContext = SecurityContextHolder.getContext();
+
+            CompletableFuture<OOCResult> oocFuture = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.setContext(securityContext);
+                try { return validateOOC(request); } finally { SecurityContextHolder.clearContext(); }
+            });
+            CompletableFuture<LogicResult> logicFuture = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.setContext(securityContext);
+                try { return validateLogic(request); } finally { SecurityContextHolder.clearContext(); }
+            });
+            CompletableFuture<ClueResult> clueFuture = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.setContext(securityContext);
+                try { return validateClue(request); } finally { SecurityContextHolder.clearContext(); }
+            });
+            CompletableFuture<SettingResult> settingFuture = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.setContext(securityContext);
+                try { return validateSetting(request); } finally { SecurityContextHolder.clearContext(); }
+            });
+            CompletableFuture<RhythmResult> rhythmFuture = CompletableFuture.supplyAsync(() -> {
+                SecurityContextHolder.setContext(securityContext);
+                try { return validateRhythm(request); } finally { SecurityContextHolder.clearContext(); }
+            });
             
             CompletableFuture.allOf(oocFuture, logicFuture, clueFuture, settingFuture, rhythmFuture).join();
             
@@ -232,9 +254,10 @@ public class ValidationServiceImpl implements ValidationService {
             }
             
         } catch (Exception e) {
-            log.error("综合校验失败: {}", e.getMessage());
-            result.setPassed(true);
-            result.setSummary("校验过程中出现错误，默认通过");
+            log.error("综合校验失败: {}", e.getMessage(), e);
+            // 异常时不通过，需要人工审核
+            result.setPassed(false);
+            result.setSummary("校验系统异常，需要人工审核: " + e.getMessage());
             result.setOocResult(new OOCResult());
             result.setLogicResult(new LogicResult());
             result.setClueResult(new ClueResult());
@@ -251,11 +274,18 @@ public class ValidationServiceImpl implements ValidationService {
         return """
             ===待检测内容===
             %s
-            
+
             ===人物设定===
             %s
-            
-            请检测以上内容是否存在OOC（Out Of Character）问题，即人物言行是否符合其设定。
+
+            请检测以上内容是否存在OOC（Out Of Character）问题。严格按以下JSON格式输出，不要有其他内容：
+            {
+              "language_style_score": 0到100的整数,
+              "behavior_motivation_score": 0到100的整数,
+              "knowledge_level_score": 0到100的整数,
+              "growth_adaptation_score": 0到100的整数,
+              "details": "详细分析"
+            }
             """.formatted(
                 truncate(request.getChapterContent(), 8000),
                 truncate(request.getCharacterStates(), 2000)
@@ -266,14 +296,18 @@ public class ValidationServiceImpl implements ValidationService {
         return """
             ===待检测内容===
             %s
-            
+
             ===章节大纲===
             %s
-            
-            请分析以上内容是否存在逻辑问题，包括：
-            1. 因果链是否通顺
-            2. 与大纲是否一致
-            3. 是否有明显冲突
+
+            请分析以上内容是否存在逻辑问题。严格按以下JSON格式输出，不要有其他内容：
+            {
+              "causal_chain_valid": true或false,
+              "consistency_valid": true或false,
+              "conflict_description": "冲突描述，无冲突则为空字符串",
+              "confidence": 0.0到1.0的置信度,
+              "details": "详细分析"
+            }
             """.formatted(
                 truncate(request.getChapterContent(), 8000),
                 truncate(request.getChapterOutline(), 2000)
@@ -284,15 +318,19 @@ public class ValidationServiceImpl implements ValidationService {
         return """
             ===待检测内容===
             %s
-            
+
             ===已有伏笔===
             %s
-            
-            请分析：
-            1. 本章埋设了多少个新伏笔
-            2. 本章回收了多少个旧伏笔
-            3. 是否有遗漏未回收的重要伏笔
-            4. 伏笔回收是否自然合理
+
+            请分析伏笔埋设和回收情况。严格按以下JSON格式输出，不要有其他内容：
+            {
+              "buried_count": 本章新埋伏笔数,
+              "recycled_count": 本章回收伏笔数,
+              "has_missing": true或false,
+              "has_unnatural": true或false,
+              "missing_details": "遗漏的伏笔描述，无则为空字符串",
+              "unnatural_details": "不合理的回收描述，无则为空字符串"
+            }
             """.formatted(
                 truncate(request.getChapterContent(), 8000),
                 truncate(request.getClueBook(), 2000)
@@ -303,11 +341,17 @@ public class ValidationServiceImpl implements ValidationService {
         return """
             ===待检测内容===
             %s
-            
+
             ===世界设定===
             %s
-            
-            请检测章节内容是否违反了已设定的世界观规则。
+
+            请检测章节内容是否违反了已设定的世界观规则。严格按以下JSON格式输出，不要有其他内容：
+            {
+              "world_rule_valid": true或false,
+              "world_clock_valid": true或false,
+              "conflicts": "设定冲突描述，无冲突则为空字符串",
+              "details": "详细分析"
+            }
             """.formatted(
                 truncate(request.getChapterContent(), 8000),
                 truncate(request.getTotalOutline(), 3000)
@@ -318,10 +362,15 @@ public class ValidationServiceImpl implements ValidationService {
         return """
             ===待检测内容===
             %s
-            
-            请分析：
-            1. 本章的情感曲线（起伏/平稳/递进等）
-            2. 本章的节奏类型（主线/感情线/世界观）
+
+            请分析章节的情感曲线和节奏。严格按以下JSON格式输出，不要有其他内容：
+            {
+              "expected_rhythm": "预期节奏类型(quest/fire/constellation)",
+              "actual_rhythm": "实际节奏类型(quest/fire/constellation)",
+              "emotion_curve": "情感曲线描述",
+              "is_appropriate": true或false,
+              "details": "详细分析"
+            }
             """.formatted(
                 truncate(request.getChapterContent(), 8000)
             );
@@ -331,213 +380,140 @@ public class ValidationServiceImpl implements ValidationService {
     
     private OOCResult parseOOCResponse(String response) {
         OOCResult result = new OOCResult();
-        
         try {
-            int languageStyle = extractScore(response, "语言风格");
-            int behaviorMotivation = extractScore(response, "行为动机");
-            int knowledgeLevel = extractScore(response, "知识水平");
-            int abilityMatch = extractScore(response, "能力匹配");
-            
-            result.setLanguageStyleScore(languageStyle);
-            result.setBehaviorMotivationScore(behaviorMotivation);
-            result.setKnowledgeLevelScore(knowledgeLevel);
-            result.setGrowthAdaptationScore(abilityMatch);
-            
-            int totalScore = (languageStyle + behaviorMotivation + knowledgeLevel + abilityMatch) / 4;
-            result.setTotalScore(totalScore);
-            result.setPassed(totalScore >= MIN_SCORE_THRESHOLD);
-            
-            if (response.contains("是") && response.contains("OOC")) {
-                result.setPassed(totalScore >= MIN_SCORE_THRESHOLD);
-            }
-            
+            String json = extractJson(response);
+            JsonNode node = objectMapper.readTree(json);
+
+            int langScore = node.path("language_style_score").asInt(80);
+            int behavScore = node.path("behavior_motivation_score").asInt(80);
+            int knowScore = node.path("knowledge_level_score").asInt(80);
+            int growthScore = node.path("growth_adaptation_score").asInt(80);
+
+            result.setLanguageStyleScore(langScore);
+            result.setBehaviorMotivationScore(behavScore);
+            result.setKnowledgeLevelScore(knowScore);
+            result.setGrowthAdaptationScore(growthScore);
+
+            int total = (langScore + behavScore + knowScore + growthScore) / 4;
+            result.setTotalScore(total);
+            result.setPassed(total >= MIN_SCORE_THRESHOLD);
         } catch (Exception e) {
-            log.warn("解析OOC响应失败，使用默认结果: {}", e.getMessage());
-            result.setPassed(true);
-            result.setTotalScore(80);
+            log.warn("解析OOC响应失败: {}", e.getMessage());
+            result.setPassed(false);
+            result.setTotalScore(0);
         }
-        
         return result;
     }
     
     private LogicResult parseLogicResponse(String response) {
         LogicResult result = new LogicResult();
-
         try {
-            // 因果链判断
-            boolean causalValid = !response.contains("因果链不通") &&
-                                 !(response.contains("因果") && response.contains("问题")) ||
-                                 response.contains("通顺") || response.contains("合理");
+            String json = extractJson(response);
+            JsonNode node = objectMapper.readTree(json);
 
-            // 一致性判断：有"矛盾/冲突"但被否定（无/没有/未发现）则通过
-            boolean hasConflictWord = response.contains("矛盾") || response.contains("冲突");
-            boolean isNegated = response.contains("无矛盾") || response.contains("无冲突") ||
-                               response.contains("没有矛盾") || response.contains("没有冲突") ||
-                               response.contains("未发现矛盾") || response.contains("未发现冲突") ||
-                               response.contains("不存在矛盾") || response.contains("不存在冲突") ||
-                               response.contains("未见矛盾") || response.contains("未见冲突") ||
-                               response.contains("一致性良好") || response.contains("逻辑通顺");
-            boolean consistencyValid = !hasConflictWord || isNegated;
+            boolean causalValid = node.path("causal_chain_valid").asBoolean(true);
+            boolean consistencyValid = node.path("consistency_valid").asBoolean(true);
 
             result.setPassed(causalValid && consistencyValid);
             result.setCausalChainStatus(causalValid ? "通顺" : "存在问题");
             result.setConsistencyStatus(consistencyValid ? "一致" : "存在矛盾");
-            result.setConflictDescription(extractConflictDescription(response));
-
+            result.setConflictDescription(node.path("conflict_description").asText("无"));
         } catch (Exception e) {
-            result.setPassed(true);
-            result.setConflictDescription("无冲突");
-            result.setCausalChainStatus("通顺");
-            result.setConsistencyStatus("一致");
+            log.warn("解析逻辑校验响应失败: {}", e.getMessage());
+            result.setPassed(false);
+            result.setConflictDescription("解析失败");
+            result.setCausalChainStatus("未知");
+            result.setConsistencyStatus("未知");
         }
-
         return result;
     }
     
     private ClueResult parseClueResponse(String response) {
         ClueResult result = new ClueResult();
-        
         try {
-            int buriedCount = extractNumber(response, "埋设");
-            int recycledCount = extractNumber(response, "回收");
-            
-            result.setBuriedCount(buriedCount);
-            result.setRecycledCount(recycledCount);
-            result.setPassed(!response.contains("遗漏") || !response.contains("不合理"));
-            result.setMissingClues(response.contains("遗漏") ? extractMissingClues(response) : "无");
-            result.setUnnaturalRecycle(response.contains("不合理") ? "有" : "无");
-            
+            String json = extractJson(response);
+            JsonNode node = objectMapper.readTree(json);
+
+            result.setBuriedCount(node.path("buried_count").asInt(0));
+            result.setRecycledCount(node.path("recycled_count").asInt(0));
+            boolean hasMissing = node.path("has_missing").asBoolean(false);
+            boolean hasUnnatural = node.path("has_unnatural").asBoolean(false);
+            result.setPassed(!hasMissing && !hasUnnatural);
+            result.setMissingClues(node.path("missing_details").asText("无"));
+            result.setUnnaturalRecycle(hasUnnatural ? node.path("unnatural_details").asText("有") : "无");
         } catch (Exception e) {
-            result.setPassed(true);
+            log.warn("解析伏笔校验响应失败: {}", e.getMessage());
+            result.setPassed(false);
             result.setBuriedCount(0);
             result.setRecycledCount(0);
-            result.setMissingClues("无");
-            result.setUnnaturalRecycle("无");
+            result.setMissingClues("解析失败");
+            result.setUnnaturalRecycle("未知");
         }
-        
         return result;
     }
     
     private SettingResult parseSettingResponse(String response) {
         SettingResult result = new SettingResult();
-
         try {
-            // 世界观规则：有"违反/冲突"但被否定则通过
-            boolean hasViolationWord = response.contains("违反") || response.contains("冲突");
-            boolean isViolationNegated = response.contains("未违反") || response.contains("没有违反") ||
-                                        response.contains("无违反") || response.contains("未发现违反") ||
-                                        response.contains("不存在冲突") || response.contains("无冲突") ||
-                                        response.contains("没有冲突") || response.contains("未发现冲突") ||
-                                        response.contains("未见冲突") || response.contains("设定一致") ||
-                                        response.contains("符合设定");
-            boolean worldRuleValid = !hasViolationWord || isViolationNegated;
+            String json = extractJson(response);
+            JsonNode node = objectMapper.readTree(json);
 
-            // 世界时钟
-            boolean worldClockValid = !response.contains("时间矛盾") && !response.contains("时间线错误");
+            boolean worldRuleValid = node.path("world_rule_valid").asBoolean(true);
+            boolean worldClockValid = node.path("world_clock_valid").asBoolean(true);
 
             result.setPassed(worldRuleValid && worldClockValid);
             result.setWorldRuleStatus(worldRuleValid ? "符合" : "不符合");
             result.setWorldClockStatus(worldClockValid ? "一致" : "不一致");
-            result.setConflicts(extractConflicts(response));
-
+            result.setConflicts(node.path("conflicts").asText("无"));
         } catch (Exception e) {
-            result.setPassed(true);
-            result.setWorldRuleStatus("符合");
-            result.setWorldClockStatus("一致");
-            result.setConflicts("无");
+            log.warn("解析设定校验响应失败: {}", e.getMessage());
+            result.setPassed(false);
+            result.setWorldRuleStatus("解析失败");
+            result.setWorldClockStatus("未知");
+            result.setConflicts("解析失败");
         }
-
         return result;
     }
     
     private RhythmResult parseRhythmResponse(String response) {
         RhythmResult result = new RhythmResult();
-        
         try {
-            String actualRhythm = detectRhythmType(response);
-            result.setActualRhythm(actualRhythm);
-            result.setEmotionCurve(extractEmotionCurve(response));
-            result.setPassed(true);
-            
+            String json = extractJson(response);
+            JsonNode node = objectMapper.readTree(json);
+
+            result.setExpectedRhythm(node.path("expected_rhythm").asText("quest"));
+            result.setActualRhythm(node.path("actual_rhythm").asText("quest"));
+            result.setEmotionCurve(node.path("emotion_curve").asText("正常"));
+            result.setPassed(node.path("is_appropriate").asBoolean(true));
         } catch (Exception e) {
-            result.setPassed(true);
-            result.setActualRhythm("normal");
-            result.setEmotionCurve("符合预期");
+            log.warn("解析节奏校验响应失败: {}", e.getMessage());
+            result.setPassed(false);
+            result.setActualRhythm("unknown");
+            result.setEmotionCurve("解析失败");
         }
-        
         return result;
     }
     
     // ========== 辅助方法 ==========
-    
-    private int extractScore(String response, String key) {
-        Pattern pattern = Pattern.compile(key + ".*?(\\d+)分?");
-        Matcher matcher = pattern.matcher(response);
-        if (matcher.find()) {
-            int score = Integer.parseInt(matcher.group(1));
-            // 如果分数 <= 10，LLM 可能使用 1-10 制，归一化到 1-100
-            if (score <= 10) {
-                score = score * 10;
-            }
-            return Math.min(100, Math.max(0, score));
+
+    private String extractJson(String response) {
+        if (response == null) return "{}";
+        String trimmed = response.trim();
+        if (trimmed.startsWith("```json")) {
+            trimmed = trimmed.replaceAll("^```json\\s*", "").replaceAll("\\s*```$", "");
+        } else if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceAll("^```\\s*", "").replaceAll("\\s*```$", "");
         }
-        return 80;
+        int start = trimmed.indexOf('{');
+        if (start < 0) start = trimmed.indexOf('[');
+        if (start > 0) trimmed = trimmed.substring(start);
+        int endObj = trimmed.lastIndexOf('}');
+        int endArr = trimmed.lastIndexOf(']');
+        int end = Math.max(endObj, endArr);
+        if (end > 0) trimmed = trimmed.substring(0, end + 1);
+        return trimmed;
     }
-    
-    private int extractNumber(String response, String key) {
-        Pattern pattern = Pattern.compile(key + "[^0-9]*(\\d+)个?");
-        Matcher matcher = pattern.matcher(response);
-        if (matcher.find()) {
-            return Integer.parseInt(matcher.group(1));
-        }
-        return 0;
-    }
-    
-    private String extractConflictDescription(String response) {
-        if (response.contains("冲突") || response.contains("矛盾")) {
-            Pattern pattern = Pattern.compile("[^。，,.]*[冲突矛盾][^。，,.]*");
-            Matcher matcher = pattern.matcher(response);
-            if (matcher.find()) {
-                return matcher.group();
-            }
-            return "存在潜在冲突";
-        }
-        return "无冲突";
-    }
-    
-    private String extractMissingClues(String response) {
-        return "存在遗漏伏笔，请检查";
-    }
-    
-    private String extractConflicts(String response) {
-        if (response.contains("冲突") || response.contains("违反")) {
-            return "存在设定冲突";
-        }
-        return "无";
-    }
-    
-    private String extractEmotionCurve(String response) {
-        if (response.contains("起伏")) return "有起伏";
-        if (response.contains("递进")) return "递进";
-        if (response.contains("平稳")) return "平稳";
-        if (response.contains("高潮")) return "高潮";
-        return "正常";
-    }
-    
-    private String detectRhythmType(String response) {
-        response = response.toLowerCase();
-        if (response.contains("quest") || response.contains("主线") || response.contains("冲突")) {
-            return "quest";
-        }
-        if (response.contains("fire") || response.contains("感情") || response.contains("爱情")) {
-            return "fire";
-        }
-        if (response.contains("constellation") || response.contains("世界观") || response.contains("设定")) {
-            return "constellation";
-        }
-        return "quest";
-    }
-    
+
     private String truncate(String text, int maxLength) {
         if (text == null || text.isEmpty()) return "无";
         return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
