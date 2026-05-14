@@ -249,6 +249,7 @@ public class WizardServiceImpl implements WizardService {
     public String batchGenerateChapters(String novelId) {
         NovelBase novel = novelBaseMapper.selectById(novelId);
         String llmConfigId = novel != null ? novel.getLlmConfigId() : null;
+        String styleCardId = styleCardService.getBoundCardId(novelId);
         String taskId = UUID.randomUUID().toString();
         log.info("启动批量章节生成任务，小说ID: {}, 任务ID: {}", novelId, taskId);
 
@@ -287,6 +288,7 @@ public class WizardServiceImpl implements WizardService {
                         genRequest.setNovelId(novelId);
                         genRequest.setChapterNum(chapter.getChapterNum());
                         genRequest.setLlmConfigId(llmConfigId);
+                        genRequest.setStyleCardId(styleCardId);
 
                         ChapterGenerationResponse response = chapterGenerationService.generateChapter(genRequest);
 
