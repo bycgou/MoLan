@@ -245,4 +245,6 @@ export const wizardApi = {
     api.post<ApiResponse<string>>(`/wizard/novel/${novelId}/batch-generate`).then(res => res.data),
   getBatchStatus: (novelId: string, taskId: string) =>
     api.get<ApiResponse<import('@/types').BatchGenerationProgress>>(`/wizard/novel/${novelId}/batch-status/${taskId}`).then(res => res.data),
+  batchCancel: (novelId: string, taskId: string) =>
+    api.post<ApiResponse<null>>(`/wizard/novel/${novelId}/batch-cancel/${taskId}`).then(res => res.data),
 }

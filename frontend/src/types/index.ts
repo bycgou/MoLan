@@ -361,9 +361,10 @@ export interface ArcChapterOutlineDTO {
 
 export interface BatchGenerationProgress {
   taskId: string
-  status: string // GENERATING, COMPLETED, FAILED
+  status: string // GENERATING, COMPLETED, FAILED, CANCELLED
   totalChapters: number
   completedChapters: number
+  failedChapters: number
   currentChapterNum: number
   currentPhase: string
   errorMessage?: string
@@ -391,5 +392,6 @@ export interface WizardSaveRequest {
   totalOutline: string
   worldSetting: string
   styleCardId?: string
+  llmConfigId?: string
   arcs: ArcOutlineDTO[]
 }
