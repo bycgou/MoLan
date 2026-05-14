@@ -15,7 +15,6 @@ public class McpServerConfig {
     private String name = "moyun-novel-mcp-server";
     private String version = "1.0.0";
     private String transport = "stdio";
-    private String sseEndpoint = "/mcp/sse";
     private AuthConfig auth = new AuthConfig();
 
     @Data

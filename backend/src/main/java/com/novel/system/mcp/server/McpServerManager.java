@@ -46,11 +46,15 @@ public class McpServerManager {
             List<SyncToolSpecification> allSpecs = getAllToolSpecifications();
             int totalTools = allSpecs.size();
 
-            // NOTE: MCP SDK 0.10.0 does not include SseServerTransportProvider.
-            // Only Stdio transport is currently supported. When the SDK adds SSE support,
-            // add a branch here: if ("sse".equalsIgnoreCase(config.getTransport())) { ... }
-            McpServerTransportProvider transportProvider = new StdioServerTransportProvider();
-            log.info("MCP Server 使用 Stdio 传输");
+            // Select transport based on config
+            McpServerTransportProvider transportProvider;
+            if ("sse".equalsIgnoreCase(config.getTransport())) {
+                log.warn("SSE传输在当前MCP SDK版本中不可用，降级为Stdio传输");
+                transportProvider = new StdioServerTransportProvider();
+            } else {
+                transportProvider = new StdioServerTransportProvider();
+                log.info("MCP Server 使用 Stdio 传输");
+            }
 
             mcpServer = McpServer.sync(transportProvider)
                 .serverInfo(config.getName(), config.getVersion())
