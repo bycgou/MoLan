@@ -35,7 +35,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -68,6 +71,7 @@ public class StreamingChapterController {
     private final StyleCardService styleCardService;
     private final StoryStateService storyStateService;
     private final ChapterGenerationChain chapterGenerationChain;
+    private final ObjectMapper objectMapper;
     @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
     
@@ -234,6 +238,23 @@ public class StreamingChapterController {
 
                                     String valSummary = valResult.getSummary();
                                     log.info("流式生成校验结果: {}", valSummary);
+
+                                    // 发送校验结果SSE事件
+                                    try {
+                                        Map<String, Object> valEvent = new HashMap<>();
+                                        valEvent.put("passed", valResult.getPassed());
+                                        valEvent.put("summary", valResult.getSummary());
+                                        if (!valResult.getPassed()) {
+                                            valEvent.put("oocScore", valResult.getOocResult() != null ? valResult.getOocResult().getTotalScore() : -1);
+                                            valEvent.put("logicPassed", valResult.getLogicResult() != null && valResult.getLogicResult().isPassed());
+                                            valEvent.put("settingPassed", valResult.getSettingResult() != null && valResult.getSettingResult().isPassed());
+                                        }
+                                        emitter.send(SseEmitter.event()
+                                            .name("validation_result")
+                                            .data(objectMapper.writeValueAsString(valEvent)));
+                                    } catch (Exception e) {
+                                        log.warn("发送校验结果SSE事件失败: {}", e.getMessage());
+                                    }
 
                                     // 2. 生成摘要
                                     String summaryContent = "";
