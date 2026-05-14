@@ -44,6 +44,16 @@
               </el-select>
             </el-form-item>
 
+            <el-form-item label="AI 模型">
+              <el-select v-model="form.llmConfigId" placeholder="选择AI模型（默认使用系统模型）" clearable>
+                <el-option v-for="c in llmConfigList" :key="c.configId" :label="c.configName" :value="c.configId" />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="文风卡片">
+              <StyleSelector v-model="form.styleCardId" />
+            </el-form-item>
+
             <el-form-item label="故事类型">
               <el-select v-model="form.novelTypes" multiple placeholder="选择故事类型标签（可多选）" style="width: 100%">
                 <el-option label="爽文" value="爽文" />
@@ -307,11 +317,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onUnmounted } from 'vue'
+import { ref, reactive, computed, onUnmounted, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { wizardApi, genreTemplateApi } from '@/api'
+import { wizardApi, genreTemplateApi, llmConfigApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
+import StyleSelector from '@/components/StyleSelector.vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { ArcOutlineDTO, ArcChapterOutlineDTO, BatchGenerationProgress } from '@/types'
 
@@ -324,6 +335,7 @@ const saving = ref(false)
 const generatingChapterOutlines = ref(false)
 const confirmingOutlines = ref(false)
 const batchGenerating = ref(false)
+const llmConfigList = ref<{ configId: string; configName: string }[]>([])
 
 const novelId = ref('')
 const arcs = ref<ArcOutlineDTO[]>([])
@@ -351,7 +363,8 @@ const form = reactive({
   prompt: '',
   totalOutline: '',
   worldSetting: '',
-  styleCardId: ''
+  styleCardId: '',
+  llmConfigId: ''
 })
 
 const rules: FormRules = {
@@ -375,6 +388,17 @@ const batchStatusText = computed(() => {
   }
 })
 
+onMounted(async () => {
+  try {
+    const res = await llmConfigApi.getConfigList()
+    if (res.code === 200 && res.data) {
+      llmConfigList.value = res.data.map(c => ({ configId: c.configId, configName: c.configName }))
+    }
+  } catch (e) {
+    console.warn('加载LLM配置列表失败:', e)
+  }
+})
+
 // Step 1: 生成卷纲
 const handleGenerateVolumes = async () => {
   if (!form.novelName || !form.genre) {
@@ -393,7 +417,8 @@ const handleGenerateVolumes = async () => {
       totalOutline: form.totalOutline,
       worldSetting: form.worldSetting,
       prompt: form.prompt,
-      styleCardId: form.styleCardId || undefined
+      styleCardId: form.styleCardId || undefined,
+      llmConfigId: form.llmConfigId || undefined
     })
     if (response.code === 200 && response.data) {
       arcs.value = response.data
@@ -462,6 +487,7 @@ const handleSaveNovel = async () => {
       totalOutline: form.totalOutline,
       worldSetting: form.worldSetting,
       styleCardId: form.styleCardId || undefined,
+      llmConfigId: form.llmConfigId || undefined,
       arcs: arcs.value
     })
     if (response.code === 200 && response.data) {
