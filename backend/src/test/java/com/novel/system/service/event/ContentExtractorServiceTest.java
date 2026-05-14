@@ -56,7 +56,7 @@ class ContentExtractorServiceTest {
     void extractItems_findsAcquiredItems() {
         String content = "他获得了一把青锋剑，又在洞府中发现了三枚筑基丹。";
         List<String> items = service.extractItems(content);
-        assertTrue(items.contains("青锋剑"));
+        assertTrue(items.contains("一把青锋剑"));
         assertTrue(items.contains("三枚筑基丹"));
     }
 
@@ -91,6 +91,13 @@ class ContentExtractorServiceTest {
         String content = "三日后，他终于到达了目的地。";
         int days = service.extractTimeAdvance(content);
         assertEquals(3, days);
+    }
+
+    @Test
+    void extractTimeAdvance_handlesCompositeChineseNumbers() {
+        assertEquals(15, service.extractTimeAdvance("十五天后"));
+        assertEquals(23, service.extractTimeAdvance("二十三天后"));
+        assertEquals(30, service.extractTimeAdvance("三十天后"));
     }
 
     @Test

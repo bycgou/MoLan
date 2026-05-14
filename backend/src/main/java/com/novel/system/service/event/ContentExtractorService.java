@@ -34,9 +34,9 @@ public class ContentExtractorService {
         "(?:突破到|晋升为|达到|突破至|踏入|晋级|迈入|凝练出|领悟了|掌握了|获得了)([\\u4e00-\\u9fa5]{2,10})"
     );
 
-    /** 物品获取模式 */
+    /** 物品获取模式 — 捕获动词后的中文短语，含量词前缀 */
     private static final Pattern ITEM_PATTERN = Pattern.compile(
-        "(?:获得|得到|捡到|发现|拿到|取出|拿出|掏出|收获|夺得|抢到|寻得|觅得)了?(?:一把|一枚|一件|一块|一本|一颗|一道|一只|一张)?([\\u4e00-\\u9fa5]{2,8})"
+        "(?:获得|得到|捡到|发现|拿到|取出|拿出|掏出|收获|夺得|抢到|寻得|觅得)了?([一二三四五六七八九十百千万两]*[把枚件块本颗道只张个柄卷]?[\\u4e00-\\u9fa5]{2,8})"
     );
 
     /** 对话模式：人名 + 说/道/问 + 引号内容 */
@@ -132,24 +132,34 @@ public class ContentExtractorService {
     }
 
     /**
-     * 中文数字转阿拉伯数字（简化实现）
+     * 中文数字转阿拉伯数字
+     * 支持：一~九、十、十五、二十三、三十、二十 等常见组合
      */
     private int chineseToNumber(String chinese) {
         if (chinese == null || chinese.isEmpty()) return 1;
-        return switch (chinese) {
-            case "一" -> 1;
-            case "二", "两" -> 2;
-            case "三" -> 3;
-            case "四" -> 4;
-            case "五" -> 5;
-            case "六" -> 6;
-            case "七" -> 7;
-            case "八" -> 8;
-            case "九" -> 9;
-            case "十" -> 10;
-            case "半" -> 15; // 半月 ≈ 15天
-            default -> 1;
-        };
+        if ("半".equals(chinese)) return 15; // 半月 ≈ 15天
+
+        // 单字映射
+        int result = 0;
+        int current = 0;
+        for (char c : chinese.toCharArray()) {
+            int digit = switch (c) {
+                case '一' -> 1; case '二' -> 2; case '两' -> 2; case '三' -> 3;
+                case '四' -> 4; case '五' -> 5; case '六' -> 6; case '七' -> 7;
+                case '八' -> 8; case '九' -> 9; case '十' -> 10;
+                default -> -1;
+            };
+            if (digit == -1) continue;
+            if (digit == 10) {
+                // "十" 作为基数：前面有数字则乘，否则为10
+                result += (current == 0 ? 10 : current * 10);
+                current = 0;
+            } else {
+                current = digit;
+            }
+        }
+        result += current;
+        return result > 0 ? result : 1;
     }
 
     /**
