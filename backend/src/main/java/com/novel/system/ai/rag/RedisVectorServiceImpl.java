@@ -5,8 +5,6 @@ import com.novel.system.config.RedisVectorConfig;
 import com.novel.system.ai.rag.RedisVectorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.connection.RedisCommands;
-import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -39,28 +37,29 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     @Override
     public void createIndex() {
         try {
-            RedisCommands commands = redisTemplate.execute(
-                (RedisCallback<RedisCommands>) connection ->
-                    (RedisCommands) connection.stringCommands()
+            String createIndexCmd = String.format(
+                "FT.CREATE %s ON JSON PREFIX 1 %s SCHEMA " +
+                "$.novelId AS novelId TAG " +
+                "$.chapterNum AS chapterNum NUMERIC " +
+                "$.content AS content TEXT " +
+                "$.keywords AS keywords TAG SEPARATOR ','",
+                vectorConfig.getIndexName(),
+                METADATA_PREFIX
             );
-            
-            if (commands != null) {
-                String createIndexCmd = String.format(
-                    "FT.CREATE %s ON JSON PREFIX 1 %s SCHEMA " +
-                    "$.novelId AS novelId TAG " +
-                    "$.chapterNum AS chapterNum NUMERIC " +
-                    "$.content AS content TEXT " +
-                    "$.keywords AS keywords TAG SEPARATOR ','",
-                    vectorConfig.getIndexName(),
-                    METADATA_PREFIX
-                );
-                log.info("创建索引命令: {}", createIndexCmd);
-            }
-            
-            log.info("向量索引配置完成: {}", vectorConfig.getIndexName());
-            
+            log.info("创建索引命令: {}", createIndexCmd);
+
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                connection.execute(createIndexCmd);
+                return null;
+            });
+
+            log.info("Redis向量索引创建成功: {}", vectorConfig.getIndexName());
         } catch (Exception e) {
-            log.warn("创建向量索引跳过（可能Redis Stack未安装）: {}", e.getMessage());
+            if (e.getMessage() != null && e.getMessage().contains("Index already exists")) {
+                log.debug("Redis向量索引已存在: {}", vectorConfig.getIndexName());
+            } else {
+                log.warn("Redis向量索引创建失败（可能Redis Stack未安装）: {}", e.getMessage());
+            }
         }
     }
     
