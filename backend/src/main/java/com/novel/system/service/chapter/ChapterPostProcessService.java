@@ -52,12 +52,22 @@ public class ChapterPostProcessService {
     private final com.novel.system.service.event.EventGraphService eventGraphService;
     private final com.novel.system.service.event.ContentExtractorService contentExtractorService;
 
+    private final java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean> processedChapters =
+        java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     /**
      * 异步后处理：从章节内容中提取人物、伏笔、时间线
      */
     @Async
     public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline) {
         log.info("开始后处理章节: 小说ID={}, 章节号={}", novelId, chapterNum);
+
+        String idempotentKey = novelId + ":" + chapterNum;
+        if (!processedChapters.add(idempotentKey)) {
+            log.info("章节后处理已执行，跳过: novelId={}, chapter={}", novelId, chapterNum);
+            return;
+        }
+
         long start = System.currentTimeMillis();
 
         try {
@@ -113,6 +123,7 @@ public class ChapterPostProcessService {
             log.info("后处理完成: 小说ID={}, 章节号={}, 耗时={}ms", novelId, chapterNum, elapsed);
 
         } catch (Exception e) {
+            processedChapters.remove(idempotentKey);
             log.error("后处理失败: 小说ID={}, 章节号={}, 错误: {}", novelId, chapterNum, e.getMessage(), e);
         }
     }
