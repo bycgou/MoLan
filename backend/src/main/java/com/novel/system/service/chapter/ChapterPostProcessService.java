@@ -512,10 +512,35 @@ public class ChapterPostProcessService {
                     novelId, chapterNum, allEvents.size(), llmEvents.size(), dialogueEvents.size());
             }
 
-            // 4. 程序化提取位置变化
+            // 4. 程序化提取 → 兜底更新StoryState
             String newLocation = contentExtractorService.extractLocation(content);
             if (newLocation != null) {
-                log.info("程序化提取位置变化: {} (小说:{}, 章节:{})", newLocation, novelId, chapterNum);
+                try {
+                    storyStateService.updateProtagonistLocation(novelId, newLocation);
+                    log.info("程序化兜底更新主角位置: {} (小说:{}, 章节:{})", newLocation, novelId, chapterNum);
+                } catch (Exception e) {
+                    log.warn("程序化更新位置失败: {}", e.getMessage());
+                }
+            }
+
+            String newPowerLevel = contentExtractorService.extractPowerLevel(content);
+            if (newPowerLevel != null) {
+                try {
+                    storyStateService.updateProtagonistPowerLevel(novelId, newPowerLevel);
+                    log.info("程序化兜底更新主角实力: {} (小说:{}, 章节:{})", newPowerLevel, novelId, chapterNum);
+                } catch (Exception e) {
+                    log.warn("程序化更新实力失败: {}", e.getMessage());
+                }
+            }
+
+            List<String> newItems = contentExtractorService.extractItems(content);
+            if (!newItems.isEmpty()) {
+                try {
+                    storyStateService.updateProtagonistInventory(novelId, newItems);
+                    log.info("程序化兜底更新主角物品: {} (小说:{}, 章节:{})", newItems, novelId, chapterNum);
+                } catch (Exception e) {
+                    log.warn("程序化更新物品失败: {}", e.getMessage());
+                }
             }
 
         } catch (Exception e) {
