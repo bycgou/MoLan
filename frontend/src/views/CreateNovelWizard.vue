@@ -19,7 +19,7 @@
       <div class="step-content">
         <!-- Step 1: 填写设定 -->
         <div v-if="currentStep === 0">
-          <el-form :model="form" :rules="rules" ref="formRef" label-width="100px" class="step-form">
+          <el-form :model="form" :rules="rules" label-width="100px" class="step-form">
             <el-form-item label="小说名称" prop="novelName">
               <el-input v-model="form.novelName" placeholder="请输入小说名称" maxlength="100" show-word-limit />
             </el-form-item>
@@ -342,11 +342,10 @@ import { wizardApi, genreTemplateApi, llmConfigApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import StyleSelector from '@/components/StyleSelector.vue'
-import type { FormInstance, FormRules } from 'element-plus'
+import type { FormRules } from 'element-plus'
 import type { ArcOutlineDTO, ArcChapterOutlineDTO, BatchGenerationProgress } from '@/types'
 
 const router = useRouter()
-const formRef = ref<FormInstance>()
 
 const currentStep = ref(0)
 const generatingVolumes = ref(false)
