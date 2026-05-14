@@ -23,7 +23,7 @@ public interface NovelChapterMapper {
     int deleteById(@Param("chapterId") String chapterId);
     
     /**
-     * 查询最近章节的大纲和钩子（用于三层记忆体系）
+     * 查询最近章节的大纲和钩子（第四层滑动窗口 — 子层4b：近章大纲）
      * @param novelId 小说ID
      * @param currentChapterNum 当前章节号
      * @param limit 查询数量限制

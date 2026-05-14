@@ -1,7 +1,7 @@
 package com.novel.system.config;
 
-import dev.langchain4j.model.chat.ChatLanguageModel;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * LangChain4j配置类
  * 
  * 【核心作用】
- * 根据数据库中的LlmConfig动态创建ChatLanguageModel实例。
+ * 根据数据库中的LlmConfig动态创建ChatModel实例。
  * 这是连接业务配置和LangChain4j框架的桥梁。
  * 
  * 【设计模式】
@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * 【缓存机制】
  * 使用ConcurrentHashMap缓存模型实例，避免重复创建：
- * - modelCache: 缓存ChatLanguageModel实例
+ * - modelCache: 缓存ChatModel实例
  * - embeddingModelCache: 缓存EmbeddingModel实例
  * 
  * 【支持的模型类型】
@@ -43,7 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * LlmConfig config = llmConfigService.getConfigById(configId);
  * 
  * // 创建模型
- * ChatLanguageModel model = langChainConfig.createChatModel(config);
+ * ChatModel model = langChainConfig.createChatModel(config);
  * 
  * // 使用模型
  * String response = model.generate("你好");
@@ -84,9 +84,9 @@ public class LangChainConfig {
     /**
      * 模型缓存
      * key: 配置ID
-     * value: ChatLanguageModel实例
+     * value: ChatModel实例
      */
-    private final Map<String, ChatLanguageModel> modelCache = new ConcurrentHashMap<>();
+    private final Map<String, ChatModel> modelCache = new ConcurrentHashMap<>();
     
     /**
      * Embedding模型实例缓存
@@ -95,7 +95,7 @@ public class LangChainConfig {
     private final Map<String, EmbeddingModel> embeddingModelCache = new ConcurrentHashMap<>();
     
     /**
-     * 根据LlmConfig创建ChatLanguageModel
+     * 根据LlmConfig创建ChatModel
      * 
      * 【执行流程】
      * 1. 检查缓存中是否已有该配置的模型实例
@@ -111,12 +111,12 @@ public class LangChainConfig {
      *               - modelName: 模型名称
      *               - temperature: 温度参数
      *               - maxTokens: 最大token数
-     * @return ChatLanguageModel实例
+     * @return ChatModel实例
      * @throws RuntimeException 如果配置无效或创建失败
      * 
      * @see #buildChatModel 实际创建模型的方法
      */
-    public ChatLanguageModel createChatModel(LlmConfig config) {
+    public ChatModel createChatModel(LlmConfig config) {
         return modelCache.computeIfAbsent(config.getConfigId(), id -> buildChatModel(config));
     }
     
@@ -124,9 +124,9 @@ public class LangChainConfig {
      * 创建带任务类型的聊天模型
      * @param config LLM配置
      * @param taskType 任务类型
-     * @return ChatLanguageModel 实例
+     * @return ChatModel 实例
      */
-    public ChatLanguageModel createChatModel(LlmConfig config, TaskType taskType) {
+    public ChatModel createChatModel(LlmConfig config, TaskType taskType) {
         // 如果任务类型指定了温度，使用任务类型的温度
         Double temperature = taskType.getTemperature() != null 
             ? taskType.getTemperature().doubleValue() 
@@ -177,14 +177,14 @@ public class LangChainConfig {
     /**
      * 创建流式聊天模型
      * @param config LLM配置
-     * @return StreamingChatLanguageModel 实例
+     * @return StreamingChatModel 实例
      */
-    public StreamingChatLanguageModel createStreamingChatModel(LlmConfig config) {
+    public StreamingChatModel createStreamingChatModel(LlmConfig config) {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
         String modelName = config.getModelName();
         
-        log.info("创建StreamingChatLanguageModel: model={}, baseUrl={}", modelName, baseUrl);
+        log.info("创建StreamingChatModel: model={}, baseUrl={}", modelName, baseUrl);
         
         // 根据baseUrl判断超时时间
         Duration timeout;
@@ -211,7 +211,7 @@ public class LangChainConfig {
     }
     
     /**
-     * 构建ChatLanguageModel
+     * 构建ChatModel
      * 
      * 【构建过程】
      * 1. 构建baseUrl（处理各种URL格式）
@@ -226,15 +226,15 @@ public class LangChainConfig {
      * - https://api.openai.com（自动添加/v1）
      * 
      * @param config LlmConfig配置对象
-     * @return ChatLanguageModel实例
+     * @return ChatModel实例
      * @throws RuntimeException 如果baseUrl为空
      */
-    private ChatLanguageModel buildChatModel(LlmConfig config) {
+    private ChatModel buildChatModel(LlmConfig config) {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
         String modelName = config.getModelName();
         
-        log.info("创建ChatLanguageModel: model={}, baseUrl={}", modelName, baseUrl);
+        log.info("创建ChatModel: model={}, baseUrl={}", modelName, baseUrl);
         
         // 根据baseUrl判断超时时间
         Duration timeout;
@@ -297,19 +297,16 @@ public class LangChainConfig {
     }
     
     /**
-     * 构建Base URL — 直接使用前端传来的地址，不做任何拼接
+     * 构建Base URL — 处理各种URL格式，确保兼容性
      *
      * 【处理规则】
      * 1. 移除末尾的斜杠
-     * 2. 直接返回，不添加任何版本路径
-     *
-     * 【为什么不做自动拼接？】
-     * - Ollama: http://localhost:11434/v1
-     * - OpenAI: https://api.openai.com/v1
-     * - 兼容各种本地/远程模型，用户填什么就用什么
+     * 2. 如果包含 /chat/completions，移除它（LangChain4j 会自动追加）
+     * 3. 如果包含 /v1/chat/completions，保留到 /v1
+     * 4. 其他情况直接返回
      *
      * @param config LlmConfig配置对象
-     * @return 处理后的baseUrl（原样返回，仅去除尾部斜杠）
+     * @return 处理后的baseUrl
      */
     private String buildBaseUrl(LlmConfig config) {
         String baseUrl = config.getBaseUrl();
@@ -320,12 +317,21 @@ public class LangChainConfig {
 
         baseUrl = baseUrl.trim();
 
-        // 仅移除末尾的斜杠，其余不做任何处理
+        // 移除末尾的斜杠
         while (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
 
-        log.debug("使用原始URL: {}", baseUrl);
+        // 如果包含了完整路径 /chat/completions，需要移除（LangChain4j会自动追加）
+        if (baseUrl.endsWith("/chat/completions")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length());
+            // 移除后可能又有斜杠，再次清理
+            while (baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+        }
+
+        log.debug("处理后的baseUrl: {}", baseUrl);
         return baseUrl;
     }
 }

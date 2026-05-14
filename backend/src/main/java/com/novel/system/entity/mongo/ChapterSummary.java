@@ -11,7 +11,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 剧情摘要文档 (MongoDB) - 用于向量检索
+ * 剧情摘要文档 (MongoDB) - 第六层：RAG向量检索的数据源
+ * 每章生成后自动创建，同时生成向量嵌入，支持跨章节语义检索。
  */
 @Document(collection = "chapter_summary")
 @Data

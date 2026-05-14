@@ -6,7 +6,8 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.util.List;
 
 /**
- * 小说知识图谱文档 (MongoDB)
+ * 小说知识图谱文档 (MongoDB) — 五层记忆架构第五层：事件图谱的关联数据
+ * 存储实体节点（人物、地点、物品等）和关系边，支持关系推理。
  */
 @Data
 @Document(collection = "novel_graph")
@@ -48,5 +49,11 @@ public class NovelGraph {
         private String relation;
         /** 最后更新该关系的章节号 */
         private Integer lastUpdateChapter;
+        /** 关系类型（用于人物关系） */
+        private String relationType;
+        /** 亲密度 0-100 */
+        private Integer intimacyLevel;
+        /** 冲突度 0-100 */
+        private Integer conflictLevel;
     }
 }

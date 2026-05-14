@@ -12,8 +12,8 @@ import java.util.List;
 /**
  * 故事状态文档 (MongoDB)
  *
- * 记录小说的实时状态，是记忆系统的核心枢纽。
- * 每生成一章后自动更新，每次生成章节时全量注入 Prompt。
+ * 五层记忆架构 — 第一层：故事状态（核心枢纽）
+ * 记录小说的实时状态，每生成一章后自动更新，每次生成章节时全量注入 Prompt。
  */
 @Document(collection = "story_state")
 @Data

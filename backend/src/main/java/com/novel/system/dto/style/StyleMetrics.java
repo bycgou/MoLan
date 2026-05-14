@@ -118,4 +118,48 @@ public class StyleMetrics {
      * 对话段落数
      */
     private int dialogueParagraphs;
+
+    // ========== 反模式检测指标 ==========
+
+    /**
+     * 句式多样性指数（0-1，越低越模板化）
+     * 基于句长标准差与均值的比值（变异系数），AI写作通常句长过于均匀
+     */
+    private double sentenceDiversityIndex;
+
+    /**
+     * 过渡方式偏好：直接切场景比例
+     * 统计段落首句是否以"与此同时""转眼间"等过渡词开头
+     */
+    private double directCutRatio;
+
+    /**
+     * 过渡方式偏好：万能过渡句比例
+     */
+    private double transitionClicheRatio;
+
+    /**
+     * 章尾模式：动作结尾比例
+     */
+    private double actionEndingRatio;
+
+    /**
+     * 章尾模式：对话结尾比例
+     */
+    private double dialogueEndingRatio;
+
+    /**
+     * 章尾模式：悬念结尾比例
+     */
+    private double suspenseEndingRatio;
+
+    /**
+     * 对话连续轮数（最长连续对话无动作插入）
+     */
+    private int maxConsecutiveDialogue;
+
+    /**
+     * 新场景感官细节覆盖率（0-1，无感官细节的新场景占比）
+     */
+    private double emptySceneRatio;
 }

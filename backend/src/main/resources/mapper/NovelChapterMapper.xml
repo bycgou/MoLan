@@ -107,7 +107,7 @@
         DELETE FROM novel_chapter WHERE chapter_id = #{chapterId}
     </delete>
 
-    <!-- 查询最近章节的大纲和钩子（用于三层记忆体系） -->
+    <!-- 查询最近章节的大纲和钩子（第四层滑动窗口 — 子层4b：近章大纲） -->
     <select id="selectRecentOutlines" resultType="com.novel.system.entity.mysql.NovelChapter">
         SELECT chapter_num, chapter_title, chapter_outline, hook
         FROM novel_chapter

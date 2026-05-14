@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 故事状态服务实现
+ * 故事状态服务实现 — 五层记忆架构第一层：故事状态（核心枢纽）
+ * 管理StoryState的创建、更新、压缩和格式化输出。
+ * 每20章自动触发背景压缩，将近期事件压缩为500字以内的摘要。
  */
 @Slf4j
 @Service

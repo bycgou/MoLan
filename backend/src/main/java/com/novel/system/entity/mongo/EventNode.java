@@ -12,9 +12,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 事件图谱节点 (MongoDB)
+ * 事件图谱节点 (MongoDB) — 五层记忆架构第五层：事件图谱
  * 存储章节中的关键事件，永不压缩，支持跨章节精确查询。
  * 每个事件限制200字以内，确保存储效率。
+ * 通过 RuleDrivenRetrievalService 规则驱动自动检索。
  */
 @Document(collection = "event_graph")
 @CompoundIndexes({

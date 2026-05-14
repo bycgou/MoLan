@@ -11,27 +11,27 @@ import java.util.List;
 
 /**
  * 人物工具 - Agent可调用的人物查询与校验工具
- * 
+ *
  * 【核心作用】
  * 这是AI Agent的"人物数据库"，提供查询人物信息和校验人物行为的功能。
  * Agent在生成内容时，可以自动调用这些工具确保人物一致性。
- * 
+ *
  * 【为什么需要人物工具？】
  * 1. 人物一致性：确保人物言行符合设定
  * 2. 防止OOC：OOC（Out Of Character）指人物行为不符合设定
  * 3. 提供上下文：让Agent了解人物的基本信息
- * 
+ *
  * 【工具列表】
  * 1. getCharactersByNovelId - 查询所有人物
  * 2. getCharacterDetail - 查询指定人物详情
  * 3. checkBehaviorAllowed - 检查人物行为是否合理
  * 4. getCharactersByLocation - 查询指定地点的人物
- * 
+ *
  * 【使用场景】
  * - WritingAgent生成正文时，查询人物设定确保对话和行为符合设定
  * - OutlineAgent生成章纲时，查询人物状态了解当前情况
- * - ValidationChain校验内容时，检查人物行为是否合理
- * 
+ * - ValidationService校验内容时，检查人物行为是否合理
+ *
  * @author AI Assistant
  * @since 1.0.0
  * @see NovelTool 小说工具
@@ -123,17 +123,17 @@ public class CharacterTool {
     
     /**
      * 检查人物行为是否符合设定
-     * 
+     *
      * 【OOC检测】
      * OOC（Out Of Character）指人物行为不符合设定。
      * 例如：
      * - 一个胆小的人突然变得勇敢
      * - 一个冷漠的人突然变得热情
      * - 一个不懂医术的人突然开始治病
-     * 
+     *
      * 【使用场景】
-     * ValidationChain校验内容时，会调用此工具检查人物行为是否合理。
-     * 
+     * ValidationService校验内容时，会调用此工具检查人物行为是否合理。
+     *
      * @param novelId 小说ID
      * @param characterId 人物ID
      * @param behavior 人物行为描述

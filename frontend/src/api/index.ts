@@ -185,6 +185,8 @@ export const llmConfigApi = {
     api.delete<ApiResponse<null>>(`/llm-config/${configId}`).then(res => res.data),
   testConnection: (data: import('@/types').TestConnectionRequest) =>
     api.post<ApiResponse<boolean>>('/llm-config/test', data).then(res => res.data),
+  testSavedConfig: (configId: string) =>
+    api.post<ApiResponse<boolean>>(`/llm-config/test/${configId}`).then(res => res.data),
   getActiveConfig: (usageType: string = 'all') =>
     api.get<ApiResponse<import('@/types').LlmConfigVO>>('/llm-config/active', { params: { usageType } }).then(res => res.data),
 }

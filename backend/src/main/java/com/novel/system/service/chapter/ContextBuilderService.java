@@ -20,7 +20,18 @@ import java.util.List;
 
 /**
  * 上下文构建服务
- * 实现三层记忆体系，构建章纲和正文生成的上下文
+ * 实现五层记忆架构，构建章纲和正文生成的上下文
+ *
+ * 五层记忆架构：
+ * 第一层：故事状态（StoryState）— 核心枢纽，实时状态 + 压缩背景，全量注入
+ * 第二层：伏笔账本（ClueBook）— 精确SQL查询，按条件注入（deadline临近/近期埋设/全局概览）
+ * 第三层：角色档案（CharacterState + CharacterGraph）— 本章出场角色的完整档案，按需注入
+ * 第四层：滑动窗口（ArcSummary + 近章大纲 + 上章钩子）— 保证章节间微观衔接，全量注入
+ *   - 子层4a：弧段摘要（全局历史记忆，防止AI对早期情节失忆）
+ *   - 子层4b：近章大纲（微观衔接）
+ *   - 子层4c：上一章结尾钩子（本章开头必须承接）
+ * 第五层：事件图谱 + 规则驱动检索（EventGraph + RuleDrivenRetrieval）— 按规则自动触发历史事件检索
+ * 第六层：RAG向量检索 — Agent @Tool 按需调用，回忆早期章节细节（当前仍为Push模式，待改为Pull）
  */
 @Slf4j
 @Service
@@ -40,7 +51,7 @@ public class ContextBuilderService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
-     * 构建章纲生成的上下文 — 三层记忆体系（默认8192 token预算）
+     * 构建章纲生成的上下文 — 五层记忆架构（默认8192 token预算）
      */
     public String buildOutlineContext(String novelId, int chapterNum,
                                        NovelBase novel, String arcName, String arcOutline) {
@@ -48,11 +59,16 @@ public class ContextBuilderService {
     }
 
     /**
-     * 构建章纲生成的上下文 — 三层记忆体系（支持Token预算控制）
+     * 构建章纲生成的上下文 — 五层记忆架构（支持Token预算控制）
      *
-     * 第一层：弧段摘要 (全局历史记忆，防止 AI 对早期情节失忆)
-     * 第二层：近8章大纲 (微观衔接)
-     * 第三层：上批钩子 (本章开头必须承接)
+     * 第一层：故事状态（StoryState）— 核心枢纽，全量注入
+     * 第二层：伏笔账本（ClueBook）— 精确查询，按条件注入
+     * 第三层：角色档案（CharacterState + CharacterGraph）— 按需注入
+     * 第四层：滑动窗口 — 弧段摘要 + 近章大纲 + 上章钩子，全量注入
+     *   - 子层4a：弧段摘要 (全局历史记忆，防止 AI 对早期情节失忆)
+     *   - 子层4b：近章大纲 (微观衔接)
+     *   - 子层4c：上一章结尾钩子 (本章开头必须承接)
+     * 第五层：事件图谱 + 规则驱动检索 — 按规则自动触发
      */
     public String buildOutlineContext(String novelId, int chapterNum,
                                        NovelBase novel, String arcName, String arcOutline,
@@ -60,7 +76,7 @@ public class ContextBuilderService {
         TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(modelMaxToken);
         StringBuilder sb = new StringBuilder();
 
-        // === 第一层：弧段摘要 ===
+        // === 第四层：滑动窗口 — 子层4a：弧段摘要 ===
         List<ArcSummary> arcSummaries = arcSummaryMapper
             .selectByNovelIdAndRange(novelId, chapterNum);
         if (!arcSummaries.isEmpty()) {
@@ -73,7 +89,7 @@ public class ContextBuilderService {
             sb.append(tokenBudgetService.truncateToBudget(arcSb.toString(), budget.getAllocated("arcSummary")));
         }
 
-        // === 第二层：近8章局部大纲 ===
+        // === 第四层：滑动窗口 — 子层4b：近章局部大纲 ===
         List<NovelChapter> recentChapters = chapterMapper
             .selectRecentOutlines(novelId, chapterNum, 8);
         if (!recentChapters.isEmpty()) {
@@ -88,7 +104,7 @@ public class ContextBuilderService {
             sb.append(tokenBudgetService.truncateToBudget(outlineSb.toString(), budget.getAllocated("recentOutline")));
         }
 
-        // === 第三层：上一章结尾钩子 ===
+        // === 第四层：滑动窗口 — 子层4c：上一章结尾钩子 ===
         NovelChapter prevChapter = chapterMapper
             .selectByNovelIdAndChapterNum(novelId, chapterNum - 1);
         if (prevChapter != null && prevChapter.getHook() != null) {
@@ -97,7 +113,7 @@ public class ContextBuilderService {
                 prevChapter.getHook()));
         }
 
-        // === 事件图谱：规则驱动自动检索 ===
+        // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
             List<com.novel.system.entity.mysql.ClueBook> pendingClues =
                 clueBookService.getUnrecycledClues(novelId);
@@ -113,7 +129,7 @@ public class ContextBuilderService {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
         }
 
-        // === 故事状态（核心枢纽，第一优先级数据源）===
+        // === 第一层：故事状态（核心枢纽，第一优先级数据源）===
         StoryState storyState = null;
         try {
             storyState = storyStateService.getOrCreate(novelId);
@@ -143,7 +159,7 @@ public class ContextBuilderService {
             sb.append("\n");
         }
 
-        // === 人物当前状态 ===
+        // === 第三层：角色档案 — 人物当前状态 ===
         String charStates = characterStateService.formatForPrompt(novelId);
         if (charStates != null && !charStates.isEmpty()) {
             sb.append("【人物当前状态（大纲中必须与此一致）】\n");
@@ -151,7 +167,7 @@ public class ContextBuilderService {
             sb.append("\n\n");
         }
 
-        // === 人物关系图谱 ===
+        // === 第三层：角色档案 — 人物关系图谱 ===
         try {
             String graphStr = characterGraphService.formatGraphAsString(novelId);
             if (graphStr != null && !graphStr.isEmpty() && !"暂无人物关系数据".equals(graphStr)) {
@@ -163,7 +179,7 @@ public class ContextBuilderService {
             log.warn("获取人物关系图谱失败: {}", e.getMessage());
         }
 
-        // === 伏笔 deadline 紧急提示 ===
+        // === 第二层：伏笔账本 — deadline紧急提示 ===
         List<ClueBook> pendingClues = clueBookService.getUnrecycledClues(novelId);
         if (!pendingClues.isEmpty()) {
             StringBuilder clueSb = new StringBuilder();
@@ -257,7 +273,7 @@ public class ContextBuilderService {
     }
     
     /**
-     * 构建正文写作的上下文 — 增强版（默认8192 token预算）
+     * 构建正文写作的上下文 — 五层记忆架构（默认8192 token预算）
      */
     public String buildWritingContext(String novelId, int chapterNum,
                                        NovelChapter chapter, NovelBase novel,
@@ -266,7 +282,7 @@ public class ContextBuilderService {
     }
 
     /**
-     * 构建正文写作的上下文 — 增强版（支持Token预算控制）
+     * 构建正文写作的上下文 — 五层记忆架构（支持Token预算控制）
      */
     public String buildWritingContext(String novelId, int chapterNum,
                                        NovelChapter chapter, NovelBase novel,
@@ -274,8 +290,7 @@ public class ContextBuilderService {
         TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(modelMaxToken);
         StringBuilder sb = new StringBuilder();
 
-        // === 三层记忆 ===
-        // 弧段摘要
+        // === 第四层：滑动窗口 — 子层4a：弧段摘要 ===
         List<ArcSummary> arcSummaries = arcSummaryMapper
             .selectByNovelIdAndRange(novelId, chapterNum);
         if (!arcSummaries.isEmpty()) {
@@ -288,7 +303,7 @@ public class ContextBuilderService {
             sb.append(tokenBudgetService.truncateToBudget(arcSb.toString(), budget.getAllocated("arcSummary")));
         }
 
-        // 近5章局部大纲
+        // === 第四层：滑动窗口 — 子层4b：近章局部大纲 ===
         List<NovelChapter> recentChapters = chapterMapper
             .selectRecentOutlines(novelId, chapterNum, 5);
         if (!recentChapters.isEmpty()) {
@@ -303,7 +318,7 @@ public class ContextBuilderService {
             sb.append(tokenBudgetService.truncateToBudget(outlineSb.toString(), budget.getAllocated("recentOutline")));
         }
 
-        // 上一章结尾钩子
+        // === 第四层：滑动窗口 — 子层4c：上一章结尾钩子 ===
         NovelChapter prevChapter = chapterMapper
             .selectByNovelIdAndChapterNum(novelId, chapterNum - 1);
         if (prevChapter != null && prevChapter.getHook() != null) {
@@ -312,7 +327,7 @@ public class ContextBuilderService {
                 prevChapter.getHook()));
         }
 
-        // === 事件图谱：规则驱动自动检索 ===
+        // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
             List<com.novel.system.entity.mysql.ClueBook> pendingClues =
                 clueBookService.getUnrecycledClues(novelId);
@@ -328,7 +343,7 @@ public class ContextBuilderService {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
         }
 
-        // === 故事状态（核心枢纽）===
+        // === 第一层：故事状态（核心枢纽）===
         StoryState storyState = null;
         try {
             storyState = storyStateService.getOrCreate(novelId);
@@ -339,7 +354,7 @@ public class ContextBuilderService {
         } catch (Exception e) {
             log.warn("获取故事状态失败: {}", e.getMessage());
         }
-        // 压缩历史背景
+        // 第一层附属：压缩历史背景
         if (storyState != null && storyState.getCompressedBackstory() != null && !storyState.getCompressedBackstory().isEmpty()) {
             sb.append("【历史背景摘要（前文关键信息压缩）】\n");
             sb.append(tokenBudgetService.truncateToBudget(storyState.getCompressedBackstory(), 500));
@@ -358,7 +373,7 @@ public class ContextBuilderService {
             sb.append("\n");
         }
 
-        // === 伏笔 deadline 紧急提示 ===
+        // === 第二层：伏笔账本 — deadline紧急提示 ===
         List<ClueBook> pendingClues = clueBookService.getUnrecycledClues(novelId);
         if (!pendingClues.isEmpty()) {
             StringBuilder clueSb = new StringBuilder();
@@ -409,7 +424,7 @@ public class ContextBuilderService {
             log.warn("获取卷级编排约束失败（不影响生成）: {}", e.getMessage());
         }
 
-        // === 人物当前状态 ===
+        // === 第三层：角色档案 — 人物当前状态 ===
         String charStates = characterStateService.formatForPrompt(novelId);
         if (charStates != null && !charStates.isEmpty()) {
             sb.append("【人物当前状态（写作中必须与此一致）】\n");
@@ -417,7 +432,7 @@ public class ContextBuilderService {
             sb.append("\n\n");
         }
 
-        // === 人物关系图谱 ===
+        // === 第三层：角色档案 — 人物关系图谱 ===
         try {
             String graphStr = characterGraphService.formatGraphAsString(novelId);
             if (graphStr != null && !graphStr.isEmpty() && !"暂无人物关系数据".equals(graphStr)) {

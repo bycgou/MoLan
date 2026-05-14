@@ -66,9 +66,9 @@ public interface LlmService {
     java.util.List<java.util.Map.Entry<String, Double>> rerank(String query, java.util.List<String> documents);
     
     /**
-     * 获取LangChain4j ChatLanguageModel实例 - 供Agent直接使用
+     * 获取LangChain4j ChatModel实例 - 供Agent直接使用
      * @param llmConfigId 可选的模型配置ID，null则自动选择
-     * @return ChatLanguageModel实例
+     * @return ChatModel实例
      */
-    dev.langchain4j.model.chat.ChatLanguageModel getModelForAgent(String llmConfigId);
+    dev.langchain4j.model.chat.ChatModel getModelForAgent(String llmConfigId);
 }

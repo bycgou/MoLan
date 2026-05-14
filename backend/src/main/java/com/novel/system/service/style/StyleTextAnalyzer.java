@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import com.novel.system.config.AntiAICliches;
 
 /**
  * 文风文本分析器
@@ -94,7 +95,17 @@ public class StyleTextAnalyzer {
         int dialogueParagraphs = countDialogueParagraphs(cleanText);
         
         List<String> distinctiveWords = extractDistinctiveWords(cleanText);
-        
+
+        // ========== 反模式检测 ==========
+        double sentenceDiversityIndex = calcSentenceDiversityIndex(cleanText);
+        double directCutRatio = calcDirectCutRatio(cleanText);
+        double transitionClicheRatio = calcTransitionClicheRatio(cleanText);
+        double actionEndingRatio = calcActionEndingRatio(cleanText);
+        double dialogueEndingRatio = calcDialogueEndingRatio(cleanText);
+        double suspenseEndingRatio = calcSuspenseEndingRatio(cleanText);
+        int maxConsecutiveDialogue = calcMaxConsecutiveDialogue(cleanText);
+        double emptySceneRatio = calcEmptySceneRatio(cleanText);
+
         return StyleMetrics.builder()
                 .avgSentenceLength(avgSentenceLength)
                 .shortSentenceRatio(shortSentenceRatio)
@@ -115,6 +126,14 @@ public class StyleTextAnalyzer {
                 .totalSentences(totalSentences)
                 .totalParagraphs(totalParagraphs)
                 .dialogueParagraphs(dialogueParagraphs)
+                .sentenceDiversityIndex(sentenceDiversityIndex)
+                .directCutRatio(directCutRatio)
+                .transitionClicheRatio(transitionClicheRatio)
+                .actionEndingRatio(actionEndingRatio)
+                .dialogueEndingRatio(dialogueEndingRatio)
+                .suspenseEndingRatio(suspenseEndingRatio)
+                .maxConsecutiveDialogue(maxConsecutiveDialogue)
+                .emptySceneRatio(emptySceneRatio)
                 .build();
     }
     
@@ -244,6 +263,184 @@ public class StyleTextAnalyzer {
                 .collect(Collectors.toList());
     }
     
+    // ========== 反模式检测方法 ==========
+
+    /**
+     * 计算句式多样性指数（变异系数）
+     * AI写作句长过于均匀，多样性指数低；真人写作长短句交错，多样性高
+     * @return 0-1，越高越多样
+     */
+    private double calcSentenceDiversityIndex(String text) {
+        String[] sentences = splitSentences(text);
+        if (sentences.length < 3) {
+            return 1.0;
+        }
+        double[] lengths = Arrays.stream(sentences).mapToDouble(String::length).toArray();
+        double mean = Arrays.stream(lengths).average().orElse(0);
+        if (mean == 0) return 0;
+        double variance = Arrays.stream(lengths).map(l -> Math.pow(l - mean, 2)).average().orElse(0);
+        double stdDev = Math.sqrt(variance);
+        // 变异系数 = 标准差/均值，cap到1.0
+        return Math.min(stdDev / mean, 1.0);
+    }
+
+    /**
+     * 计算直接切场景比例（段落首句无过渡词）
+     * 真人写作倾向直接切场景，AI倾向用过渡句连接
+     */
+    private double calcDirectCutRatio(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        if (paragraphs.length < 2) {
+            return 1.0;
+        }
+        int transitionCount = 0;
+        for (String para : paragraphs) {
+            String trimmed = para.trim();
+            if (trimmed.isEmpty()) continue;
+            // 检查是否以过渡词开头
+            for (String t : AntiAICliches.TRANSITION_CLICHES) {
+                if (trimmed.startsWith(t) || trimmed.contains(t)) {
+                    transitionCount++;
+                    break;
+                }
+            }
+        }
+        return 1.0 - (double) transitionCount / paragraphs.length;
+    }
+
+    /**
+     * 计算万能过渡句比例
+     */
+    private double calcTransitionClicheRatio(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        if (paragraphs.length == 0) return 0;
+        int count = 0;
+        for (String p : paragraphs) {
+            for (String t : AntiAICliches.TRANSITION_CLICHES) {
+                if (p.contains(t)) {
+                    count++;
+                    break;
+                }
+            }
+        }
+        return (double) count / paragraphs.length;
+    }
+
+    /**
+     * 计算章尾模式分布：动作结尾比例
+     */
+    private double calcActionEndingRatio(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        if (paragraphs.length < 3) return 0;
+        // 取最后3个非空段落
+        List<String> tailParagraphs = new ArrayList<>();
+        for (int i = paragraphs.length - 1; i >= 0 && tailParagraphs.size() < 3; i--) {
+            if (!paragraphs[i].trim().isEmpty()) {
+                tailParagraphs.add(paragraphs[i].trim());
+            }
+        }
+        if (tailParagraphs.isEmpty()) return 0;
+        String ending = tailParagraphs.get(0);
+        // 动作结尾：以动词或动作描写结尾，且不是对话
+        boolean isDialogue = ending.contains("“") || ending.contains("”");
+        boolean endsWithVerb = ending.matches(".*[了着过地]\\s*[。！]$")
+                || ending.matches(".*走[了过去]。$")
+                || ending.matches(".*跑[了过去]。$")
+                || ending.matches(".*转身.*[。！]$")
+                || ending.matches(".*站[了起].*[。！]$");
+        return (!isDialogue && endsWithVerb) ? 1.0 : 0.0;
+    }
+
+    /**
+     * 计算章尾模式：对话结尾比例
+     */
+    private double calcDialogueEndingRatio(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        if (paragraphs.length < 3) return 0;
+        for (int i = paragraphs.length - 1; i >= 0; i--) {
+            if (!paragraphs[i].trim().isEmpty()) {
+                return isDialogueParagraph(paragraphs[i].trim()) ? 1.0 : 0.0;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 计算章尾模式：悬念结尾比例（省略号、问号结尾）
+     */
+    private double calcSuspenseEndingRatio(String text) {
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) return 0;
+        char lastChar = trimmed.charAt(trimmed.length() - 1);
+        if (lastChar == '…' || lastChar == '?' || lastChar == '？') return 1.0;
+        // 检查最后5个字符是否含省略号
+        String tail = trimmed.substring(Math.max(0, trimmed.length() - 10));
+        return tail.contains("…") ? 1.0 : 0.0;
+    }
+
+    /**
+     * 计算最长连续对话轮数（无动作/描写插入）
+     * AI倾向于连续写大段对话不插入动作描写
+     */
+    private int calcMaxConsecutiveDialogue(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        int maxConsecutive = 0;
+        int currentConsecutive = 0;
+        for (String p : paragraphs) {
+            if (isDialogueParagraph(p.trim())) {
+                currentConsecutive++;
+                maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+            } else {
+                currentConsecutive = 0;
+            }
+        }
+        return maxConsecutive;
+    }
+
+    /**
+     * 计算新场景感官细节覆盖率（反向指标：空场景比例）
+     * 检测包含场景切换词的段落，看是否有感官细节
+     */
+    private double calcEmptySceneRatio(String text) {
+        String[] paragraphs = splitParagraphs(text);
+        if (paragraphs.length < 3) return 0;
+
+        String[] sceneMarkers = {"走进", "来到", "进入", "推开", "跨进", "走出", "站在", "坐到", "回到"};
+        int sceneCount = 0;
+        int emptyCount = 0;
+
+        for (String p : paragraphs) {
+            String trimmed = p.trim();
+            boolean isSceneStart = false;
+            for (String marker : sceneMarkers) {
+                if (trimmed.contains(marker)) {
+                    isSceneStart = true;
+                    break;
+                }
+            }
+            if (isSceneStart) {
+                sceneCount++;
+                // 检查该段落是否包含感官细节
+                boolean hasSensoryDetail = false;
+                for (String w : VISUAL_WORDS) {
+                    if (trimmed.contains(w)) { hasSensoryDetail = true; break; }
+                }
+                if (!hasSensoryDetail) {
+                    for (String w : AUDITORY_WORDS) {
+                        if (trimmed.contains(w)) { hasSensoryDetail = true; break; }
+                    }
+                }
+                if (!hasSensoryDetail) {
+                    for (String w : TACTILE_WORDS) {
+                        if (trimmed.contains(w)) { hasSensoryDetail = true; break; }
+                    }
+                }
+                if (!hasSensoryDetail) emptyCount++;
+            }
+        }
+        return sceneCount > 0 ? (double) emptyCount / sceneCount : 0;
+    }
+
     // ========== 辅助方法 ==========
     
     /**

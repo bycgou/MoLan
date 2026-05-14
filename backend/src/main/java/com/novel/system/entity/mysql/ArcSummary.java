@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 
 /**
  * 弧段摘要实体
- * 用于存储小说弧段的摘要信息，支持三层记忆体系
+ * 用于存储小说弧段的摘要信息，属于第四层滑动窗口 — 子层4a：弧段摘要（全局历史记忆）
  */
 @Data
 @TableName("arc_summaries")

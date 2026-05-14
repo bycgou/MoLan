@@ -3,13 +3,15 @@ package com.novel.system.service.llm;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.data.embedding.Embedding;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mysql.LlmConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -32,12 +34,12 @@ public class LlmServiceImpl implements LlmService {
     
     @Override
     public String generate(String prompt, String modelType) {
-        return generateWithConfig(null, prompt, null);
+        return generateWithUsage(null, prompt, modelType, getCurrentUserId());
     }
-    
+
     @Override
     public String generateWithSystem(String systemInstruction, String userMessage, String modelType) {
-        return generateWithConfig(systemInstruction, userMessage, null);
+        return generateWithUsage(systemInstruction, userMessage, modelType, getCurrentUserId());
     }
     
     @Override
@@ -71,32 +73,7 @@ public class LlmServiceImpl implements LlmService {
     
     @Override
     public String generateWithUsage(String systemInstruction, String userMessage, String usageType) {
-        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                // 不指定用户时，查找任意活跃配置（跨用户兜底）
-                LlmConfig config = llmConfigService.getAnyActiveConfig(usageType);
-                if (config == null) {
-                    throw new RuntimeException("未找到可用的模型配置，请先在模型配置页面添加模型");
-                }
-                
-                log.info("Token策略路由 -> 用途: [{}], 选择模型: {}", usageType, config.getModelName());
-                return callModel(config, systemInstruction, userMessage);
-                
-            } catch (Exception e) {
-                log.warn("LLM调用失败，用途: {} 第{}次重试: {}", usageType, attempt, e.getMessage());
-                if (attempt < MAX_RETRIES) {
-                    try {
-                        Thread.sleep(RETRY_DELAY_MS * attempt);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("LLM调用中断", ie);
-                    }
-                } else {
-                    throw new RuntimeException("LLM调用失败: " + e.getMessage(), e);
-                }
-            }
-        }
-        throw new RuntimeException("LLM调用失败");
+        return generateWithUsage(systemInstruction, userMessage, usageType, getCurrentUserId());
     }
     
     @Override
@@ -142,7 +119,14 @@ public class LlmServiceImpl implements LlmService {
     @Override
     public float[] getEmbedding(String text) {
         try {
-            LlmConfig config = getLlmConfig(null);
+            String userId = getCurrentUserId();
+            LlmConfig config = null;
+            if (userId != null) {
+                config = llmConfigService.getActiveConfig(userId, "all");
+            }
+            if (config == null) {
+                config = getLlmConfig(null);
+            }
             if (config == null) {
                 log.warn("未找到模型配置，返回空向量");
                 return new float[0];
@@ -213,7 +197,21 @@ public class LlmServiceImpl implements LlmService {
     }
     
     // ========== 私有方法 ==========
-    
+
+    /**
+     * 从SecurityContextHolder获取当前用户ID
+     */
+    private String getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof String) {
+            String principal = (String) auth.getPrincipal();
+            if (!"anonymousUser".equals(principal)) {
+                return principal;
+            }
+        }
+        return null;
+    }
+
     /**
      * 获取LLM配置
      */
@@ -231,7 +229,7 @@ public class LlmServiceImpl implements LlmService {
      * 使用LangChain4j调用模型
      */
     private String callModel(LlmConfig config, String systemInstruction, String userMessage) {
-        ChatLanguageModel model = langChainConfig.createChatModel(config);
+        ChatModel model = langChainConfig.createChatModel(config);
         
         // 构建消息列表
         List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
@@ -249,7 +247,7 @@ public class LlmServiceImpl implements LlmService {
     }
     
     @Override
-    public ChatLanguageModel getModelForAgent(String llmConfigId) {
+    public ChatModel getModelForAgent(String llmConfigId) {
         LlmConfig config = getLlmConfig(llmConfigId);
         if (config == null) {
             config = llmConfigService.getAnyActiveConfig("all");

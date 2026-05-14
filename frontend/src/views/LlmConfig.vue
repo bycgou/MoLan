@@ -450,13 +450,7 @@ const handleCommand = async (command: string, config: any) => {
     case 'test':
       testing.value = true
       try {
-        const testData = {
-          provider: config.provider,
-          apiKey: config.apiKey,
-          apiBaseUrl: config.apiBaseUrl || config.baseUrl || '',
-          modelName: config.modelName
-        }
-        const response = await llmConfigApi.testConnection(testData)
+        const response = await llmConfigApi.testSavedConfig(config.configId)
         if (response.code === 200 && response.data) {
           ElMessage.success('连接成功！')
         } else {

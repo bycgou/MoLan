@@ -6,6 +6,7 @@ import com.novel.system.dto.style.StyleMetrics;
 import com.novel.system.entity.mysql.StyleCard;
 import com.novel.system.mapper.StyleCardMapper;
 import com.novel.system.service.llm.LlmService;
+import com.novel.system.config.AntiAICliches;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,14 +35,6 @@ public class StyleCheckerService {
     private final StyleCardMapper styleCardMapper;
     private final StyleTextAnalyzer textAnalyzer;
     private final LlmService llmService;
-    
-    // AI套话黑名单
-    private static final String[] AI_CLICHES = {
-        "不禁", "似乎", "仿佛", "眼神中闪过", "嘴角微微上扬",
-        "心中涌起一股", "一种...的感觉", "空气中弥漫着", "不约而同",
-        "若有所思", "意味深长", "难以名状", "若隐若现", "一股暖流",
-        "与此同时", "话音刚落", "沉默片刻", "微微一怔"
-    };
     
     /**
      * 快速检查（零LLM成本）
@@ -75,19 +68,40 @@ public class StyleCheckerService {
         StyleMetrics genMetrics = textAnalyzer.analyze(generatedText);
         List<String> issues = new ArrayList<>();
         double score = 100.0;
-        
-        // 检查AI套话
-        for (String cliche : AI_CLICHES) {
-            if (generatedText.contains(cliche)) {
-                issues.add("出现AI套话：" + cliche);
-                score -= 8;
-            }
+
+        // === 第一道防线：AI套话检测 ===
+        List<String> foundCliches = AntiAICliches.findCliches(generatedText);
+        for (String cliche : foundCliches) {
+            issues.add("出现AI套话：" + cliche);
+            score -= 8;
         }
-        
-        // 检查句长偏离（如果有统计数据）
+
+        // === 第二道防线：过渡句万能胶检测 ===
+        List<String> foundTransitions = AntiAICliches.findTransitionCliches(generatedText);
+        for (String t : foundTransitions) {
+            issues.add("使用了万能过渡句：" + t);
+            score -= 5;
+        }
+        if (genMetrics.getTransitionClicheRatio() > 0.15) {
+            issues.add("过渡句过多（" + String.format("%.1f%%", genMetrics.getTransitionClicheRatio() * 100) + "），应直接切场景");
+            score -= 10;
+        }
+
+        // === 第三道防线：句式多样性检测 ===
+        if (genMetrics.getSentenceDiversityIndex() < 0.3) {
+            issues.add("句式过于单一（多样性指数=" + String.format("%.2f", genMetrics.getSentenceDiversityIndex()) + "），缺少长短句交错");
+            score -= 12;
+        }
+
+        // === 第四道防线：对话结构检测 ===
+        if (genMetrics.getMaxConsecutiveDialogue() > 8) {
+            issues.add("连续对话过多（" + genMetrics.getMaxConsecutiveDialogue() + "轮），应穿插动作/心理描写");
+            score -= 10;
+        }
+
+        // === 检查句长偏离（如果有统计数据）===
         if (card.getStatsJson() != null) {
             try {
-                // 简单检查：短句占比
                 if (genMetrics.getShortSentenceRatio() < 0.15) {
                     issues.add("短句太少，缺乏节奏变化");
                     score -= 10;
@@ -96,19 +110,25 @@ public class StyleCheckerService {
                 log.warn("解析统计数据失败: {}", e.getMessage());
             }
         }
-        
-        // 检查对话比例
+
+        // === 检查对话比例 ===
         if (genMetrics.getDialogueRatio() < 0.05) {
             issues.add("对话比例过低（" + String.format("%.1f%%", genMetrics.getDialogueRatio() * 100) + "）");
             score -= 10;
         }
-        
-        // 检查段落节奏
+
+        // === 检查段落节奏 ===
         if (genMetrics.getShortParagraphRatio() < 0.1) {
             issues.add("短段落太少，缺乏节奏变化");
             score -= 10;
         }
-        
+
+        // === 新场景感官细节检测 ===
+        if (genMetrics.getEmptySceneRatio() > 0.5) {
+            issues.add("新场景缺乏感官细节（" + String.format("%.0f%%", genMetrics.getEmptySceneRatio() * 100) + "的场景无细节描写）");
+            score -= 8;
+        }
+
         return StyleCheckResult.builder()
                 .score(Math.max(0, score))
                 .pass(score >= 70)

@@ -12,6 +12,7 @@
         <result column="end_chapter" property="endChapter"/>
         <result column="rhythm_tag" property="rhythmTag"/>
         <result column="rhythm_intensity" property="rhythmIntensity"/>
+        <result column="chapter_plan" property="chapterPlan"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -55,6 +56,7 @@
             <if test="endChapter != null">end_chapter = #{endChapter},</if>
             <if test="rhythmTag != null">rhythm_tag = #{rhythmTag},</if>
             <if test="rhythmIntensity != null">rhythm_intensity = #{rhythmIntensity},</if>
+            <if test="chapterPlan != null">chapter_plan = #{chapterPlan},</if>
             update_time = NOW()
         </set>
         WHERE arc_id = #{arcId}

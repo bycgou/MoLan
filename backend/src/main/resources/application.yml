@@ -53,32 +53,6 @@ spring:
           max-idle: 10
           min-idle: 5
 
-  # RabbitMQ配置
-  rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}   # 旧配置
-    # host: ${RABBITMQ_HOST:host.docker.internal} # 新配置
-
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
-    virtual-host: /
-    connection-timeout: 3000
-    listener:
-      simple:
-        acknowledge-mode: manual
-        concurrency: 2
-        max-concurrency: 5
-        prefetch: 1
-        auto-startup: true
-    # 配置消息转换器为JSON格式（避免反序列化安全问题）
-    template:
-      message-converter: jsonMessageConverter
-
-  # Spring AMQP 反序列化信任配置
-  amqp:
-    deserialization:
-      trust-all: true  # 信任所有类（仅用于开发环境，生产环境应配置具体类）
-
   # 缓存配置
   cache:
     type: redis
@@ -124,3 +98,59 @@ logging:
     org.springframework.data.redis: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ===== MCP 集成配置 =====
+mcp:
+  client:
+    enabled: ${MCP_CLIENT_ENABLED:false}
+    servers:
+      memory:
+        enabled: false
+        transport: stdio
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-memory"
+        startup-timeout: 30
+        required: false
+      filesystem:
+        enabled: false
+        transport: stdio
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-filesystem"
+          - "${NOVEL_EXPORT_PATH:/tmp/moyun-exports}"
+        startup-timeout: 30
+        required: false
+      novel-workflow:
+        enabled: false
+        transport: stdio
+        command: npx
+        args:
+          - "-y"
+          - "@ttaqt/novel-workflow-mcp@latest"
+          - "${NOVEL_PROJECT_PATH:/tmp/moyun-novels}"
+        startup-timeout: 60
+        required: false
+      brave-search:
+        enabled: false
+        transport: stdio
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-brave-search"
+        env:
+          BRAVE_API_KEY: "${BRAVE_API_KEY:}"
+        startup-timeout: 30
+        required: false
+  server:
+    enabled: ${MCP_SERVER_ENABLED:false}
+    name: moyun-novel-mcp-server
+    version: 1.0.0
+    transport: sse
+    sse-endpoint: /mcp/sse
+    auth:
+      enabled: ${MCP_SERVER_AUTH_ENABLED:false}
+      type: api-key
+      keys: []

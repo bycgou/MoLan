@@ -1,6 +1,7 @@
 package com.novel.system.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.novel.system.entity.mongo.CharacterState;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -26,6 +27,10 @@ public class CharacterResponse {
     private String currentLocation;
     /** 当前状态描述 */
     private String currentStatus;
+    /** 性格特征（逗号分隔，前端兼容字段） */
+    private String personality;
+    /** 成长节点列表 */
+    private List<CharacterState.GrowthNode> growthNodes;
     /** 更新时间 */
     private LocalDateTime updateTime;
     
@@ -116,7 +121,23 @@ public class CharacterResponse {
     public void setCurrentStatus(String currentStatus) {
         this.currentStatus = currentStatus;
     }
-    
+
+    public String getPersonality() {
+        return personality;
+    }
+
+    public void setPersonality(String personality) {
+        this.personality = personality;
+    }
+
+    public List<CharacterState.GrowthNode> getGrowthNodes() {
+        return growthNodes;
+    }
+
+    public void setGrowthNodes(List<CharacterState.GrowthNode> growthNodes) {
+        this.growthNodes = growthNodes;
+    }
+
     public LocalDateTime getUpdateTime() {
         return updateTime;
     }

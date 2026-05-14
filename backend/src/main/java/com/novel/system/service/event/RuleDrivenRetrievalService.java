@@ -11,7 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 规则驱动检索服务
+ * 规则驱动检索服务 — 五层记忆架构第五层：事件图谱 + 规则驱动检索
  * 根据当前章节上下文，自动触发历史事件检索。
  * 不依赖Agent元认知，通过规则判断何时需要回忆早期内容。
  *

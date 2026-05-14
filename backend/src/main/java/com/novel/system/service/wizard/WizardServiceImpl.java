@@ -16,10 +16,13 @@ import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.service.chapter.ChapterGenerationRequest;
 import com.novel.system.service.chapter.ChapterGenerationResponse;
 import com.novel.system.service.chapter.ChapterGenerationService;
+import com.novel.system.service.orchestration.ArcOrchestrationService;
 import com.novel.system.service.style.StyleCardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -41,6 +44,7 @@ public class WizardServiceImpl implements WizardService {
     private final NovelChapterMapper novelChapterMapper;
     private final ChapterGenerationService chapterGenerationService;
     private final StyleCardService styleCardService;
+    private final ArcOrchestrationService arcOrchestrationService;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
 
@@ -104,6 +108,16 @@ public class WizardServiceImpl implements WizardService {
                 arcs.add(arc);
             }
             novelArcMapper.insertBatch(arcs);
+
+            // 为每卷生成编排计划（异步，失败不影响小说创建）
+            for (NovelArc arc : arcs) {
+                try {
+                    arcOrchestrationService.orchestrate(novel.getNovelId(), arc.getArcId(), request.getLlmConfigId());
+                    log.info("卷编排生成成功: arcId={}", arc.getArcId());
+                } catch (Exception e) {
+                    log.warn("卷编排生成失败（不影响小说创建）: arcId={}, error={}", arc.getArcId(), e.getMessage());
+                }
+            }
         }
 
         // 绑定文风卡片
@@ -232,7 +246,9 @@ public class WizardServiceImpl implements WizardService {
         progress.setCurrentPhase("writing");
         saveBatchProgress(taskId, progress);
 
+        SecurityContext securityContext = SecurityContextHolder.getContext();
         CompletableFuture.runAsync(() -> {
+            SecurityContextHolder.setContext(securityContext);
             try {
                 // 获取所有有待生成章纲的章节
                 List<NovelChapter> chapters = novelChapterMapper.selectByNovelId(novelId);
@@ -283,6 +299,8 @@ public class WizardServiceImpl implements WizardService {
                 progress.setStatus("FAILED");
                 progress.setErrorMessage("批量生成失败: " + e.getMessage());
                 saveBatchProgress(taskId, progress);
+            } finally {
+                SecurityContextHolder.clearContext();
             }
         });
 

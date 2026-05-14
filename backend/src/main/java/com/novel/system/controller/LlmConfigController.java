@@ -88,11 +88,29 @@ public class LlmConfigController {
     }
     
     /**
-     * 测试模型连接
+     * 测试模型连接（用于创建时，直接传入完整配置）
      */
     @PostMapping("/test")
     public ApiResponse<Boolean> testConnection(@RequestBody LlmConfig config) {
         log.info("测试模型连接: {}", config.getModelName());
+        boolean success = llmConfigService.testConnection(config);
+        if (success) {
+            return ApiResponse.success("连接成功", true);
+        } else {
+            return ApiResponse.error(500, "连接失败，请检查配置");
+        }
+    }
+
+    /**
+     * 测试已保存模型的连接（根据configId从数据库读取真实配置）
+     */
+    @PostMapping("/test/{configId}")
+    public ApiResponse<Boolean> testSavedConfig(@PathVariable String configId) {
+        LlmConfig config = llmConfigService.getConfigById(configId);
+        if (config == null) {
+            return ApiResponse.error(404, "配置不存在");
+        }
+        log.info("测试已保存模型连接: {}, configId: {}", config.getModelName(), configId);
         boolean success = llmConfigService.testConnection(config);
         if (success) {
             return ApiResponse.success("连接成功", true);

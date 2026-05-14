@@ -25,4 +25,6 @@ public class NovelArc {
     private String rhythmTag;
     /** 节奏强度（1-10） */
     private Integer rhythmIntensity = 5;
+    /** 章节级编排计划JSON（由ArcOrchestrationService生成） */
+    private String chapterPlan;
 }

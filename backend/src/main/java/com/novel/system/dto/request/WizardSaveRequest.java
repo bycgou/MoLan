@@ -19,5 +19,6 @@ public class WizardSaveRequest {
     private String totalOutline;
     private String worldSetting;
     private String styleCardId;
+    private String llmConfigId;
     private List<ArcOutlineDTO> arcs;
 }

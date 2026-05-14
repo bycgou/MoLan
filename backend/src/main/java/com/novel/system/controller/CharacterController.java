@@ -146,6 +146,11 @@ public class CharacterController {
             response.setCurrentLocation(character.getCurrentStatus().getLocation());
             response.setCurrentStatus(character.getCurrentStatus().getStatus());
         }
+        // personality = coreTraits 逗号拼接
+        if (character.getCoreTraits() != null && !character.getCoreTraits().isEmpty()) {
+            response.setPersonality(String.join("、", character.getCoreTraits()));
+        }
+        response.setGrowthNodes(character.getGrowthNodes());
         response.setUpdateTime(character.getUpdateTime());
         return response;
     }

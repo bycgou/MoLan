@@ -1,5 +1,6 @@
 package com.novel.system.dto.vo;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -12,6 +13,7 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class GenerationContext {
     /** 小说ID */
     private String novelId;
@@ -35,4 +37,6 @@ public class GenerationContext {
     private List<String> implementationIdeas;
     /** 上一章剧情指纹 */
     private String lastChapterFingerprint;
+    /** 章节标题（从OutlineAgent输出中提取） */
+    private String chapterTitle;
 }

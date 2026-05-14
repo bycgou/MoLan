@@ -178,8 +178,8 @@ public class StyleCardController {
             if (request.getNovelId() == null || request.getNovelId().isEmpty()) {
                 return ApiResponse.error("小说ID不能为空");
             }
-            
-            styleCardService.bindNovelToCard(request.getNovelId(), null);
+
+            styleCardService.unbindNovel(request.getNovelId());
             return ApiResponse.success(null);
         } catch (Exception e) {
             log.error("解除绑定失败", e);

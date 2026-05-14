@@ -4,7 +4,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 伏笔账本实体
+ * 伏笔账本实体 — 五层记忆架构第二层：伏笔账本
+ * 精确SQL查询，按条件注入（deadline临近/近期埋设/全局概览）。
  */
 @Data
 public class ClueBook {

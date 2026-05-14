@@ -2,7 +2,7 @@ package com.novel.system.ai.chain;
 
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import com.novel.system.ai.agent.*;
 import com.novel.system.ai.memory.StyleAwareChatMemory;
@@ -69,7 +69,7 @@ public class ChapterGenerationChain {
     
     /**
      * LangChain4j配置类
-     * 负责创建ChatLanguageModel实例
+     * 负责创建ChatModel实例
      */
     private final LangChainConfig langChainConfig;
     
@@ -116,7 +116,7 @@ public class ChapterGenerationChain {
      * 执行章纲生成链
      * 
      * 【执行流程】
-     * 1. 获取ChatLanguageModel（根据llmConfigId或默认配置）
+     * 1. 获取ChatModel（根据llmConfigId或默认配置）
      * 2. 创建带工具的OutlineAgent
      * 3. 构建用户消息（包含上下文信息）
      * 4. 调用Agent生成章纲
@@ -146,14 +146,14 @@ public class ChapterGenerationChain {
     public String executeOutlineChain(String novelId, int chapterNum, String contextPrompt, String llmConfigId) {
         log.info("执行章纲生成链: novelId={}, chapter={}", novelId, chapterNum);
 
-        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
 
         if (toolProvider.hasMcpTools()) {
             log.info("MCP 工具可用，工具数: {}", toolProvider.getMcpToolSpecifications().size());
         }
 
         OutlineAgent outlineAgent = AiServices.builder(OutlineAgent.class)
-                .chatLanguageModel(model)
+                .chatModel(model)
                 .tools(toolProvider.getAllTools())
                 .build();
 
@@ -169,7 +169,7 @@ public class ChapterGenerationChain {
      * 执行写作链
      * 
      * 【执行流程】
-     * 1. 获取ChatLanguageModel
+     * 1. 获取ChatModel
      * 2. 创建带工具的WritingAgent
      * 3. 构建用户消息（包含章纲和上下文信息）
      * 4. 调用Agent生成正文
@@ -197,10 +197,10 @@ public class ChapterGenerationChain {
                                       String contextPrompt, String llmConfigId) {
         log.info("执行写作生成链: novelId={}, chapter={}", novelId, chapterNum);
 
-        ChatLanguageModel model = getModel(llmConfigId);
+        ChatModel model = getModel(llmConfigId);
 
         WritingAgent writingAgent = AiServices.builder(WritingAgent.class)
-                .chatLanguageModel(model)
+                .chatModel(model)
                 .tools(toolProvider.getAllTools())
                 .build();
 
@@ -216,7 +216,7 @@ public class ChapterGenerationChain {
      * 执行摘要链
      * 
      * 【执行流程】
-     * 1. 获取ChatLanguageModel
+     * 1. 获取ChatModel
      * 2. 创建摘要Agent（不需要工具）
      * 3. 构建用户消息（包含章节内容）
      * 4. 调用Agent生成摘要
@@ -241,10 +241,10 @@ public class ChapterGenerationChain {
                                       String outline, String llmConfigId) {
         log.info("执行摘要生成链: novelId={}, chapter={}", novelId, chapterNum);
 
-        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
 
         SummaryAgentAiService summaryAgent = AiServices.builder(SummaryAgentAiService.class)
-                .chatLanguageModel(model)
+                .chatModel(model)
                 .build();
 
         String truncatedContent = truncateForSummary(chapterContent);
@@ -275,10 +275,10 @@ public class ChapterGenerationChain {
                                             String llmConfigId) {
         log.info("执行卷纲生成链");
 
-        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
 
         VolumeOutlineAgent agent = AiServices.builder(VolumeOutlineAgent.class)
-                .chatLanguageModel(model)
+                .chatModel(model)
                 .build();
 
         StringBuilder promptBuilder = new StringBuilder();
@@ -318,7 +318,7 @@ public class ChapterGenerationChain {
                                       String contextPrompt, String styleCardId, String llmConfigId) {
         log.info("执行写作生成链: novelId={}, chapter={}, styleCardId={}", novelId, chapterNum, styleCardId);
 
-        ChatLanguageModel model = getModel(llmConfigId);
+        ChatModel model = getModel(llmConfigId);
 
         // 分离系统级（硬约束）和用户级（软引导）风格内容
         String systemStyleRules = "";
@@ -334,7 +334,7 @@ public class ChapterGenerationChain {
 
         // 构建Agent，如果有系统级风格规则则使用StyleAwareChatMemory
         AiServices<WritingAgent> builder = AiServices.builder(WritingAgent.class)
-                .chatLanguageModel(model)
+                .chatModel(model)
                 .tools(toolProvider.getAllTools());
 
         if (!systemStyleRules.isEmpty()) {
@@ -361,10 +361,10 @@ public class ChapterGenerationChain {
     }
     
     /**
-     * 获取ChatLanguageModel
+     * 获取ChatModel
      *
      * @param llmConfigId 可选的模型配置ID
-     * @return ChatLanguageModel实例
+     * @return ChatModel实例
      * @throws RuntimeException 如果未找到可用的模型配置
      */
     /**
@@ -425,11 +425,11 @@ public class ChapterGenerationChain {
         return sb.length() > 0 ? sb.toString().trim() : section.substring(0, Math.min(maxLen, section.length()));
     }
 
-    private ChatLanguageModel getModel(String llmConfigId) {
+    private ChatModel getModel(String llmConfigId) {
         return getModel(llmConfigId, LangChainConfig.TaskType.CREATIVE);
     }
 
-    private ChatLanguageModel getModel(String llmConfigId, LangChainConfig.TaskType taskType) {
+    private ChatModel getModel(String llmConfigId, LangChainConfig.TaskType taskType) {
         LlmConfig config;
         if (llmConfigId != null && !llmConfigId.isEmpty()) {
             config = llmConfigService.getConfigById(llmConfigId);

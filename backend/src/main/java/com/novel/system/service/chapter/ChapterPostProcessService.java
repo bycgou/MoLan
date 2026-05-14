@@ -15,7 +15,7 @@ import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.event.ContentExtractorService;
 import com.novel.system.service.llm.LlmConfigService;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -30,11 +30,14 @@ import java.util.regex.Pattern;
 
 /**
  * 章节后处理服务
- * 
- * AI生成章节后，自动提取人物、伏笔、时间线信息并入库。
+ *
+ * AI生成章节后，自动提取人物、伏笔、时间线、事件信息并入库，更新五层记忆架构各层数据：
+ * - 第一层：更新StoryState（时间线、主角状态、场景上下文、压缩背景）
+ * - 第二层：提取伏笔到ClueBook
+ * - 第三层：提取/更新人物状态到CharacterState + NovelGraph
+ * - 第五层：提取事件到EventGraph
+ * - 第六层：生成章节摘要+向量嵌入到ChapterSummary
  * 使用 @Async 异步执行，不阻塞主流程。
- * 
- * @since 1.1.0
  */
 @Slf4j
 @Service
@@ -86,7 +89,7 @@ public class ChapterPostProcessService {
                 return;
             }
 
-            ChatLanguageModel model = langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED);
+            ChatModel model = langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED);
 
             // 获取已有数据（用于去重）
             List<CharacterState> existingChars = characterStateService.getCharactersByNovelId(novelId);
@@ -134,7 +137,7 @@ public class ChapterPostProcessService {
      *
      * @return 本章提取到的所有人物名称集合
      */
-    private Set<String> extractCharacters(ChatLanguageModel model, String novelId, int chapterNum,
+    private Set<String> extractCharacters(ChatModel model, String novelId, int chapterNum,
                                     String content, Set<String> existingNames) {
         Set<String> allExtractedNames = new HashSet<>();
 
@@ -170,7 +173,7 @@ public class ChapterPostProcessService {
                 existingNames.toString(), content
             );
 
-            String response = model.generate(prompt);
+            String response = model.chat(prompt);
             String jsonStr = JsonExtractor.extractJson(response);
             Map<String, Object> result = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
@@ -341,7 +344,7 @@ public class ChapterPostProcessService {
     /**
      * 提取伏笔/线索
      */
-    private void extractClues(ChatLanguageModel model, String novelId, int chapterNum,
+    private void extractClues(ChatModel model, String novelId, int chapterNum,
                                String content, Set<String> existingClues) {
         try {
             String prompt = String.format(
@@ -357,7 +360,7 @@ public class ChapterPostProcessService {
                 existingClues.toString(), content
             );
 
-            String response = model.generate(prompt);
+            String response = model.chat(prompt);
             String jsonStr = JsonExtractor.extractJson(response, "[]");
 
             List<Map<String, Object>> clues = objectMapper.readValue(jsonStr, new TypeReference<>() {});
@@ -395,7 +398,7 @@ public class ChapterPostProcessService {
     /**
      * 提取时间线变化
      */
-    private void extractTimeline(ChatLanguageModel model, String novelId, int chapterNum,
+    private void extractTimeline(ChatModel model, String novelId, int chapterNum,
                                   String content) {
         try {
             String prompt = String.format(
@@ -411,7 +414,7 @@ public class ChapterPostProcessService {
                 content.length() > 3000 ? content.substring(0, 3000) : content
             );
 
-            String response = model.generate(prompt);
+            String response = model.chat(prompt);
             String jsonStr = JsonExtractor.extractJson(response);
 
             Map<String, Object> timeline = objectMapper.readValue(jsonStr, new TypeReference<>() {});

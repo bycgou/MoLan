@@ -1,8 +1,10 @@
 package com.novel.system.ai.rag;
 
 import com.novel.system.entity.mongo.ChapterSummary;
+import com.novel.system.entity.mongo.StoryState;
 import com.novel.system.repository.mongo.ChapterSummaryRepository;
 import com.novel.system.service.llm.LlmService;
+import com.novel.system.service.story.StoryStateService;
 import com.novel.system.ai.rag.RagService;
 import com.novel.system.ai.rag.RedisVectorService;
 import lombok.RequiredArgsConstructor;
@@ -20,18 +22,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * RAG检索服务实现 - 增强版（支持Rerank和混合检索）
+ * RAG检索服务实现 — 五层记忆架构第六层：RAG向量检索
+ * 支持Rerank和混合检索（向量 + BM25 + RRF融合）。
+ * 当前仍为Push模式（自动注入），待改为Agent @Tool Pull模式。
  */
 @Service
 @RequiredArgsConstructor
 public class RagServiceImpl implements RagService {
-    
+
     private final ChapterSummaryRepository chapterSummaryRepository;
-    private final com.novel.system.repository.mongo.NovelMemoryRepository novelMemoryRepository;
     private final MongoTemplate mongoTemplate;
     private final LlmService llmService;
     private final RedisVectorService redisVectorService;
-    
+    private final StoryStateService storyStateService;
+
     // RRF融合参数
     private static final double RRF_K = 60.0;
     private static final Logger log = LoggerFactory.getLogger(RagServiceImpl.class);
@@ -327,49 +331,48 @@ public class RagServiceImpl implements RagService {
     @Override
     public void compressMemory(String novelId, int endChapter) {
         log.info("开始记忆压缩，小说ID: {}, 结束章节: {}", novelId, endChapter);
-        
-        List<com.novel.system.entity.mongo.NovelMemory> existingMemories = novelMemoryRepository.findByNovelIdOrderByEndChapterDesc(novelId);
-        String previousMemory = existingMemories.isEmpty() ? "" : existingMemories.get(0).getCompressedContent();
-        int startChapter = existingMemories.isEmpty() ? 1 : existingMemories.get(0).getEndChapter() + 1;
-        
+
+        // 从StoryState获取之前的压缩记忆
+        StoryState storyState = storyStateService.getOrCreate(novelId);
+        String previousMemory = storyState.getCompressedBackstory() != null ? storyState.getCompressedBackstory() : "";
+        int startChapter = storyState.getLastCompressChapter() != null ? storyState.getLastCompressChapter() + 1 : 1;
+
         if (startChapter >= endChapter) {
             log.info("没有需要压缩的新章节");
             return;
         }
-        
+
         List<ChapterSummary> summariesToCompress = chapterSummaryRepository.findRecentSummaries(novelId, startChapter, endChapter);
         if (summariesToCompress.isEmpty()) return;
-        
+
         StringBuilder contentToCompress = new StringBuilder();
         for (ChapterSummary summary : summariesToCompress) {
             contentToCompress.append("第").append(summary.getChapterNum()).append("章剧情: ")
                              .append(summary.getContent()).append("\n");
         }
-        
+
         String systemPrompt = "你是一个专业的小说世界观架构师，请将以下数十章零碎的剧情指纹，浓缩成一个精炼的'全局背景和现状'。必须保留核心伏笔、重要人物生死状态和世界格局变化，丢弃次要细节。字数控制在800字以内。";
         String userMessage = "之前已有的全局背景：\n" + previousMemory + "\n\n新发生的剧情：\n" + contentToCompress.toString();
-        
+
         try {
             String newGlobalMemory = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
-            
-            com.novel.system.entity.mongo.NovelMemory newMemory = new com.novel.system.entity.mongo.NovelMemory();
-            newMemory.setNovelId(novelId);
-            newMemory.setStartChapter(startChapter);
-            newMemory.setEndChapter(endChapter);
-            newMemory.setCompressedContent(newGlobalMemory);
-            
-            novelMemoryRepository.save(newMemory);
+
+            // 更新StoryState中的压缩背景
+            storyState.setCompressedBackstory(newGlobalMemory);
+            storyState.setLastCompressChapter(endChapter);
+            storyStateService.save(storyState);
+
             log.info("记忆压缩完成，压缩后的全局记忆长度: {}", newGlobalMemory.length());
-            
+
         } catch (Exception e) {
             log.error("记忆压缩失败: {}", e.getMessage());
         }
     }
-    
+
     @Override
     public String getGlobalMemory(String novelId) {
-        List<com.novel.system.entity.mongo.NovelMemory> memories = novelMemoryRepository.findByNovelIdOrderByEndChapterDesc(novelId);
-        return memories.isEmpty() ? "" : memories.get(0).getCompressedContent();
+        StoryState storyState = storyStateService.getOrCreate(novelId);
+        return storyState.getCompressedBackstory() != null ? storyState.getCompressedBackstory() : "";
     }
     
     @Override

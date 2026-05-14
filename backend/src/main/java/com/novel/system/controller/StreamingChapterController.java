@@ -19,10 +19,9 @@ import com.novel.system.service.story.StoryStateService;
 import com.novel.system.service.style.StyleCardService;
 import com.novel.system.ai.chain.ChapterGenerationChain;
 import com.novel.system.entity.mongo.ChapterSummary;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.StreamingResponseHandler;
-import dev.langchain4j.model.output.Response;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -168,13 +167,13 @@ public class StreamingChapterController {
                 String userPrompt = userPromptBuilder.toString();
                 
                 // 创建流式模型
-                StreamingChatLanguageModel streamingModel = langChainConfig.createStreamingChatModel(llmConfig);
-                
+                StreamingChatModel streamingModel = langChainConfig.createStreamingChatModel(llmConfig);
+
                 // 逐token流式输出
                 StringBuilder fullContent = new StringBuilder();
-                streamingModel.generate(userPrompt, new StreamingResponseHandler<AiMessage>() {
+                streamingModel.chat(userPrompt, new StreamingChatResponseHandler() {
                     @Override
-                    public void onNext(String token) {
+                    public void onPartialResponse(String token) {
                         try {
                             // 检查取消
                             if (Boolean.TRUE.equals(redisTemplate.hasKey(cancelKey))) {
@@ -190,9 +189,9 @@ public class StreamingChapterController {
                     }
                     
                     @Override
-                    public void onComplete(Response<AiMessage> response) {
+                    public void onCompleteResponse(ChatResponse response) {
                         try {
-                            String fullText = response.content().text();
+                            String fullText = response.aiMessage().text();
                             fullContent.setLength(0);
                             fullContent.append(fullText);
 

@@ -11,7 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 人物状态文档 (MongoDB)
+ * 人物状态文档 (MongoDB) — 五层记忆架构第三层：角色档案
+ * 存储角色的动态状态（位置、实力、物品、关系等），生成时按需注入。
  */
 @Document(collection = "character_state")
 @Data

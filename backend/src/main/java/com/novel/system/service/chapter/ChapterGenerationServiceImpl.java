@@ -9,7 +9,6 @@ import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.NovelChapter;
 import com.novel.system.entity.mysql.NovelStyleBinding;
 import com.novel.system.entity.mysql.WorldClock;
-import com.novel.system.entity.mongo.CharacterState;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.mapper.NovelArcMapper;
 import com.novel.system.mapper.NovelBaseMapper;
@@ -21,27 +20,42 @@ import com.novel.system.service.chapter.ChapterGenerationResponse;
 import com.novel.system.service.chapter.ChapterGenerationService;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
+import com.novel.system.service.style.StyleCheckerService;
+import com.novel.system.dto.style.StyleCheckResult;
 import com.novel.system.ai.agent.OutlineAgentResponse;
 import com.novel.system.ai.agent.SummaryAgentResponse;
-import com.novel.system.ai.rag.RagService;
 import com.novel.system.ai.chain.ValidationRequest;
 import com.novel.system.ai.chain.ValidationResult;
 import com.novel.system.ai.chain.ValidationService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.novel.system.dto.vo.GenerationContext;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 章节生成服务实现 - 核心工作流
- * 使用Redis缓存生成上下文
+ * 
+ * 流程：章纲生成(OutlineAgent) → 正文生成(WritingAgent) → 摘要生成(SummaryAgent)
+ *       → 五重校验(OOC/逻辑/伏笔/设定/节奏) + 文风检查 → 后处理(人物/伏笔/时间线/事件提取)
+ * 
+ * 上下文构建委托给 ContextBuilderService，实现五层记忆架构：
+ * 第一层：故事状态（StoryState）— 核心枢纽，全量注入
+ * 第二层：伏笔账本（ClueBook）— 精确SQL查询，按条件注入
+ * 第三层：角色档案（CharacterState + CharacterGraph）— 按需注入
+ * 第四层：滑动窗口（ArcSummary + 近章大纲 + 上章钩子）— 保证微观衔接
+ * 第五层：事件图谱 + 规则驱动检索 — 按规则自动触发历史事件检索
+ * 第六层：RAG向量检索 — Agent @Tool 按需调用（当前仍为Push模式，待改为Pull）
  */
 @Slf4j
 @Service
@@ -55,7 +69,6 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     private final WorldClockMapper worldClockMapper;
     private final CharacterStateService characterStateService;
     private final ClueBookService clueBookService;
-    private final RagService ragService;
     private final ValidationService validationService;
     private final StringRedisTemplate redisTemplate;
     private final ContextBuilderService contextBuilderService;
@@ -64,7 +77,11 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     private final ObjectMapper objectMapper;
     private final com.novel.system.ai.chain.ChapterGenerationChain chapterGenerationChain;
     private final ChapterSaveService chapterSaveService;
-    
+    private final StyleCheckerService styleCheckerService;
+    private final ChapterPostProcessService chapterPostProcessService;
+    @Qualifier("ioTaskExecutor")
+    private final Executor ioTaskExecutor;
+
     private static final String CONTEXT_CACHE_PREFIX = "novel:context:";
     private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
     
@@ -77,24 +94,16 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
          * 1. 获取小说信息（验证小说存在）
          * 2. 获取卷信息（当前章节属于哪一卷）
          * 3. 获取世界状态（时间、季节、天气）
-         * 4. 获取人物状态（所有人物的当前状态）
-         * 5. 获取未回收伏笔（需要在后续章节回收的伏笔）
-         * 6. 获取上一章摘要（保持剧情连贯）
+         * 4. 获取人物状态（所有人物的当前状态）— 第三层：角色档案
+         * 5. 获取未回收伏笔（需要在后续章节回收的伏笔）— 第二层：伏笔账本
+         * 6. 获取上一章摘要（保持剧情连贯）— 第四层：滑动窗口
          * 7. 获取小说世界观（力量体系、地理环境等）
-         * 8. 组装上下文信息（供Chain使用）
+         * 8. 组装上下文信息（ContextBuilderService 五层记忆架构）
          * 9. 调用ChapterGenerationChain执行章纲生成
          * 10. 解析返回的JSON（提取outline和ideas）
          * 11. 缓存生成上下文到Redis（供后续生成正文使用）
-         * 12. 构建响应返回
-         * 
-         * 【上下文信息的作用】
-         * Agent需要这些信息才能生成符合要求的内容：
-         * - 总纲：确保生成的章纲符合整体剧情
-         * - 卷纲：确保符合当前卷的剧情规划
-         * - 人物状态：确保人物行为一致
-         * - 世界状态：确保时间、环境逻辑正确
-         * - 伏笔：确保伏笔得到合理安排
-         * - 上一章：确保剧情连贯
+         * 12. 持久化章纲到数据库（防止Redis缓存丢失）
+         * 13. 构建响应返回
          */
         log.info("开始生成章纲，小说ID: {}, 章节号: {}", request.getNovelId(), request.getChapterNum());
         
@@ -111,8 +120,8 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             // 3. 获取世界状态
             WorldClockInfo worldClockInfo = getWorldClockInfo(request.getNovelId());
             
-            // 4. 获取人物状态
-            String characterStates = getCharacterStates(request.getNovelId());
+            // 4. 获取人物状态（直接调用CharacterStateService，避免重复查询）
+            String characterStates = characterStateService.formatForPrompt(request.getNovelId());
             
             // 5. 获取未回收伏笔
             List<String> unrecycledClues = getUnrecycledClues(request.getNovelId());
@@ -145,10 +154,15 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             context.setOutline(outlineResponse.getOutline());
             context.setImplementationIdeas(outlineResponse.getImplementationIdeas());
             context.setLastChapterFingerprint(lastFingerprint);
-            
+            context.setChapterTitle(outlineResponse.getTitle());
+
             String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());
             String contextJson = objectMapper.writeValueAsString(context);
             redisTemplate.opsForValue().set(cacheKey, contextJson, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+
+            // 10.1 持久化章纲到数据库（防止Redis缓存丢失）
+            persistOutlineToDatabase(request.getNovelId(), request.getChapterNum(),
+                    outlineResponse.getOutline(), outlineResponse.getImplementationIdeas(), request.getUserIntent());
             
             // 11. 构建响应
             ChapterGenerationResponse response = new ChapterGenerationResponse();
@@ -190,7 +204,12 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             }
             
             if (context == null) {
-                // 如果没有缓存，先生成章纲
+                // 如果没有缓存，尝试从数据库恢复章纲
+                context = recoverContextFromDatabase(request.getNovelId(), request.getChapterNum());
+            }
+
+            if (context == null) {
+                // 如果数据库也没有，先生成章纲
                 ChapterGenerationResponse outlineResponse = generateOutline(request);
                 if (!outlineResponse.getSuccess()) {
                     return outlineResponse;
@@ -216,17 +235,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
                 selectedIdea = context.getImplementationIdeas().get(0);
             }
             
-            // 3. 组装上下文
-            String assembledContext = ragService.assembleContext(
-                request.getNovelId(),
-                request.getChapterNum(),
-                context.getTotalOutline(),
-                context.getArcOutline(),
-                context.getCharacterStates(),
-                formatClues(context.getUnrecycledClues())
-            );
-            
-            // 4. 调用 ChapterGenerationChain 写作链
+            // 3. 调用 ChapterGenerationChain 写作链
             // 4.1 保存现有章节的版本快照（如果是重新生成）
             NovelChapter existingChapter = novelChapterMapper.selectByNovelIdAndChapterNum(
                 request.getNovelId(), request.getChapterNum());
@@ -266,13 +275,19 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             // 5. 多重校验
             ValidationResult validationResult = validateContent(request, context, chapterContent);
             
-            // 6. 如果校验失败，重试（最多2次，将失败原因注入上下文）
+            // 6. 如果校验失败，重试（最多2次，将失败原因和上次内容注入上下文）
             int retryCount = 0;
             while (!validationResult.getPassed() && retryCount < 2) {
                 log.warn("校验未通过，重试第{}次，原因: {}", retryCount + 1, validationResult.getSummary());
-                String retryContext = writingContext + "\n\n[校验反馈] 上次生成未通过校验，原因: " 
-                    + (validationResult.getSummary() != null ? validationResult.getSummary() : "未知")
-                    + "。请针对性修改这些问题。";
+
+                // 重试时注入上次生成的内容和校验反馈
+                String retryContext = writingContext
+                    + "\n\n===上次生成的内容（存在以下问题，请修改）===\n"
+                    + chapterContent
+                    + "\n\n===校验反馈===\n"
+                    + (validationResult.getSummary() != null ? validationResult.getSummary() : "未知问题")
+                    + "\n\n请针对上述问题修改，保留合理的部分，只调整有问题的段落。";
+
                 if (effectiveStyleCardId != null && !effectiveStyleCardId.isEmpty()) {
                     chapterContent = chapterGenerationChain.executeWritingChain(
                         request.getNovelId(), request.getChapterNum(),
@@ -290,12 +305,28 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             NovelChapter chapter = createChapterEntity(request, context, chapterContent);
             ChapterSummary summary = generateSummary(request, context, chapter);
             
-            // 8. 事务保存所有结果（通过self调用，保证Spring AOP事务生效）
-            chapterSaveService.saveGenerationResult(
+            // 8. 事务保存所有结果（MySQL同步 + MongoDB异步）+ 后处理链式调用
+            final String finalChapterContent = chapterContent;
+            final String finalOutline = context.getOutline();
+            chapterSaveService.saveGenerationResultAsync(
                 request.getNovelId(), request.getChapterNum(), chapter.getChapterTitle(),
                 context.getOutline(), chapterContent,
                 chapterContent.replaceAll("\\s+", "").length(),
-                request.getUserIntent(), summary.getContent(), summary);
+                request.getUserIntent(), summary.getContent(), summary)
+                .thenRun(() -> {
+                    // 9. 在MongoDB写入完成后执行后处理（提取人物、伏笔、时间线）
+                    try {
+                        chapterPostProcessService.postProcess(
+                            request.getNovelId(), request.getChapterNum(),
+                            finalChapterContent, finalOutline);
+                    } catch (Exception e) {
+                        log.error("后处理失败: novelId={}, chapterNum={}", request.getNovelId(), request.getChapterNum(), e);
+                    }
+                })
+                .exceptionally(ex -> {
+                    log.error("保存或后处理失败: {}", ex.getMessage());
+                    return null;
+                });
             
             // 10. 清除Redis缓存
             redisTemplate.delete(cacheKey);
@@ -341,7 +372,9 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         updateTaskStatus(taskId, "GENERATING", "章节生成中...");
         
         // 异步执行，不阻塞主线程
+        SecurityContext securityContext = SecurityContextHolder.getContext();
         CompletableFuture.runAsync(() -> {
+            SecurityContextHolder.setContext(securityContext);
             try {
                 ChapterGenerationResponse response = generateChapter(request);
                 updateTaskStatus(taskId, response);
@@ -349,8 +382,10 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             } catch (Exception e) {
                 log.error("异步章节生成失败，任务ID: " + taskId, e);
                 updateTaskStatus(taskId, "FAILED", "章节生成失败: " + e.getMessage());
+            } finally {
+                SecurityContextHolder.clearContext();
             }
-        });
+        }, ioTaskExecutor);
         
         return taskId;
     }
@@ -537,27 +572,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         return info;
     }
     
-    private String getCharacterStates(String novelId) {
-        List<CharacterState> characters = characterStateService.getCharactersByNovelId(novelId);
-        if (characters.isEmpty()) {
-            return "暂无人物设定";
-        }
-        
-        StringBuilder sb = new StringBuilder();
-        for (CharacterState character : characters) {
-            sb.append("【").append(character.getCharacterName()).append("】\n");
-            sb.append("  核心特质：").append(character.getCoreTraits()).append("\n");
-            sb.append("  说话风格：").append(character.getVoiceStyle()).append("\n");
-            if (character.getCurrentStatus() != null) {
-                sb.append("  当前状态：").append(character.getCurrentStatus().getStatus()).append("\n");
-                sb.append("  当前位置：").append(character.getCurrentStatus().getLocation()).append("\n");
-            }
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
-    
-    private List<String> getUnrecycledClues(String novelId) {
+private List<String> getUnrecycledClues(String novelId) {
         List<ClueBook> clues = clueBookService.getHighPriorityUnrecycledClues(novelId);
         List<String> result = new ArrayList<>();
         for (ClueBook clue : clues) {
@@ -585,7 +600,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         return sb.toString();
     }
     
-    private ValidationResult validateContent(ChapterGenerationRequest request, 
+    private ValidationResult validateContent(ChapterGenerationRequest request,
                                              GenerationContext context, String content) {
         ValidationRequest validationRequest = new ValidationRequest();
         validationRequest.setNovelId(request.getNovelId());
@@ -594,15 +609,54 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         validationRequest.setChapterOutline(context.getOutline());
         validationRequest.setTotalOutline(context.getTotalOutline());
         validationRequest.setCharacterStates(context.getCharacterStates());
-        
-        return validationService.validateAll(validationRequest);
+
+        // 补全缺失的上下文字段
+        validationRequest.setWorldSetting(context.getWorldSetting());
+        validationRequest.setArcOutline(context.getArcOutline());
+        if (context.getUnrecycledClues() != null && !context.getUnrecycledClues().isEmpty()) {
+            validationRequest.setClueBook(String.join("\n", context.getUnrecycledClues()));
+        }
+
+        ValidationResult result = validationService.validateAll(validationRequest);
+
+        // 集成 StyleCheckerService 进行 AI味检测
+        if (result.getPassed() && request.getStyleCardId() != null) {
+            try {
+                StyleCheckResult styleResult = styleCheckerService.quickCheck(content, request.getStyleCardId());
+                if (!styleResult.isPass()) {
+                    log.warn("文风检查未通过，分数: {}, 问题: {}", styleResult.getScore(), styleResult.getIssues());
+                    result.setPassed(false);
+                    result.setSummary("文风检查未通过: " + String.join(", ", styleResult.getIssues()));
+                } else {
+                    log.debug("文风检查通过，分数: {}", styleResult.getScore());
+                }
+            } catch (Exception e) {
+                // 文风检查失败时记录详细错误信息，但不阻止生成
+                log.error("文风检查异常，跳过文风校验。styleCardId={}, error={}",
+                        request.getStyleCardId(), e.getMessage(), e);
+                // 在结果中标注文风检查失败，便于追踪
+                if (result.getSummary() == null || result.getSummary().isEmpty()) {
+                    result.setSummary("文风检查系统异常，已跳过文风校验");
+                } else {
+                    result.setSummary(result.getSummary() + "（文风检查异常，已跳过）");
+                }
+            }
+        }
+
+        return result;
     }
     
     private NovelChapter createChapterEntity(ChapterGenerationRequest request, GenerationContext context, String chapterContent) {
         NovelChapter chapter = new NovelChapter();
         chapter.setNovelId(request.getNovelId());
         chapter.setChapterNum(request.getChapterNum());
-        chapter.setChapterTitle("第" + request.getChapterNum() + "章");
+        // 从章纲解析结果中获取标题，如果存在则拼接
+        String chapterTitle = context.getChapterTitle();
+        if (chapterTitle != null && !chapterTitle.isEmpty()) {
+            chapter.setChapterTitle("第" + request.getChapterNum() + "章 " + chapterTitle);
+        } else {
+            chapter.setChapterTitle("第" + request.getChapterNum() + "章");
+        }
         chapter.setContent(chapterContent);
         return chapter;
     }
@@ -630,61 +684,105 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     // ========== Chain 调用辅助方法 ==========
     
     /**
-     * 构建章纲生成的上下文提示词
-     * 
-     * 【核心作用】
-     * 将所有需要的信息组装成一个结构化的提示词，供Agent使用。
-     * 这是连接业务数据和AI Agent的桥梁。
-     * 
-     * 【上下文结构】
-     * ```
-     * ===小说总纲===
-     * [小说的整体剧情规划]
-     * 
-     * ===卷信息===
-     * 卷名: [当前卷名称]
-     * 卷纲: [当前卷的剧情规划]
-     * 章节数: [起始章节]-[结束章节]
-     * 
-     * ===世界观===
-     * [力量体系、地理环境、社会势力等]
-     * 
-     * ===世界状态===
-     * 时间: [当前时间]
-     * 季节: [当前季节]
-     * 天气: [当前天气]
-     * 
-     * ===人物状态===
-     * [所有人物的当前状态]
-     * 
-     * ===上一章剧情===
-     * [上一章的剧情摘要]
-     * 
-     * ===用户意图===
-     * [用户的特殊要求]
-     * 
-     * ===未回收伏笔===
-     * [需要在后续章节回收的伏笔]
-     * ```
-     * 
-     * 【设计考虑】
-     * 1. 信息完整性：包含Agent需要的所有信息
-     * 2. 格式清晰：使用分隔符区分不同部分
-     * 3. 长度控制：对长文本进行截断，避免超过LLM上下文限制
-     * 4. 可读性：使用人类可读的格式，便于调试
-     * 
-     * @param totalOutline 小说总纲
-     * @param arcInfo 卷信息（卷名、卷纲、章节范围）
-     * @param worldClockInfo 世界状态（时间、季节、天气）
-     * @param worldSetting 世界观设定
-     * @param characterStates 人物状态字符串
-     * @param lastFingerprint 上一章剧情摘要
-     * @param userIntent 用户意图
-     * @param unrecycledClues 未回收伏笔列表
-     * @return 格式化的上下文提示词字符串
-     * 
-     * @see ChapterGenerationChain#executeOutlineChain 使用这个上下文的方法
+     * 将章纲持久化到数据库
+     * 防止Redis缓存丢失后章纲无法恢复
      */
+    private void persistOutlineToDatabase(String novelId, int chapterNum, String outline,
+                                          List<String> implementationIdeas, String userIntent) {
+        try {
+            NovelChapter chapter = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
+            if (chapter == null) {
+                // 创建新的章节记录（状态为待生成）
+                chapter = new NovelChapter();
+                chapter.setChapterId(UUID.randomUUID().toString());
+                chapter.setNovelId(novelId);
+                chapter.setChapterNum(chapterNum);
+                chapter.setChapterTitle("第" + chapterNum + "章");
+                chapter.setChapterOutline(outline);
+                chapter.setImplementationIdea(implementationIdeas != null && !implementationIdeas.isEmpty()
+                        ? implementationIdeas.get(0) : null);
+                chapter.setUserIntent(userIntent);
+                chapter.setGenerationStatus(0); // 待生成
+                chapter.setCreateTime(LocalDateTime.now());
+                chapter.setUpdateTime(LocalDateTime.now());
+                novelChapterMapper.insert(chapter);
+                log.info("创建章节记录并保存章纲: novelId={}, chapterNum={}", novelId, chapterNum);
+            } else {
+                // 更新已有章节的章纲
+                chapter.setChapterOutline(outline);
+                chapter.setImplementationIdea(implementationIdeas != null && !implementationIdeas.isEmpty()
+                        ? implementationIdeas.get(0) : chapter.getImplementationIdea());
+                chapter.setUpdateTime(LocalDateTime.now());
+                novelChapterMapper.updateById(chapter);
+                log.info("更新章节章纲: novelId={}, chapterNum={}", novelId, chapterNum);
+            }
+        } catch (Exception e) {
+            log.error("持久化章纲失败: novelId={}, chapterNum={}", novelId, chapterNum, e);
+            // 不抛出异常，不影响主流程
+        }
+    }
+
+    /**
+     * 从数据库恢复生成上下文
+     * 当Redis缓存丢失时，从数据库中的章纲重建上下文
+     */
+    private GenerationContext recoverContextFromDatabase(String novelId, int chapterNum) {
+        try {
+            NovelChapter chapter = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
+            if (chapter == null || chapter.getChapterOutline() == null || chapter.getChapterOutline().isEmpty()) {
+                return null;
+            }
+
+            log.info("从数据库恢复章纲上下文: novelId={}, chapterNum={}", novelId, chapterNum);
+
+            // 获取小说信息
+            NovelBase novel = novelBaseMapper.selectById(novelId);
+            if (novel == null) {
+                return null;
+            }
+
+            // 获取卷信息
+            ArcInfo arcInfo = getArcInfo(novelId, chapterNum);
+
+            // 获取世界状态
+            WorldClockInfo worldClockInfo = getWorldClockInfo(novelId);
+
+            // 获取人物状态（直接调用CharacterStateService，避免重复查询）
+            String characterStates = characterStateService.formatForPrompt(novelId);
+
+            // 获取未回收伏笔
+            List<String> unrecycledClues = getUnrecycledClues(novelId);
+
+            // 获取上一章摘要
+            String lastFingerprint = getLastChapterFingerprint(novelId, chapterNum);
+
+            // 构建上下文
+            GenerationContext context = new GenerationContext();
+            context.setNovelId(novelId);
+            context.setGenre(novel.getGenre());
+            context.setTotalOutline(novel.getTotalOutline());
+            context.setArcOutline(arcInfo.getArcOutline());
+            context.setArcName(arcInfo.getArcName());
+            context.setWorldSetting(novel.getWorldSetting() != null ? novel.getWorldSetting() : "世界观待配置");
+            context.setCharacterStates(characterStates);
+            context.setUnrecycledClues(unrecycledClues);
+            context.setOutline(chapter.getChapterOutline());
+            context.setImplementationIdeas(chapter.getImplementationIdea() != null
+                    ? Arrays.asList(chapter.getImplementationIdea()) : Arrays.asList());
+            context.setLastChapterFingerprint(lastFingerprint);
+
+            // 同时更新Redis缓存
+            String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(novelId, chapterNum);
+            String contextJson = objectMapper.writeValueAsString(context);
+            redisTemplate.opsForValue().set(cacheKey, contextJson, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+
+            return context;
+        } catch (Exception e) {
+            log.error("从数据库恢复上下文失败: novelId={}, chapterNum={}", novelId, chapterNum, e);
+            return null;
+        }
+    }
+
     /**
      * 截断字符串到指定长度
      */
@@ -734,13 +832,42 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             "以主角视角为主线，穿插心理活动和环境描写，增强代入感"
         );
         try {
-            // 清理Markdown格式
             String cleaned = cleanMarkdownJson(json);
-            // 解析JSON
             JsonNode node = objectMapper.readTree(cleaned);
-            // 提取outline字段
-            result.setOutline(node.has("outline") ? node.get("outline").asText() : json.substring(0, Math.min(json.length(), 500)));
-            // 提取ideas字段
+
+            // 优先从结构化字段组装 outline（适配 Agent 实际输出格式）
+            StringBuilder outlineBuilder = new StringBuilder();
+            if (node.has("title")) {
+                outlineBuilder.append("标题：").append(node.get("title").asText()).append("\n");
+                result.setTitle(node.get("title").asText());
+            }
+            if (node.has("summary")) {
+                outlineBuilder.append("概要：").append(node.get("summary").asText()).append("\n");
+                result.setSummary(node.get("summary").asText());
+            }
+            if (node.has("key_points") && node.get("key_points").isArray()) {
+                outlineBuilder.append("要点：\n");
+                List<String> keyPoints = new ArrayList<>();
+                for (JsonNode p : node.get("key_points")) {
+                    outlineBuilder.append("- ").append(p.asText()).append("\n");
+                    keyPoints.add(p.asText());
+                }
+                result.setKeyPoints(keyPoints);
+            }
+            if (node.has("hook")) {
+                outlineBuilder.append("结尾钩子：").append(node.get("hook").asText()).append("\n");
+                result.setHook(node.get("hook").asText());
+            }
+
+            if (outlineBuilder.length() > 0) {
+                result.setOutline(outlineBuilder.toString());
+            } else if (node.has("outline")) {
+                // 兼容旧格式
+                result.setOutline(node.get("outline").asText());
+            } else {
+                result.setOutline(json.substring(0, Math.min(json.length(), 500)));
+            }
+
             List<String> ideas = new ArrayList<>();
             if (node.has("ideas") && node.get("ideas").isArray()) {
                 for (JsonNode n : node.get("ideas")) ideas.add(n.asText());

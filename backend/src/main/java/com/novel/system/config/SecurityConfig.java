@@ -28,6 +28,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/**", "/genre-template/**", "/genre/**").permitAll()
+                .requestMatchers("/mcp/**").permitAll()
                 .requestMatchers("/admin/**").hasRole("admin")
                 .requestMatchers("/style-card/**", "/novel/**", "/llm-config/**", "/chapter/**").authenticated()
                 .anyRequest().authenticated()

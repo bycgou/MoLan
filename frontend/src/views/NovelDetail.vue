@@ -244,7 +244,7 @@
     </el-dialog>
 
     <!-- 流式生成对话框 -->
-    <el-dialog v-model="streamDialogVisible" :title="streamingStatus === 'generating' ? 'AI 正在流式生成...' : streamingStatus === 'completed' ? '生成完成' : '生成出错'" width="800px" :close-on-click-modal="streamingStatus !== 'generating'" :close-on-press-escape="streamingStatus !== 'generating'" :show-close="streamingStatus !== 'generating'">
+    <el-dialog v-model="streamDialogVisible" :title="streamingStatus === 'generating' ? 'AI 正在流式生成...' : streamingStatus === 'completed' ? '生成完成' : '已取消'" width="800px" :close-on-click-modal="streamingStatus !== 'generating'" :close-on-press-escape="streamingStatus !== 'generating'" :show-close="streamingStatus !== 'generating'">
       <div style="white-space: pre-wrap; line-height: 2; font-size: 16px; max-height: 500px; overflow-y: auto; padding: 16px; background: #f5f7fa; border-radius: 8px;">
         {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
       </div>
@@ -263,6 +263,7 @@
           <el-button @click="streamDialogVisible = false">关闭</el-button>
         </template>
         <template v-else>
+          <el-button v-if="streamingContent" type="primary" @click="handleStreamSaveContent">保存已生成内容</el-button>
           <el-button @click="handleStreamRegenerate">重新生成</el-button>
           <el-button @click="streamDialogVisible = false">关闭</el-button>
         </template>
@@ -568,15 +569,24 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
       }
     }
 
+    let isCompleteEvent = false
+
     function processSSELine(line: string) {
       // 检测命名事件：event: complete
       if (line.startsWith('event:') && line.includes('complete')) {
-        return // 标记下一行是complete数据
+        isCompleteEvent = true
+        return
       }
       if (line.startsWith('data:')) {
         const data = line.slice(5).trim()
         if (data) {
-          streamingContent.value += data
+          if (isCompleteEvent) {
+            // complete事件的data是校验摘要
+            streamValidationSummary.value = data
+            isCompleteEvent = false
+          } else {
+            streamingContent.value += data
+          }
         }
       }
     }
@@ -613,6 +623,41 @@ async function handleStreamSave() {
   streamDialogVisible.value = false
   loadChapters()
   loadNovel()
+}
+
+/** 取消/校验失败后手动保存已生成的内容 */
+async function handleStreamSaveContent() {
+  if (!streamingContent.value) {
+    ElMessage.warning('没有可保存的内容')
+    return
+  }
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/chapter/stream-save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        novelId,
+        chapterNum: String(streamChapterNum.value),
+        content: streamingContent.value,
+        outline: outlineData.value?.outline || '',
+      }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      ElMessage.success(`已保存（${data.wordCount}字）`)
+      streamDialogVisible.value = false
+      loadChapters()
+      loadNovel()
+    } else {
+      ElMessage.error('保存失败: ' + (data.error || '未知错误'))
+    }
+  } catch (e: any) {
+    ElMessage.error('保存失败: ' + (e.message || '未知错误'))
+  }
 }
 
 /** 流式完成 -> 跳转编辑页 */
