@@ -28,6 +28,8 @@ public class NovelBase {
     private String totalOutline;
     /** 世界观设定，包含力量体系、地理环境、社会势力等 */
     private String worldSetting;
+    /** 用户选择的LLM配置ID */
+    private String llmConfigId;
     /** 总字数 */
     private Integer wordCount = 0;
     /** 总章节数 */

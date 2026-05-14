@@ -12,6 +12,7 @@
         <result column="taboo_list" property="tabooList"/>
         <result column="total_outline" property="totalOutline"/>
         <result column="world_setting" property="worldSetting"/>
+        <result column="llm_config_id" property="llmConfigId"/>
         <result column="word_count" property="wordCount"/>
         <result column="chapter_count" property="chapterCount"/>
         <result column="status" property="status"/>
@@ -42,13 +43,13 @@
 
     <insert id="insert">
         INSERT INTO novel_base (novel_id, novel_name, user_id, genre, novel_type, tone, taboo_list,
-            total_outline, world_setting,
+            total_outline, world_setting, llm_config_id,
             word_count, chapter_count, status, is_deleted, create_time, update_time)
         VALUES (#{novelId}, #{novelName}, #{userId}, #{genre},
             #{novelType, jdbcType=VARCHAR},
             #{tone, jdbcType=VARCHAR},
             #{tabooList, jdbcType=VARCHAR},
-            #{totalOutline}, #{worldSetting},
+            #{totalOutline}, #{worldSetting}, #{llmConfigId, jdbcType=VARCHAR},
             #{wordCount}, #{chapterCount}, #{status}, #{isDeleted}, #{createTime}, #{updateTime})
     </insert>
 
@@ -62,6 +63,7 @@
             <if test="tabooList != null">taboo_list = #{tabooList, jdbcType=VARCHAR},</if>
             <if test="totalOutline != null">total_outline = #{totalOutline},</if>
             <if test="worldSetting != null">world_setting = #{worldSetting},</if>
+            <if test="llmConfigId != null">llm_config_id = #{llmConfigId, jdbcType=VARCHAR},</if>
             <if test="wordCount != null">word_count = #{wordCount},</if>
             <if test="chapterCount != null">chapter_count = #{chapterCount},</if>
             <if test="status != null">status = #{status},</if>
