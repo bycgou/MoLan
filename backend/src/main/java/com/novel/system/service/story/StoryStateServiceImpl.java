@@ -2,6 +2,7 @@ package com.novel.system.service.story;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.util.JsonExtractor;
 import com.novel.system.entity.mongo.StoryState;
 import com.novel.system.repository.mongo.StoryStateRepository;
 import com.novel.system.service.llm.LlmService;
@@ -124,7 +125,7 @@ public class StoryStateServiceImpl implements StoryStateService {
             String response = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
 
             // 解析 JSON 响应
-            String jsonStr = extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response);
             Map<String, Object> extraction = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
             // 更新 timeline
@@ -255,26 +256,6 @@ public class StoryStateServiceImpl implements StoryStateService {
         } catch (Exception e) {
             log.warn("背景压缩失败（不影响基本更新）: {}", e.getMessage());
         }
-    }
-
-    /**
-     * 从 LLM 响应中提取 JSON
-     */
-    private String extractJson(String response) {
-        if (response == null) return "{}";
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```")) {
-            int firstNewline = trimmed.indexOf('\n');
-            int lastFence = trimmed.lastIndexOf("```");
-            if (firstNewline > 0 && lastFence > firstNewline) {
-                trimmed = trimmed.substring(firstNewline + 1, lastFence).trim();
-            }
-        }
-        int jsonStart = trimmed.indexOf('{');
-        if (jsonStart > 0) trimmed = trimmed.substring(jsonStart);
-        int jsonEnd = trimmed.lastIndexOf('}');
-        if (jsonEnd > 0) trimmed = trimmed.substring(0, jsonEnd + 1);
-        return trimmed;
     }
 
     @Override

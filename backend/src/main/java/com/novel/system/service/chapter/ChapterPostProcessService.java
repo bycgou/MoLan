@@ -2,6 +2,7 @@ package com.novel.system.service.chapter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.util.JsonExtractor;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mongo.CharacterState;
 import com.novel.system.entity.mongo.NovelGraph;
@@ -170,7 +171,7 @@ public class ChapterPostProcessService {
             );
 
             String response = model.generate(prompt);
-            String jsonStr = extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response);
             Map<String, Object> result = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
             // 1. 处理所有提到的人物（新建或记录名称）
@@ -357,7 +358,7 @@ public class ChapterPostProcessService {
             );
 
             String response = model.generate(prompt);
-            String jsonStr = extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response);
 
             List<Map<String, Object>> clues = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
@@ -411,7 +412,7 @@ public class ChapterPostProcessService {
             );
 
             String response = model.generate(prompt);
-            String jsonStr = extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response);
 
             Map<String, Object> timeline = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
@@ -559,38 +560,4 @@ public class ChapterPostProcessService {
         }
     }
 
-    /**
-     * 从LLM响应中提取JSON字符串（处理可能的markdown代码块包裹）
-     */
-    private String extractJson(String response) {
-        if (response == null) return "[]";
-
-        String trimmed = response.trim();
-
-        // 去除 ```json ... ``` 包裹
-        if (trimmed.startsWith("```")) {
-            int firstNewline = trimmed.indexOf('\n');
-            int lastFence = trimmed.lastIndexOf("```");
-            if (firstNewline > 0 && lastFence > firstNewline) {
-                trimmed = trimmed.substring(firstNewline + 1, lastFence).trim();
-            }
-        }
-
-        // 去除多余的前缀文本
-        int jsonStart = trimmed.indexOf('[');
-        if (jsonStart < 0) jsonStart = trimmed.indexOf('{');
-        if (jsonStart > 0) {
-            trimmed = trimmed.substring(jsonStart);
-        }
-
-        // 去除尾部多余文本
-        int jsonEndArray = trimmed.lastIndexOf(']');
-        int jsonEndObj = trimmed.lastIndexOf('}');
-        int jsonEnd = Math.max(jsonEndArray, jsonEndObj);
-        if (jsonEnd > 0) {
-            trimmed = trimmed.substring(0, jsonEnd + 1);
-        }
-
-        return trimmed;
-    }
 }

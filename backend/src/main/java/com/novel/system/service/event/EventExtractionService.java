@@ -2,6 +2,7 @@ package com.novel.system.service.event;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.util.JsonExtractor;
 import com.novel.system.entity.mongo.EventNode;
 import com.novel.system.service.llm.LlmService;
 import lombok.RequiredArgsConstructor;
@@ -69,7 +70,7 @@ public class EventExtractionService {
             );
 
             String response = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
-            String jsonStr = extractJson(response);
+            String jsonStr = JsonExtractor.extractJson(response);
             List<Map<String, Object>> extracted = objectMapper.readValue(
                 jsonStr, new TypeReference<>() {});
 
@@ -112,29 +113,6 @@ public class EventExtractionService {
         }
 
         return events;
-    }
-
-    /**
-     * 从LLM响应中提取JSON
-     */
-    private String extractJson(String response) {
-        if (response == null) return "[]";
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```")) {
-            int firstNewline = trimmed.indexOf('\n');
-            int lastFence = trimmed.lastIndexOf("```");
-            if (firstNewline > 0 && lastFence > firstNewline) {
-                trimmed = trimmed.substring(firstNewline + 1, lastFence).trim();
-            }
-        }
-        int jsonStart = trimmed.indexOf('[');
-        if (jsonStart < 0) jsonStart = trimmed.indexOf('{');
-        if (jsonStart > 0) trimmed = trimmed.substring(jsonStart);
-        int jsonEndArray = trimmed.lastIndexOf(']');
-        int jsonEndObj = trimmed.lastIndexOf('}');
-        int jsonEnd = Math.max(jsonEndArray, jsonEndObj);
-        if (jsonEnd > 0) trimmed = trimmed.substring(0, jsonEnd + 1);
-        return trimmed;
     }
 
     private String getStringOrDefault(Map<String, Object> map, String key, String defaultVal) {

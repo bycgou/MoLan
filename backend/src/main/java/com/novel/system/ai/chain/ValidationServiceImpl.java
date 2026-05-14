@@ -2,6 +2,7 @@ package com.novel.system.ai.chain;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.util.JsonExtractor;
 import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.llm.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
@@ -379,7 +380,7 @@ public class ValidationServiceImpl implements ValidationService {
     private OOCResult parseOOCResponse(String response) {
         OOCResult result = new OOCResult();
         try {
-            String json = extractJson(response);
+            String json = JsonExtractor.extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
             int langScore = node.path("language_style_score").asInt(0);
@@ -406,7 +407,7 @@ public class ValidationServiceImpl implements ValidationService {
     private LogicResult parseLogicResponse(String response) {
         LogicResult result = new LogicResult();
         try {
-            String json = extractJson(response);
+            String json = JsonExtractor.extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
             boolean causalValid = node.path("causal_chain_valid").asBoolean(false);
@@ -429,7 +430,7 @@ public class ValidationServiceImpl implements ValidationService {
     private ClueResult parseClueResponse(String response) {
         ClueResult result = new ClueResult();
         try {
-            String json = extractJson(response);
+            String json = JsonExtractor.extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
             result.setBuriedCount(node.path("buried_count").asInt(0));
@@ -453,7 +454,7 @@ public class ValidationServiceImpl implements ValidationService {
     private SettingResult parseSettingResponse(String response) {
         SettingResult result = new SettingResult();
         try {
-            String json = extractJson(response);
+            String json = JsonExtractor.extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
             boolean worldRuleValid = node.path("world_rule_valid").asBoolean(false);
@@ -476,7 +477,7 @@ public class ValidationServiceImpl implements ValidationService {
     private RhythmResult parseRhythmResponse(String response) {
         RhythmResult result = new RhythmResult();
         try {
-            String json = extractJson(response);
+            String json = JsonExtractor.extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
             result.setExpectedRhythm(node.path("expected_rhythm").asText("quest"));
@@ -493,24 +494,6 @@ public class ValidationServiceImpl implements ValidationService {
     }
     
     // ========== 辅助方法 ==========
-
-    private String extractJson(String response) {
-        if (response == null) return "{}";
-        String trimmed = response.trim();
-        if (trimmed.startsWith("```json")) {
-            trimmed = trimmed.replaceAll("^```json\\s*", "").replaceAll("\\s*```$", "");
-        } else if (trimmed.startsWith("```")) {
-            trimmed = trimmed.replaceAll("^```\\s*", "").replaceAll("\\s*```$", "");
-        }
-        int start = trimmed.indexOf('{');
-        if (start < 0) start = trimmed.indexOf('[');
-        if (start > 0) trimmed = trimmed.substring(start);
-        int endObj = trimmed.lastIndexOf('}');
-        int endArr = trimmed.lastIndexOf(']');
-        int end = Math.max(endObj, endArr);
-        if (end > 0) trimmed = trimmed.substring(0, end + 1);
-        return trimmed;
-    }
 
     private String truncate(String text, int maxLength) {
         if (text == null || text.isEmpty()) return "无";
