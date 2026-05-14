@@ -20,6 +20,7 @@ import com.novel.system.service.orchestration.ArcOrchestrationService;
 import com.novel.system.service.style.StyleCardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,6 +49,8 @@ public class WizardServiceImpl implements WizardService {
     private final ArcOrchestrationService arcOrchestrationService;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
+    @Qualifier("ioTaskExecutor")
+    private final Executor ioTaskExecutor;
 
     private static final String BATCH_PROGRESS_PREFIX = "novel:wizard:batch:";
 
@@ -295,12 +299,14 @@ public class WizardServiceImpl implements WizardService {
                         if (response.getSuccess()) {
                             progress.setCompletedChapters(progress.getCompletedChapters() + 1);
                         } else {
+                            progress.setFailedChapters(progress.getFailedChapters() + 1);
+                            progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成失败: " + response.getErrorMessage());
                             log.warn("第{}章生成失败: {}", chapter.getChapterNum(), response.getErrorMessage());
-                            progress.setCompletedChapters(progress.getCompletedChapters() + 1);
                         }
                     } catch (Exception e) {
-                        log.error("第{}章生成异常", chapter.getChapterNum(), e);
-                        progress.setCompletedChapters(progress.getCompletedChapters() + 1);
+                        progress.setFailedChapters(progress.getFailedChapters() + 1);
+                        progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成异常: " + e.getMessage());
+                        log.error("批量生成章节 {} 异常", chapter.getChapterNum(), e);
                     }
 
                     saveBatchProgress(taskId, progress);
@@ -318,7 +324,7 @@ public class WizardServiceImpl implements WizardService {
             } finally {
                 SecurityContextHolder.clearContext();
             }
-        });
+        }, ioTaskExecutor);
 
         return taskId;
     }
