@@ -81,7 +81,9 @@ public class EventExtractionService {
                     node.setNovelId(novelId);
                     node.setChapter(chapterNum);
                     node.setType(getStringOrDefault(data, "type", "action"));
-                    node.setContent(truncateTo200(getStringOrDefault(data, "content", "")));
+                    node.setContent(truncateByImportance(
+                        getStringOrDefault(data, "content", ""),
+                        getIntOrDefault(data, "importance", 5)));
                     node.setLocation((String) data.get("location"));
                     node.setImportance(getIntOrDefault(data, "importance", 5));
                     node.setCreateTime(LocalDateTime.now());
@@ -126,8 +128,9 @@ public class EventExtractionService {
         return defaultVal;
     }
 
-    private String truncateTo200(String text) {
+    private String truncateByImportance(String text, int importance) {
         if (text == null) return null;
-        return text.length() > 200 ? text.substring(0, 200) : text;
+        int maxLen = importance >= 8 ? 500 : 200;
+        return text.length() > maxLen ? text.substring(0, maxLen) : text;
     }
 }
