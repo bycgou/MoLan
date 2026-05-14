@@ -198,31 +198,38 @@ public class WizardServiceImpl implements WizardService {
     public void confirmChapterOutlines(String novelId, int arcIndex, List<ArcChapterOutlineDTO> outlines) {
         log.info("确认章纲，小说ID: {}, 卷索引: {}, 章节数: {}", novelId, arcIndex, outlines.size());
 
+        // Query arcs once before the loop
+        List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
+        String arcId = (arcIndex >= 0 && arcIndex < arcs.size())
+                ? arcs.get(arcIndex).getArcId() : null;
+
         for (ArcChapterOutlineDTO dto : outlines) {
             NovelChapter existing = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, dto.getChapterNum());
 
             if (existing != null) {
-                // 更新已有章节的章纲
                 existing.setChapterOutline(dto.getOutline());
                 existing.setChapterTitle(dto.getChapterTitle());
+                if (existing.getArcId() == null && arcId != null) {
+                    existing.setArcId(arcId);
+                }
                 existing.setUpdateTime(LocalDateTime.now());
                 novelChapterMapper.updateById(existing);
             } else {
-                // 创建新章节记录（仅章纲，无正文）
                 NovelChapter chapter = new NovelChapter();
                 chapter.setChapterId(UUID.randomUUID().toString().replace("-", ""));
                 chapter.setNovelId(novelId);
                 chapter.setChapterNum(dto.getChapterNum());
                 chapter.setChapterTitle(dto.getChapterTitle());
                 chapter.setChapterOutline(dto.getOutline());
-                chapter.setGenerationStatus(0); // 待生成
+                chapter.setArcId(arcId);
+                chapter.setGenerationStatus(0);
                 chapter.setCreateTime(LocalDateTime.now());
                 chapter.setUpdateTime(LocalDateTime.now());
                 novelChapterMapper.insert(chapter);
             }
         }
 
-        // 更新小说章节数
+        // Update novel chapter count
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel != null) {
             int maxChapter = outlines.stream()
