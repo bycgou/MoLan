@@ -40,4 +40,9 @@ public interface WizardService {
      * Step 5: 查询批量生成进度
      */
     BatchGenerationProgress getBatchProgress(String novelId, String taskId);
+
+    /**
+     * 取消批量生成任务
+     */
+    void cancelBatchGeneration(String novelId, String taskId);
 }

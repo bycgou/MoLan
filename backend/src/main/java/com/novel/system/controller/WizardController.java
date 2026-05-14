@@ -111,4 +111,18 @@ public class WizardController {
             @PathVariable String taskId) {
         return ApiResponse.success(wizardService.getBatchProgress(novelId, taskId));
     }
+
+    /**
+     * 取消批量生成任务
+     */
+    @PostMapping("/novel/{novelId}/batch-cancel/{taskId}")
+    public ApiResponse<Void> batchCancel(@PathVariable String novelId, @PathVariable String taskId) {
+        try {
+            wizardService.cancelBatchGeneration(novelId, taskId);
+            return ApiResponse.success("已请求取消", null);
+        } catch (Exception e) {
+            log.error("取消批量生成失败", e);
+            return ApiResponse.error(500, "取消失败: " + e.getMessage());
+        }
+    }
 }

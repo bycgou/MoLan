@@ -281,6 +281,15 @@ public class WizardServiceImpl implements WizardService {
                 saveBatchProgress(taskId, progress);
 
                 for (NovelChapter chapter : pendingChapters) {
+                    // Check for cancellation
+                    String cancelKey = BATCH_PROGRESS_PREFIX + "cancel:" + taskId;
+                    if (Boolean.TRUE.equals(redisTemplate.hasKey(cancelKey))) {
+                        progress.setStatus("CANCELLED");
+                        saveBatchProgress(taskId, progress);
+                        log.info("批量生成已取消，taskId: {}", taskId);
+                        return;
+                    }
+
                     progress.setCurrentChapterNum(chapter.getChapterNum());
                     saveBatchProgress(taskId, progress);
 
@@ -327,6 +336,13 @@ public class WizardServiceImpl implements WizardService {
         }, ioTaskExecutor);
 
         return taskId;
+    }
+
+    @Override
+    public void cancelBatchGeneration(String novelId, String taskId) {
+        String cancelKey = BATCH_PROGRESS_PREFIX + "cancel:" + taskId;
+        redisTemplate.opsForValue().set(cancelKey, "1", 24, TimeUnit.HOURS);
+        log.info("已设置批量生成取消标志，taskId: {}", taskId);
     }
 
     @Override
