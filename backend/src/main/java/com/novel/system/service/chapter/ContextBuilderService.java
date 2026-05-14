@@ -1,12 +1,17 @@
 package com.novel.system.service.chapter;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.entity.mysql.*;
 import com.novel.system.mapper.ArcSummaryMapper;
 import com.novel.system.mapper.NovelChapterMapper;
+import com.novel.system.ai.memory.CharacterGraphService;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
-import com.novel.system.ai.rag.RagService;
-import com.novel.system.entity.mongo.ChapterSummary;
+import com.novel.system.service.story.StoryStateService;
+import com.novel.system.entity.mongo.ArcOrchestration;
+import com.novel.system.entity.mongo.StoryState;
+import com.novel.system.service.orchestration.ArcOrchestrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,75 +26,129 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ContextBuilderService {
-    
+
     private final ArcSummaryMapper arcSummaryMapper;
     private final NovelChapterMapper chapterMapper;
     private final CharacterStateService characterStateService;
     private final ClueBookService clueBookService;
-    private final RagService ragService;
+    private final StoryStateService storyStateService;
+    private final TokenBudgetService tokenBudgetService;
+    private final CharacterGraphService characterGraphService;
+    private final ArcOrchestrationService arcOrchestrationService;
+    private final com.novel.system.service.event.RuleDrivenRetrievalService ruleDrivenRetrievalService;
+    private final com.novel.system.service.event.EventGraphService eventGraphService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
-     * 构建章纲生成的上下文 — 三层记忆体系
-     * 
+     * 构建章纲生成的上下文 — 三层记忆体系（默认8192 token预算）
+     */
+    public String buildOutlineContext(String novelId, int chapterNum,
+                                       NovelBase novel, String arcName, String arcOutline) {
+        return buildOutlineContext(novelId, chapterNum, novel, arcName, arcOutline, 8192);
+    }
+
+    /**
+     * 构建章纲生成的上下文 — 三层记忆体系（支持Token预算控制）
+     *
      * 第一层：弧段摘要 (全局历史记忆，防止 AI 对早期情节失忆)
      * 第二层：近8章大纲 (微观衔接)
      * 第三层：上批钩子 (本章开头必须承接)
-     * 
-     * @param novelId 小说ID
-     * @param chapterNum 章节号
-     * @param novel 小说基本信息
-     * @param arcName 卷名称
-     * @param arcOutline 卷大纲
      */
-    public String buildOutlineContext(String novelId, int chapterNum, 
-                                       NovelBase novel, String arcName, String arcOutline) {
+    public String buildOutlineContext(String novelId, int chapterNum,
+                                       NovelBase novel, String arcName, String arcOutline,
+                                       int modelMaxToken) {
+        TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(modelMaxToken);
         StringBuilder sb = new StringBuilder();
-        
+
         // === 第一层：弧段摘要 ===
         List<ArcSummary> arcSummaries = arcSummaryMapper
             .selectByNovelIdAndRange(novelId, chapterNum);
         if (!arcSummaries.isEmpty()) {
-            sb.append("【全书故事线回顾（按时序，必须与此保持一致）】\n");
+            StringBuilder arcSb = new StringBuilder();
+            arcSb.append("【全书故事线回顾（按时序，必须与此保持一致）】\n");
             for (ArcSummary arc : arcSummaries) {
-                sb.append(String.format("【第%d-%d章故事线】%s\n\n", 
+                arcSb.append(String.format("【第%d-%d章故事线】%s\n\n",
                     arc.getChapterFrom(), arc.getChapterTo(), arc.getSummary()));
             }
+            sb.append(tokenBudgetService.truncateToBudget(arcSb.toString(), budget.getAllocated("arcSummary")));
         }
-        
+
         // === 第二层：近8章局部大纲 ===
         List<NovelChapter> recentChapters = chapterMapper
             .selectRecentOutlines(novelId, chapterNum, 8);
         if (!recentChapters.isEmpty()) {
-            sb.append("【前情参考（保持剧情连贯，注意每章钩子的承接）】\n");
+            StringBuilder outlineSb = new StringBuilder();
+            outlineSb.append("【前情参考（保持剧情连贯，注意每章钩子的承接）】\n");
             for (NovelChapter ch : recentChapters) {
                 String outline = truncate(ch.getChapterOutline(), 80);
                 String hook = ch.getHook() != null ? "  →钩子：" + ch.getHook() : "";
-                sb.append(String.format("第%d章《%s》：%s%s\n", 
+                outlineSb.append(String.format("第%d章《%s》：%s%s\n",
                     ch.getChapterNum(), ch.getChapterTitle(), outline, hook));
             }
-            sb.append("\n");
+            sb.append(tokenBudgetService.truncateToBudget(outlineSb.toString(), budget.getAllocated("recentOutline")));
         }
-        
+
         // === 第三层：上一章结尾钩子 ===
         NovelChapter prevChapter = chapterMapper
             .selectByNovelIdAndChapterNum(novelId, chapterNum - 1);
         if (prevChapter != null && prevChapter.getHook() != null) {
             sb.append(String.format(
-                "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n", 
+                "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n",
                 prevChapter.getHook()));
         }
-        
+
+        // === 事件图谱：规则驱动自动检索 ===
+        try {
+            List<com.novel.system.entity.mysql.ClueBook> pendingClues =
+                clueBookService.getUnrecycledClues(novelId);
+            List<com.novel.system.entity.mongo.EventNode> retrievedEvents =
+                ruleDrivenRetrievalService.autoRetrieve(novelId, chapterNum,
+                    arcOutline, pendingClues);
+            if (!retrievedEvents.isEmpty()) {
+                String eventsText = eventGraphService.formatEventsForPrompt(
+                    retrievedEvents, "历史关键事件回忆（大纲中必须保持一致）");
+                sb.append(tokenBudgetService.truncateToBudget(eventsText, 1000));
+            }
+        } catch (Exception e) {
+            log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
+        }
+
+        // === 故事状态（核心枢纽，第一优先级数据源）===
+        try {
+            StoryState storyState = storyStateService.getOrCreate(novelId);
+            String stateText = storyStateService.formatForPrompt(storyState);
+            if (stateText != null && !stateText.isEmpty()) {
+                sb.append(tokenBudgetService.truncateToBudget(stateText, budget.getAllocated("storyState")));
+            }
+        } catch (Exception e) {
+            log.warn("获取故事状态失败: {}", e.getMessage());
+        }
+
         // === 人物当前状态 ===
         String charStates = characterStateService.formatForPrompt(novelId);
         if (charStates != null && !charStates.isEmpty()) {
-            sb.append("【人物当前状态（大纲中必须与此一致）】\n")
-              .append(charStates).append("\n\n");
+            sb.append("【人物当前状态（大纲中必须与此一致）】\n");
+            sb.append(tokenBudgetService.truncateToBudget(charStates, budget.getAllocated("characterState")));
+            sb.append("\n\n");
         }
-        
+
+        // === 人物关系图谱 ===
+        try {
+            String graphStr = characterGraphService.formatGraphAsString(novelId);
+            if (graphStr != null && !graphStr.isEmpty() && !"暂无人物关系数据".equals(graphStr)) {
+                sb.append(tokenBudgetService.truncateToBudget(
+                    "【人物关系图谱】\n" + graphStr + "\n\n",
+                    budget.getAllocated("characterState") / 2));
+            }
+        } catch (Exception e) {
+            log.warn("获取人物关系图谱失败: {}", e.getMessage());
+        }
+
         // === 伏笔 deadline 紧急提示 ===
         List<ClueBook> pendingClues = clueBookService.getUnrecycledClues(novelId);
         if (!pendingClues.isEmpty()) {
-            sb.append("【待回收伏笔（大纲中应适时安排回收，切勿遗忘）】\n");
+            StringBuilder clueSb = new StringBuilder();
+            clueSb.append("【待回收伏笔（大纲中应适时安排回收，切勿遗忘）】\n");
             for (ClueBook clue : pendingClues) {
                 String deadline = "";
                 if (clue.getDeadline() != null) {
@@ -97,166 +156,255 @@ public class ContextBuilderService {
                         ? " ⚠️【紧急】建议" + clue.getDeadline() + "章前回收（已临近）"
                         : "（建议" + clue.getDeadline() + "章前回收）";
                 }
-                sb.append(String.format("第%d章埋：%s%s\n", 
+                clueSb.append(String.format("第%d章埋：%s%s\n",
                     clue.getBuryChapter(), clue.getClueContent(), deadline));
             }
-            sb.append("\n");
+            sb.append(tokenBudgetService.truncateToBudget(clueSb.toString(), budget.getAllocated("clueBook")));
         }
-        
+
+        // === 卷级编排约束（如果存在） ===
+        try {
+            ArcOrchestration.ChapterPlan chapterPlan = arcOrchestrationService.getChapterPlan(novelId, chapterNum);
+            if (chapterPlan != null) {
+                StringBuilder planSb = new StringBuilder();
+                planSb.append("【卷级编排约束——章纲必须遵守以下规划】\n");
+                planSb.append(String.format("节奏标签：%s（quest=主线推进/fire=高潮冲突/constellation=支线展开）\n",
+                        chapterPlan.getRhythmTag()));
+                planSb.append(String.format("节奏强度：%d/10\n", chapterPlan.getRhythmIntensity()));
+                planSb.append(String.format("叙事视角：%s\n", chapterPlan.getPerspective()));
+                planSb.append(String.format("叙事模式：%s\n", chapterPlan.getNarrativeMode()));
+                planSb.append(String.format("冲突类型：%s\n", chapterPlan.getConflictType()));
+                planSb.append(String.format("结局类型：%s\n", chapterPlan.getOutcomeType()));
+                planSb.append(String.format("核心事件：%s\n", chapterPlan.getKeyEvent()));
+                planSb.append(String.format("章尾钩子方向：%s\n", chapterPlan.getHookDirection()));
+
+                if (chapterPlan.getCluePlan() != null) {
+                    ArcOrchestration.CluePlan cp = chapterPlan.getCluePlan();
+                    if (cp.getBury() != null && !cp.getBury().isEmpty()) {
+                        planSb.append("本章需埋设伏笔：").append(String.join("；", cp.getBury())).append("\n");
+                    }
+                    if (cp.getRecycle() != null && !cp.getRecycle().isEmpty()) {
+                        planSb.append("本章需回收伏笔：").append(String.join("；", cp.getRecycle())).append("\n");
+                    }
+                }
+
+                sb.append(tokenBudgetService.truncateToBudget(planSb.toString(), 500));
+                sb.append("\n");
+            }
+        } catch (Exception e) {
+            log.warn("获取卷级编排约束失败（不影响生成）: {}", e.getMessage());
+        }
+
         // === 故事势能 ===
         if (novel.getStoryMomentum() != null && !novel.getStoryMomentum().isEmpty()) {
             sb.append("【当前故事势能（续写时保持张力）】\n")
               .append(novel.getStoryMomentum()).append("\n\n");
         }
-        
-        // === 基础上下文 (保留 MoYun 原有) ===
+
+        // === 基础上下文 ===
         appendNovelPreferences(sb, novel);
         sb.append("===小说总纲===\n")
-          .append(truncate(novel.getTotalOutline(), 4000)).append("\n\n");
+          .append(tokenBudgetService.truncateToBudget(novel.getTotalOutline(), budget.getAllocated("novelOutline"))).append("\n\n");
         sb.append("===卷信息===\n")
           .append("卷名: ").append(arcName != null ? arcName : "待配置").append("\n")
-          .append("卷纲: ").append(truncate(arcOutline, 1500)).append("\n\n");
-        sb.append("===世界观===\n").append(novel.getWorldSetting()).append("\n\n");
-        
+          .append("卷纲: ").append(tokenBudgetService.truncateToBudget(arcOutline, budget.getAllocated("recentOutline") / 2)).append("\n\n");
+        sb.append("===世界观===\n")
+          .append(tokenBudgetService.truncateToBudget(novel.getWorldSetting(), budget.getAllocated("worldSetting"))).append("\n\n");
+
         return sb.toString();
     }
     
     /**
-     * 构建章纲生成的上下文（兼容旧接口）
+     * 构建章纲生成的上下文（兼容旧接口，默认8192 token预算）
      */
-    public String buildOutlineContext(String novelId, int chapterNum, 
+    public String buildOutlineContext(String novelId, int chapterNum,
                                        NovelBase novel, Object arcInfo) {
-        // 尝试从 arcInfo 中提取 arcName 和 arcOutline
         String arcName = null;
         String arcOutline = null;
-        
+
         try {
-            // 使用反射获取字段值
             java.lang.reflect.Field arcNameField = arcInfo.getClass().getDeclaredField("arcName");
             arcNameField.setAccessible(true);
             arcName = (String) arcNameField.get(arcInfo);
-            
+
             java.lang.reflect.Field arcOutlineField = arcInfo.getClass().getDeclaredField("arcOutline");
             arcOutlineField.setAccessible(true);
             arcOutline = (String) arcOutlineField.get(arcInfo);
         } catch (Exception e) {
             log.warn("无法从 arcInfo 提取字段: {}", e.getMessage());
         }
-        
+
         return buildOutlineContext(novelId, chapterNum, novel, arcName, arcOutline);
     }
     
     /**
-     * 构建正文写作的上下文 — 增强版
+     * 构建正文写作的上下文 — 增强版（默认8192 token预算）
      */
     public String buildWritingContext(String novelId, int chapterNum,
                                        NovelChapter chapter, NovelBase novel,
                                        String selectedIdea) {
+        return buildWritingContext(novelId, chapterNum, chapter, novel, selectedIdea, 8192);
+    }
+
+    /**
+     * 构建正文写作的上下文 — 增强版（支持Token预算控制）
+     */
+    public String buildWritingContext(String novelId, int chapterNum,
+                                       NovelChapter chapter, NovelBase novel,
+                                       String selectedIdea, int modelMaxToken) {
+        TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(modelMaxToken);
         StringBuilder sb = new StringBuilder();
-        
-        // === 三层记忆（同上，但针对写作场景微调）===
+
+        // === 三层记忆 ===
         // 弧段摘要
         List<ArcSummary> arcSummaries = arcSummaryMapper
             .selectByNovelIdAndRange(novelId, chapterNum);
         if (!arcSummaries.isEmpty()) {
-            sb.append("【全书故事线回顾（按时序，必须与此保持一致）】\n");
+            StringBuilder arcSb = new StringBuilder();
+            arcSb.append("【全书故事线回顾（按时序，必须与此保持一致）】\n");
             for (ArcSummary arc : arcSummaries) {
-                sb.append(String.format("【第%d-%d章故事线】%s\n\n", 
+                arcSb.append(String.format("【第%d-%d章故事线】%s\n\n",
                     arc.getChapterFrom(), arc.getChapterTo(), arc.getSummary()));
             }
+            sb.append(tokenBudgetService.truncateToBudget(arcSb.toString(), budget.getAllocated("arcSummary")));
         }
-        
+
         // 近5章局部大纲
         List<NovelChapter> recentChapters = chapterMapper
             .selectRecentOutlines(novelId, chapterNum, 5);
         if (!recentChapters.isEmpty()) {
-            sb.append("【前情参考（保持剧情连贯，注意每章钩子的承接）】\n");
+            StringBuilder outlineSb = new StringBuilder();
+            outlineSb.append("【前情参考（保持剧情连贯，注意每章钩子的承接）】\n");
             for (NovelChapter ch : recentChapters) {
                 String outline = truncate(ch.getChapterOutline(), 80);
                 String hook = ch.getHook() != null ? "  →钩子：" + ch.getHook() : "";
-                sb.append(String.format("第%d章《%s》：%s%s\n", 
+                outlineSb.append(String.format("第%d章《%s》：%s%s\n",
                     ch.getChapterNum(), ch.getChapterTitle(), outline, hook));
             }
-            sb.append("\n");
+            sb.append(tokenBudgetService.truncateToBudget(outlineSb.toString(), budget.getAllocated("recentOutline")));
         }
-        
+
         // 上一章结尾钩子
         NovelChapter prevChapter = chapterMapper
             .selectByNovelIdAndChapterNum(novelId, chapterNum - 1);
         if (prevChapter != null && prevChapter.getHook() != null) {
             sb.append(String.format(
-                "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n", 
+                "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n",
                 prevChapter.getHook()));
         }
-        
+
+        // === 事件图谱：规则驱动自动检索 ===
+        try {
+            List<com.novel.system.entity.mysql.ClueBook> pendingClues =
+                clueBookService.getUnrecycledClues(novelId);
+            List<com.novel.system.entity.mongo.EventNode> retrievedEvents =
+                ruleDrivenRetrievalService.autoRetrieve(novelId, chapterNum,
+                    chapter.getChapterOutline(), pendingClues);
+            if (!retrievedEvents.isEmpty()) {
+                String eventsText = eventGraphService.formatEventsForPrompt(
+                    retrievedEvents, "历史关键事件回忆（写作时必须保持一致）");
+                sb.append(tokenBudgetService.truncateToBudget(eventsText, 1000));
+            }
+        } catch (Exception e) {
+            log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
+        }
+
+        // === 故事状态（核心枢纽）===
+        try {
+            StoryState storyState = storyStateService.getOrCreate(novelId);
+            String stateText = storyStateService.formatForPrompt(storyState);
+            if (stateText != null && !stateText.isEmpty()) {
+                sb.append(tokenBudgetService.truncateToBudget(stateText, budget.getAllocated("storyState")));
+            }
+        } catch (Exception e) {
+            log.warn("获取故事状态失败: {}", e.getMessage());
+        }
+
         // === 伏笔 deadline 紧急提示 ===
         List<ClueBook> pendingClues = clueBookService.getUnrecycledClues(novelId);
         if (!pendingClues.isEmpty()) {
-            sb.append("【待回收伏笔（写作中应适时安排回收）】\n");
+            StringBuilder clueSb = new StringBuilder();
+            clueSb.append("【待回收伏笔（写作中应适时安排回收）】\n");
             for (ClueBook clue : pendingClues) {
                 String deadline = "";
                 if (clue.getDeadline() != null) {
-                    // 写作时 threshold 更小，仅提示临近 deadline 的
                     deadline = chapterNum >= clue.getDeadline() - 3
                         ? " ⚠️【紧急】建议本章回收（已临近deadline）"
                         : "（建议" + clue.getDeadline() + "章前回收）";
                 }
-                sb.append(String.format("第%d章埋：%s%s\n", 
+                clueSb.append(String.format("第%d章埋：%s%s\n",
                     clue.getBuryChapter(), clue.getClueContent(), deadline));
             }
-            sb.append("\n");
+            sb.append(tokenBudgetService.truncateToBudget(clueSb.toString(), budget.getAllocated("clueBook")));
         }
-        
-        // === 章节简介蓝图（如已生成）===
-        if (chapter.getSynopsisId() != null) {
-            // 注意：这里需要 ChapterSynopsisMapper，暂时使用占位
-            // ChapterSynopsis synopsis = synopsisMapper.selectById(chapter.getSynopsisId());
-            // if (synopsis != null) {
-            //     sb.append("【章节简介（详细写作蓝图，必须遵循）】\n")
-            //       .append(formatSynopsis(synopsis)).append("\n\n");
-            // }
+
+        // === 卷级编排约束（如果存在） ===
+        try {
+            ArcOrchestration.ChapterPlan chapterPlan = arcOrchestrationService.getChapterPlan(novelId, chapterNum);
+            if (chapterPlan != null) {
+                StringBuilder planSb = new StringBuilder();
+                planSb.append("【卷级编排约束——正文必须遵守以下规划】\n");
+                planSb.append(String.format("节奏标签：%s（quest=主线推进/fire=高潮冲突/constellation=支线展开）\n",
+                        chapterPlan.getRhythmTag()));
+                planSb.append(String.format("节奏强度：%d/10\n", chapterPlan.getRhythmIntensity()));
+                planSb.append(String.format("叙事视角：%s\n", chapterPlan.getPerspective()));
+                planSb.append(String.format("叙事模式：%s\n", chapterPlan.getNarrativeMode()));
+                planSb.append(String.format("冲突类型：%s\n", chapterPlan.getConflictType()));
+                planSb.append(String.format("结局类型：%s\n", chapterPlan.getOutcomeType()));
+                planSb.append(String.format("核心事件：%s\n", chapterPlan.getKeyEvent()));
+                planSb.append(String.format("章尾钩子方向：%s\n", chapterPlan.getHookDirection()));
+
+                if (chapterPlan.getCluePlan() != null) {
+                    ArcOrchestration.CluePlan cp = chapterPlan.getCluePlan();
+                    if (cp.getBury() != null && !cp.getBury().isEmpty()) {
+                        planSb.append("本章需埋设伏笔：").append(String.join("；", cp.getBury())).append("\n");
+                    }
+                    if (cp.getRecycle() != null && !cp.getRecycle().isEmpty()) {
+                        planSb.append("本章需回收伏笔：").append(String.join("；", cp.getRecycle())).append("\n");
+                    }
+                }
+
+                sb.append(tokenBudgetService.truncateToBudget(planSb.toString(), 500));
+                sb.append("\n");
+            }
+        } catch (Exception e) {
+            log.warn("获取卷级编排约束失败（不影响生成）: {}", e.getMessage());
         }
-        
+
         // === 人物当前状态 ===
         String charStates = characterStateService.formatForPrompt(novelId);
         if (charStates != null && !charStates.isEmpty()) {
-            sb.append("【人物当前状态（写作中必须与此一致）】\n")
-              .append(charStates).append("\n\n");
+            sb.append("【人物当前状态（写作中必须与此一致）】\n");
+            sb.append(tokenBudgetService.truncateToBudget(charStates, budget.getAllocated("characterState")));
+            sb.append("\n\n");
         }
-        
+
+        // === 人物关系图谱 ===
+        try {
+            String graphStr = characterGraphService.formatGraphAsString(novelId);
+            if (graphStr != null && !graphStr.isEmpty() && !"暂无人物关系数据".equals(graphStr)) {
+                sb.append(tokenBudgetService.truncateToBudget(
+                    "【人物关系图谱】\n" + graphStr + "\n\n",
+                    budget.getAllocated("characterState") / 2));
+            }
+        } catch (Exception e) {
+            log.warn("获取人物关系图谱失败: {}", e.getMessage());
+        }
+
         // === 故事势能 ===
         if (novel.getStoryMomentum() != null && !novel.getStoryMomentum().isEmpty()) {
             sb.append("【当前故事势能（写作时保持张力）】\n")
               .append(novel.getStoryMomentum()).append("\n\n");
         }
-        
+
         // === 基础上下文 ===
         appendNovelPreferences(sb, novel);
         sb.append("===章节大纲===\n").append(chapter.getChapterOutline()).append("\n\n");
         sb.append("===写作方向===\n").append(selectedIdea != null ? selectedIdea : "无特殊要求").append("\n\n");
         sb.append("===小说总纲===\n")
-          .append(truncate(novel.getTotalOutline(), 2000)).append("\n\n");
-        sb.append("===世界观===\n").append(truncate(novel.getWorldSetting(), 1000)).append("\n\n");
-
-        // === RAG向量检索上下文 ===
-        try {
-            String queryText = chapter.getChapterOutline() != null ? chapter.getChapterOutline() : "";
-            if (!queryText.isEmpty()) {
-                List<ChapterSummary> ragResults = ragService.vectorSearch(novelId, queryText, 3);
-                if (!ragResults.isEmpty()) {
-                    sb.append("【RAG语义检索相关章节（参考写作风格和情节）】\n");
-                    for (ChapterSummary cs : ragResults) {
-                        sb.append(String.format("第%d章摘要：%s\n",
-                                cs.getChapterNum(),
-                                truncate(cs.getContent(), 200)));
-                    }
-                    sb.append("\n");
-                    log.debug("RAG检索到{}条相关上下文: 小说={}, 章节={}", ragResults.size(), novelId, chapterNum);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("RAG检索失败（不影响写作）: {}", e.getMessage());
-        }
+          .append(tokenBudgetService.truncateToBudget(novel.getTotalOutline(), budget.getAllocated("novelOutline"))).append("\n\n");
+        sb.append("===世界观===\n")
+          .append(tokenBudgetService.truncateToBudget(novel.getWorldSetting(), budget.getAllocated("worldSetting"))).append("\n\n");
 
         return sb.toString();
     }
@@ -293,11 +441,9 @@ public class ContextBuilderService {
     private String formatJsonArray(String json) {
         if (json == null || json.isEmpty()) return "";
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            java.util.List<String> list = mapper.readValue(json, java.util.List.class);
+            List<String> list = objectMapper.readValue(json, new TypeReference<List<String>>() {});
             return String.join("、", list);
         } catch (Exception e) {
-            // 如果解析失败，原样返回
             return json;
         }
     }
