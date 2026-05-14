@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.llm.PromptTemplateService;
-import com.novel.system.ai.chain.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContext;
@@ -26,7 +25,6 @@ public class ValidationServiceImpl implements ValidationService {
     private final PromptTemplateService promptTemplateService;
     private final ObjectMapper objectMapper;
 
-    private static final int OOC_THRESHOLD = 30;
     private static final int MIN_SCORE_THRESHOLD = 70;
     
     @Override
@@ -384,10 +382,10 @@ public class ValidationServiceImpl implements ValidationService {
             String json = extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
-            int langScore = node.path("language_style_score").asInt(80);
-            int behavScore = node.path("behavior_motivation_score").asInt(80);
-            int knowScore = node.path("knowledge_level_score").asInt(80);
-            int growthScore = node.path("growth_adaptation_score").asInt(80);
+            int langScore = node.path("language_style_score").asInt(0);
+            int behavScore = node.path("behavior_motivation_score").asInt(0);
+            int knowScore = node.path("knowledge_level_score").asInt(0);
+            int growthScore = node.path("growth_adaptation_score").asInt(0);
 
             result.setLanguageStyleScore(langScore);
             result.setBehaviorMotivationScore(behavScore);
@@ -411,8 +409,8 @@ public class ValidationServiceImpl implements ValidationService {
             String json = extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
-            boolean causalValid = node.path("causal_chain_valid").asBoolean(true);
-            boolean consistencyValid = node.path("consistency_valid").asBoolean(true);
+            boolean causalValid = node.path("causal_chain_valid").asBoolean(false);
+            boolean consistencyValid = node.path("consistency_valid").asBoolean(false);
 
             result.setPassed(causalValid && consistencyValid);
             result.setCausalChainStatus(causalValid ? "通顺" : "存在问题");
@@ -458,8 +456,8 @@ public class ValidationServiceImpl implements ValidationService {
             String json = extractJson(response);
             JsonNode node = objectMapper.readTree(json);
 
-            boolean worldRuleValid = node.path("world_rule_valid").asBoolean(true);
-            boolean worldClockValid = node.path("world_clock_valid").asBoolean(true);
+            boolean worldRuleValid = node.path("world_rule_valid").asBoolean(false);
+            boolean worldClockValid = node.path("world_clock_valid").asBoolean(false);
 
             result.setPassed(worldRuleValid && worldClockValid);
             result.setWorldRuleStatus(worldRuleValid ? "符合" : "不符合");
@@ -484,7 +482,7 @@ public class ValidationServiceImpl implements ValidationService {
             result.setExpectedRhythm(node.path("expected_rhythm").asText("quest"));
             result.setActualRhythm(node.path("actual_rhythm").asText("quest"));
             result.setEmotionCurve(node.path("emotion_curve").asText("正常"));
-            result.setPassed(node.path("is_appropriate").asBoolean(true));
+            result.setPassed(node.path("is_appropriate").asBoolean(false));
         } catch (Exception e) {
             log.warn("解析节奏校验响应失败: {}", e.getMessage());
             result.setPassed(false);
