@@ -555,6 +555,7 @@ const generateCurrentArcOutlines = async () => {
       ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
     } else {
       ElMessage.error(response.message || '章纲生成失败')
+      generationFailed.value = true
     }
   } catch (error) {
     console.error('章纲生成失败:', error)
