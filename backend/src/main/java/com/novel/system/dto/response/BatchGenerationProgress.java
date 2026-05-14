@@ -8,9 +8,10 @@ import lombok.Data;
 @Data
 public class BatchGenerationProgress {
     private String taskId;
-    private String status;          // GENERATING, COMPLETED, FAILED
+    private String status;          // GENERATING, COMPLETED, FAILED, CANCELLED
     private Integer totalChapters;
     private Integer completedChapters;
+    private Integer failedChapters = 0;
     private Integer currentChapterNum;
     private String currentPhase;    // "outlining" or "writing"
     private String errorMessage;
