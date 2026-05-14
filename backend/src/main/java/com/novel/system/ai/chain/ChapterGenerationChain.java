@@ -1,13 +1,15 @@
 package com.novel.system.ai.chain;
 
+import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.service.AiServices;
 import com.novel.system.ai.agent.*;
+import com.novel.system.ai.memory.StyleAwareChatMemory;
 import com.novel.system.ai.tool.NovelToolProvider;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.service.llm.LlmConfigService;
-import com.novel.system.service.chapter.ModelFallbackService;
 import com.novel.system.service.style.StyleCardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -84,12 +86,6 @@ public class ChapterGenerationChain {
     private final NovelToolProvider toolProvider;
     
     /**
-     * 模型 Fallback 服务
-     * 主模型失败时自动切换备用模型
-     */
-    private final ModelFallbackService modelFallbackService;
-    
-    /**
      * 文风卡片服务
      * 用于获取文风注入内容
      */
@@ -149,27 +145,24 @@ public class ChapterGenerationChain {
      */
     public String executeOutlineChain(String novelId, int chapterNum, String contextPrompt, String llmConfigId) {
         log.info("执行章纲生成链: novelId={}, chapter={}", novelId, chapterNum);
-        
-        // 获取 LlmConfig
-        LlmConfig llmConfig = llmConfigService.getConfigById(llmConfigId);
-        
-        // 使用 Fallback 机制执行
-        return modelFallbackService.executeWithFallback(llmConfigId, model -> {
-            // 创建带工具的OutlineAgent，使用 STRUCTURED 任务类型
-            OutlineAgent outlineAgent = AiServices.builder(OutlineAgent.class)
-                    .chatLanguageModel(langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED))
-                    .tools(toolProvider.getAllTools())
-                    .build();
-            
-            // 构建用户消息
-            String userPrompt = String.format(
-                "小说ID: %s\\n章节号: 第%d章\\n\\n===上下文信息===\\n%s\\n\\n请生成第%d章的章纲。",
-                novelId, chapterNum, contextPrompt, chapterNum
-            );
-            
-            // 调用Agent生成章纲
-            return outlineAgent.generateOutline(userPrompt);
-        });
+
+        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+
+        if (toolProvider.hasMcpTools()) {
+            log.info("MCP 工具可用，工具数: {}", toolProvider.getMcpToolSpecifications().size());
+        }
+
+        OutlineAgent outlineAgent = AiServices.builder(OutlineAgent.class)
+                .chatLanguageModel(model)
+                .tools(toolProvider.getAllTools())
+                .build();
+
+        String userPrompt = String.format(
+            "小说ID: %s\\n章节号: 第%d章\\n\\n===上下文信息===\\n%s\\n\\n请生成第%d章的章纲。",
+            novelId, chapterNum, contextPrompt, chapterNum
+        );
+
+        return outlineAgent.generateOutline(userPrompt);
     }
     
     /**
@@ -200,30 +193,23 @@ public class ChapterGenerationChain {
      * 
      * @see WritingAgent 写作Agent的接口定义
      */
-    public String executeWritingChain(String novelId, int chapterNum, String outline, 
+    public String executeWritingChain(String novelId, int chapterNum, String outline,
                                       String contextPrompt, String llmConfigId) {
         log.info("执行写作生成链: novelId={}, chapter={}", novelId, chapterNum);
-        
-        // 获取 LlmConfig
-        LlmConfig llmConfig = llmConfigService.getConfigById(llmConfigId);
-        
-        // 使用 Fallback 机制执行
-        return modelFallbackService.executeWithFallback(llmConfigId, model -> {
-            // 创建带工具的WritingAgent，使用 CREATIVE 任务类型
-            WritingAgent writingAgent = AiServices.builder(WritingAgent.class)
-                    .chatLanguageModel(langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.CREATIVE))
-                    .tools(toolProvider.getAllTools())
-                    .build();
-            
-            // 构建用户消息
-            String userPrompt = String.format(
-                "小说ID: %s\\n章节号: 第%d章\\n\\n===章纲===\\n%s\\n\\n===上下文信息===\\n%s\\n\\n请根据章纲生成第%d章正文。",
-                novelId, chapterNum, outline, contextPrompt, chapterNum
-            );
-            
-            // 调用Agent生成正文
-            return writingAgent.generateChapter(userPrompt);
-        });
+
+        ChatLanguageModel model = getModel(llmConfigId);
+
+        WritingAgent writingAgent = AiServices.builder(WritingAgent.class)
+                .chatLanguageModel(model)
+                .tools(toolProvider.getAllTools())
+                .build();
+
+        String userPrompt = String.format(
+            "小说ID: %s\\n章节号: 第%d章\\n\\n===章纲===\\n%s\\n\\n===上下文信息===\\n%s\\n\\n请根据章纲生成第%d章正文。",
+            novelId, chapterNum, outline, contextPrompt, chapterNum
+        );
+
+        return writingAgent.generateChapter(userPrompt);
     }
     
     /**
@@ -251,36 +237,24 @@ public class ChapterGenerationChain {
      * 
      * @see SummaryAgentAiService 摘要Agent的内部接口定义
      */
-    public String executeSummaryChain(String novelId, int chapterNum, String chapterContent, 
+    public String executeSummaryChain(String novelId, int chapterNum, String chapterContent,
                                       String outline, String llmConfigId) {
         log.info("执行摘要生成链: novelId={}, chapter={}", novelId, chapterNum);
-        
-        // 获取 LlmConfig
-        LlmConfig llmConfig = llmConfigService.getConfigById(llmConfigId);
-        
-        // 使用 Fallback 机制执行
-        return modelFallbackService.executeWithFallback(llmConfigId, model -> {
-            // 摘要Agent不需要工具，使用 STRUCTURED 任务类型
-            SummaryAgentAiService summaryAgent = AiServices.builder(SummaryAgentAiService.class)
-                    .chatLanguageModel(langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED))
-                    .build();
-            
-            // 截取内容避免超长（LLM有上下文窗口限制）
-            String truncatedContent = chapterContent;
-            if (truncatedContent.length() > 4000) {
-                truncatedContent = truncatedContent.substring(0, 2000) + "\n...(中间省略)...\n" 
-                    + truncatedContent.substring(truncatedContent.length() - 2000);
-            }
-            
-            // 构建用户消息
-            String userPrompt = String.format(
-                "章节号: 第%d章\\n\\n===章纲===\\n%s\\n\\n===章节内容===\\n%s",
-                chapterNum, outline != null ? outline : "无", truncatedContent
-            );
-            
-            // 调用Agent生成摘要
-            return summaryAgent.generateSummary(userPrompt);
-        });
+
+        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+
+        SummaryAgentAiService summaryAgent = AiServices.builder(SummaryAgentAiService.class)
+                .chatLanguageModel(model)
+                .build();
+
+        String truncatedContent = truncateForSummary(chapterContent);
+
+        String userPrompt = String.format(
+            "章节号: 第%d章\\n\\n===章纲===\\n%s\\n\\n===章节内容===\\n%s",
+            chapterNum, outline != null ? outline : "无", truncatedContent
+        );
+
+        return summaryAgent.generateSummary(userPrompt);
     }
     
     /**
@@ -301,31 +275,29 @@ public class ChapterGenerationChain {
                                             String llmConfigId) {
         log.info("执行卷纲生成链");
 
-        LlmConfig llmConfig = llmConfigService.getConfigById(llmConfigId);
+        ChatLanguageModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
 
-        return modelFallbackService.executeWithFallback(llmConfigId, model -> {
-            VolumeOutlineAgent agent = AiServices.builder(VolumeOutlineAgent.class)
-                    .chatLanguageModel(langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED))
-                    .build();
+        VolumeOutlineAgent agent = AiServices.builder(VolumeOutlineAgent.class)
+                .chatLanguageModel(model)
+                .build();
 
-            StringBuilder promptBuilder = new StringBuilder();
-            promptBuilder.append(String.format("小说题材：%s\n", genre != null ? genre : "未指定"));
-            if (novelType != null && !novelType.isEmpty()) {
-                promptBuilder.append(String.format("小说类型：%s\n", novelType));
-            }
-            if (tone != null && !tone.isEmpty()) {
-                promptBuilder.append(String.format("故事基调：%s\n", tone));
-            }
-            if (tabooList != null && !tabooList.isEmpty()) {
-                promptBuilder.append(String.format("禁止雷点（绝对不能出现的内容）：%s\n", tabooList));
-            }
-            promptBuilder.append(String.format("总纲：%s\n世界观设定：%s\n核心创意：%s\n\n请根据以上信息生成全书卷纲。",
-                    totalOutline != null ? totalOutline : "无",
-                    worldSetting != null ? worldSetting : "无",
-                    prompt != null && !prompt.isEmpty() ? prompt : "请自由发挥"));
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append(String.format("小说题材：%s\n", genre != null ? genre : "未指定"));
+        if (novelType != null && !novelType.isEmpty()) {
+            promptBuilder.append(String.format("小说类型：%s\n", novelType));
+        }
+        if (tone != null && !tone.isEmpty()) {
+            promptBuilder.append(String.format("故事基调：%s\n", tone));
+        }
+        if (tabooList != null && !tabooList.isEmpty()) {
+            promptBuilder.append(String.format("禁止雷点（绝对不能出现的内容）：%s\n", tabooList));
+        }
+        promptBuilder.append(String.format("总纲：%s\n世界观设定：%s\n核心创意：%s\n\n请根据以上信息生成全书卷纲。",
+                totalOutline != null ? totalOutline : "无",
+                worldSetting != null ? worldSetting : "无",
+                prompt != null && !prompt.isEmpty() ? prompt : "请自由发挥"));
 
-            return agent.generateVolumeOutlines(promptBuilder.toString());
-        });
+        return agent.generateVolumeOutlines(promptBuilder.toString());
     }
 
     /**
@@ -342,82 +314,161 @@ public class ChapterGenerationChain {
      * @param llmConfigId 模型配置ID（可选）
      * @return 生成的小说正文
      */
-    public String executeWritingChain(String novelId, int chapterNum, String outline, 
+    public String executeWritingChain(String novelId, int chapterNum, String outline,
                                       String contextPrompt, String styleCardId, String llmConfigId) {
         log.info("执行写作生成链: novelId={}, chapter={}, styleCardId={}", novelId, chapterNum, styleCardId);
-        
-        // 获取 LlmConfig
-        LlmConfig llmConfig = llmConfigService.getConfigById(llmConfigId);
-        
-        // 构建文风注入内容（final修饰，供lambda使用）
-        final String styleInjection;
+
+        ChatLanguageModel model = getModel(llmConfigId);
+
+        // 分离系统级（硬约束）和用户级（软引导）风格内容
+        String systemStyleRules = "";
+        String userStyleSamples = "";
         if (styleCardId != null && !styleCardId.isEmpty()) {
-            String injection = styleCardService.buildStyleInjection(styleCardId);
-            if (!injection.isEmpty()) {
-                log.info("注入文风卡片: styleCardId={}", styleCardId);
-                styleInjection = injection;
-            } else {
-                styleInjection = "";
+            systemStyleRules = styleCardService.buildSystemStyleRules(styleCardId);
+            userStyleSamples = styleCardService.buildUserStyleSamples(styleCardId);
+            if (!systemStyleRules.isEmpty() || !userStyleSamples.isEmpty()) {
+                log.info("注入文风卡片: styleCardId={}, systemRulesLen={}, userSamplesLen={}",
+                        styleCardId, systemStyleRules.length(), userStyleSamples.length());
             }
-        } else {
-            styleInjection = "";
         }
-        
-        // 使用 Fallback 机制执行
-        return modelFallbackService.executeWithFallback(llmConfigId, model -> {
-            // 创建带工具的WritingAgent，使用 CREATIVE 任务类型
-            WritingAgent writingAgent = AiServices.builder(WritingAgent.class)
-                    .chatLanguageModel(langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.CREATIVE))
-                    .tools(toolProvider.getAllTools())
-                    .build();
-            
-            // 构建用户消息（包含文风注入）
-            StringBuilder userPromptBuilder = new StringBuilder();
-            userPromptBuilder.append(String.format("小说ID: %s\\n章节号: 第%d章\\n\\n", novelId, chapterNum));
-            
-            // 如果有文风注入，放在最前面
-            if (!styleInjection.isEmpty()) {
-                userPromptBuilder.append(styleInjection).append("\\n\\n");
-            }
-            
-            userPromptBuilder.append(String.format("===章纲===\\n%s\\n\\n===上下文信息===\\n%s\\n\\n请根据章纲生成第%d章正文。",
-                    outline, contextPrompt, chapterNum));
-            
-            // 调用Agent生成正文
-            return writingAgent.generateChapter(userPromptBuilder.toString());
-        });
+
+        // 构建Agent，如果有系统级风格规则则使用StyleAwareChatMemory
+        AiServices<WritingAgent> builder = AiServices.builder(WritingAgent.class)
+                .chatLanguageModel(model)
+                .tools(toolProvider.getAllTools());
+
+        if (!systemStyleRules.isEmpty()) {
+            // 从WritingAgent的@SystemMessage注解中提取基础系统指令，避免硬编码重复
+            String baseSystemMessage = getBaseSystemMessage();
+            ChatMemory chatMemory = new StyleAwareChatMemory(baseSystemMessage, systemStyleRules);
+            ChatMemoryProvider memoryProvider = memoryId -> chatMemory;
+            builder.chatMemoryProvider(memoryProvider);
+        }
+
+        WritingAgent writingAgent = builder.build();
+
+        StringBuilder userPromptBuilder = new StringBuilder();
+        userPromptBuilder.append(String.format("小说ID: %s\\n章节号: 第%d章\\n\\n", novelId, chapterNum));
+
+        if (!userStyleSamples.isEmpty()) {
+            userPromptBuilder.append(userStyleSamples).append("\\n\\n");
+        }
+
+        userPromptBuilder.append(String.format("===章纲===\\n%s\\n\\n===上下文信息===\\n%s\\n\\n请根据章纲生成第%d章正文。",
+                outline, contextPrompt, chapterNum));
+
+        return writingAgent.generateChapter(userPromptBuilder.toString());
     }
     
     /**
      * 获取ChatLanguageModel
-     * 
-     * 【获取逻辑】
-     * 1. 如果指定了llmConfigId，从数据库获取对应的配置
-     * 2. 如果没有指定，获取任意活跃的模型配置
-     * 3. 如果都没有找到，抛出异常
-     * 
+     *
      * @param llmConfigId 可选的模型配置ID
      * @return ChatLanguageModel实例
      * @throws RuntimeException 如果未找到可用的模型配置
-     * 
-     * @see LangChainConfig#createChatModel 创建模型实例的方法
-     * @see LlmConfigService#getAnyActiveConfig 获取任意活跃配置的方法
      */
+    /**
+     * 智能截断章节内容用于摘要生成
+     *
+     * 【策略】
+     * 1. 保留开头（前1500字）：包含场景设定、人物出场
+     * 2. 保留结尾（后1500字）：包含钩子、结局
+     * 3. 中间部分：按段落边界截取关键情节段落
+     *
+     * @param content 原始章节内容
+     * @return 截断后的内容
+     */
+    private String truncateForSummary(String content) {
+        if (content == null || content.length() <= 4000) {
+            return content;
+        }
+
+        int totalLen = content.length();
+        int headLen = 1500;
+        int tailLen = 1500;
+
+        String head = content.substring(0, headLen);
+        String tail = content.substring(totalLen - tailLen);
+
+        // 中间部分：尝试在段落边界截取
+        String middleSection = content.substring(headLen, totalLen - tailLen);
+        String middle = extractKeyParagraphs(middleSection, 1000);
+
+        return head + "\n\n...(中间关键段落)...\n\n" + middle + "\n\n...(省略)...\n\n" + tail;
+    }
+
+    /**
+     * 从中间部分提取关键段落
+     * 优先保留包含对话、动作描写的段落
+     */
+    private String extractKeyParagraphs(String section, int maxLen) {
+        String[] paragraphs = section.split("\n+");
+        StringBuilder sb = new StringBuilder();
+        int currentLen = 0;
+
+        for (String para : paragraphs) {
+            String trimmed = para.trim();
+            if (trimmed.isEmpty()) continue;
+
+            // 优先保留对话段落和较短的段落（节奏变化）
+            boolean isDialogue = trimmed.contains("“") || trimmed.contains("「");
+            boolean isShortPara = trimmed.length() < 100;
+
+            if (isDialogue || isShortPara || currentLen < maxLen / 2) {
+                if (currentLen + trimmed.length() <= maxLen) {
+                    sb.append(trimmed).append("\n");
+                    currentLen += trimmed.length();
+                }
+            }
+        }
+
+        return sb.length() > 0 ? sb.toString().trim() : section.substring(0, Math.min(maxLen, section.length()));
+    }
+
     private ChatLanguageModel getModel(String llmConfigId) {
+        return getModel(llmConfigId, LangChainConfig.TaskType.CREATIVE);
+    }
+
+    private ChatLanguageModel getModel(String llmConfigId, LangChainConfig.TaskType taskType) {
         LlmConfig config;
         if (llmConfigId != null && !llmConfigId.isEmpty()) {
-            // 指定了配置ID，从数据库获取
             config = llmConfigService.getConfigById(llmConfigId);
         } else {
-            // 没有指定，获取任意活跃配置
             config = llmConfigService.getAnyActiveConfig("all");
         }
-        
+
         if (config == null) {
             throw new RuntimeException("未找到可用的模型配置，请先在模型配置页面添加并激活一个模型");
         }
-        
-        // 使用LangChainConfig创建ChatLanguageModel实例
-        return langChainConfig.createChatModel(config);
+
+        return langChainConfig.createChatModel(config, taskType);
+    }
+
+    /**
+     * 从WritingAgent的@SystemMessage注解中提取基础系统指令
+     *
+     * 避免在ChapterGenerationChain中硬编码重复的系统消息。
+     * 与StyleAwareChatMemory配合使用，确保文风卡片注入时基础指令完整。
+     *
+     * @return WritingAgent的@SystemMessage内容，提取失败时返回空字符串
+     */
+    private String getBaseSystemMessage() {
+        try {
+            dev.langchain4j.service.SystemMessage annotation =
+                WritingAgent.class.getMethod("generateChapter", String.class)
+                    .getAnnotation(dev.langchain4j.service.SystemMessage.class);
+            if (annotation == null) {
+                return "";
+            }
+            // LangChain4j @SystemMessage.value() returns String[]
+            String[] values = annotation.value();
+            if (values == null || values.length == 0) {
+                return "";
+            }
+            return String.join("", values).trim();
+        } catch (Exception e) {
+            log.warn("无法获取WritingAgent系统消息: {}", e.getMessage());
+            return "";
+        }
     }
 }
