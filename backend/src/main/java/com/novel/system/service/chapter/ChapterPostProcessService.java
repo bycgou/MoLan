@@ -4,21 +4,28 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mongo.CharacterState;
+import com.novel.system.entity.mongo.NovelGraph;
 import com.novel.system.entity.mysql.ClueBook;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.repository.mongo.NovelGraphRepository;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
+import com.novel.system.service.event.ContentExtractorService;
 import com.novel.system.service.llm.LlmConfigService;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 章节后处理服务
@@ -39,6 +46,11 @@ public class ChapterPostProcessService {
     private final ClueBookService clueBookService;
     private final NovelBaseMapper novelBaseMapper;
     private final ObjectMapper objectMapper;
+    private final com.novel.system.service.story.StoryStateService storyStateService;
+    private final NovelGraphRepository novelGraphRepository;
+    private final com.novel.system.service.event.EventExtractionService eventExtractionService;
+    private final com.novel.system.service.event.EventGraphService eventGraphService;
+    private final com.novel.system.service.event.ContentExtractorService contentExtractorService;
 
     /**
      * 异步后处理：从章节内容中提取人物、伏笔、时间线
@@ -49,8 +61,15 @@ public class ChapterPostProcessService {
         long start = System.currentTimeMillis();
 
         try {
-            // 获取任意活跃LLM配置
-            LlmConfig llmConfig = llmConfigService.getAnyActiveConfig("all");
+            // 优先使用用户配置的模型
+            String userId = getCurrentUserId();
+            LlmConfig llmConfig = null;
+            if (userId != null) {
+                llmConfig = llmConfigService.getActiveConfig(userId, "all");
+            }
+            if (llmConfig == null) {
+                llmConfig = llmConfigService.getAnyActiveConfig("all");
+            }
             if (llmConfig == null) {
                 log.warn("无活跃LLM配置，跳过后处理");
                 return;
@@ -75,7 +94,7 @@ public class ChapterPostProcessService {
             String contentForExtraction = chapterContent.length() > 4000
                     ? chapterContent.substring(0, 4000) : chapterContent;
 
-            // 1. 提取新人物
+            // 1. 提取所有提到的人物
             extractCharacters(model, novelId, chapterNum, contentForExtraction, existingCharNames);
 
             // 2. 提取伏笔/线索
@@ -83,6 +102,12 @@ public class ChapterPostProcessService {
 
             // 3. 提取时间线变化
             extractTimeline(model, novelId, chapterNum, contentForExtraction);
+
+            // 4. 同步所有人物到图谱节点
+            syncCharactersToGraph(novelId, chapterNum);
+
+            // 5. 提取事件到事件图谱
+            extractEvents(novelId, chapterNum, contentForExtraction, existingCharNames);
 
             long elapsed = System.currentTimeMillis() - start;
             log.info("后处理完成: 小说ID={}, 章节号={}, 耗时={}ms", novelId, chapterNum, elapsed);
@@ -93,66 +118,212 @@ public class ChapterPostProcessService {
     }
 
     /**
-     * 提取新人物
+     * 提取人物信息（所有提到的人物 + 更新已有人物状态 + 人物关系）
+     *
+     * @return 本章提取到的所有人物名称集合
      */
-    private void extractCharacters(ChatLanguageModel model, String novelId, int chapterNum,
+    private Set<String> extractCharacters(ChatLanguageModel model, String novelId, int chapterNum,
                                     String content, Set<String> existingNames) {
+        Set<String> allExtractedNames = new HashSet<>();
+
         try {
+            // 获取已有人物完整信息（用于更新状态）
+            List<CharacterState> existingChars = characterStateService.getCharactersByNovelId(novelId);
+
+            // === 第一步：LLM 提取所有提到的人物 ===
             String prompt = String.format(
-                "你是一个小说分析助手。请从以下章节内容中提取新出场的人物信息。\n\n" +
+                "你是一个小说分析助手。请从以下章节内容中提取**所有提到的人物**" +
+                "（包括直接出场的、对话中提到的、旁白提及的，但不包括路人甲乙丙等无名角色）。\n\n" +
                 "已有人物：%s\n\n" +
                 "章节内容：\n%s\n\n" +
-                "请返回JSON数组，每个元素包含：\n" +
-                "- name: 人物姓名\n" +
-                "- traits: 核心性格特征（简短描述）\n" +
-                "- background: 背景信息（如果有的话）\n" +
-                "- location: 当前位置/地点\n\n" +
-                "只提取本章新出现的、不在已有列表中的人物。如果没有新人物，返回空数组 []。\n" +
+                "请返回JSON对象，包含以下字段：\n" +
+                "1. \"allCharacters\": 本章所有提到的人物数组，每个元素包含：\n" +
+                "   - name: 人物姓名（必填）\n" +
+                "   - traits: 核心性格特征（简短描述，可选）\n" +
+                "   - background: 背景信息（可选）\n" +
+                "   - location: 当前位置/地点（可选）\n" +
+                "   - isNew: 是否为新出场人物（boolean）\n" +
+                "2. \"existingUpdates\": 已有人物状态变化数组，每个元素包含：\n" +
+                "   - name: 人物姓名\n" +
+                "   - location: 新位置（如有变化）\n" +
+                "   - emotion: 新情绪状态\n" +
+                "   - status: 新状态描述\n" +
+                "3. \"relationships\": 人物关系数组，每个元素包含：\n" +
+                "   - character1: 人物1姓名\n" +
+                "   - character2: 人物2姓名\n" +
+                "   - type: 关系类型（朋友/敌人/恋人/亲属/师徒/同事/其他）\n" +
+                "   - description: 关系描述\n\n" +
+                "如果没有相应内容，对应数组返回空数组 []。\n" +
                 "只返回JSON，不要其他内容。",
                 existingNames.toString(), content
             );
 
             String response = model.generate(prompt);
             String jsonStr = extractJson(response);
+            Map<String, Object> result = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
-            List<Map<String, String>> characters = objectMapper.readValue(jsonStr, new TypeReference<>() {});
+            // 1. 处理所有提到的人物（新建或记录名称）
+            List<Map<String, Object>> allCharacters = (List<Map<String, Object>>) result.getOrDefault("allCharacters", Collections.emptyList());
+            for (Map<String, Object> charData : allCharacters) {
+                String name = (String) charData.get("name");
+                if (name == null || name.isBlank()) continue;
+                allExtractedNames.add(name);
 
-            for (Map<String, String> charData : characters) {
-                String name = charData.get("name");
-                if (name == null || name.isBlank() || existingNames.contains(name)) {
-                    continue;
+                Boolean isNew = charData.get("isNew") instanceof Boolean ? (Boolean) charData.get("isNew") : true;
+                if (isNew && !existingNames.contains(name)) {
+                    try {
+                        CharacterState character = new CharacterState();
+                        character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                        character.setNovelId(novelId);
+                        character.setCharacterName(name);
+
+                        String traitsStr = (String) charData.get("traits");
+                        if (traitsStr != null && !traitsStr.isBlank()) {
+                            character.setCoreTraits(Arrays.asList(traitsStr.split("[,，、]")));
+                        }
+
+                        character.setBackground((String) charData.get("background"));
+
+                        CharacterState.CurrentStatus status = new CharacterState.CurrentStatus();
+                        status.setHealth(100);
+                        status.setEmotion("平静");
+                        status.setLocation(charData.getOrDefault("location", "未知").toString());
+                        character.setCurrentStatus(status);
+
+                        characterStateService.createCharacter(character);
+                        existingNames.add(name);
+                        log.info("自动提取新人物: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
+                    } catch (Exception e) {
+                        log.warn("创建人物失败: {}, 错误: {}", name, e.getMessage());
+                    }
                 }
+            }
 
+            // 2. 更新已有人物状态
+            List<Map<String, String>> updates = (List<Map<String, String>>) result.getOrDefault("existingUpdates", Collections.emptyList());
+            for (Map<String, String> update : updates) {
+                String name = update.get("name");
+                if (name == null || name.isBlank()) continue;
+
+                try {
+                    for (CharacterState existing : existingChars) {
+                        if (name.equals(existing.getCharacterName())) {
+                            boolean changed = false;
+                            if (existing.getCurrentStatus() == null) {
+                                existing.setCurrentStatus(new CharacterState.CurrentStatus());
+                            }
+                            if (update.containsKey("location") && update.get("location") != null
+                                    && !update.get("location").isBlank()) {
+                                existing.getCurrentStatus().setLocation(update.get("location"));
+                                changed = true;
+                            }
+                            if (update.containsKey("emotion") && update.get("emotion") != null
+                                    && !update.get("emotion").isBlank()) {
+                                existing.getCurrentStatus().setEmotion(update.get("emotion"));
+                                changed = true;
+                            }
+                            if (update.containsKey("status") && update.get("status") != null
+                                    && !update.get("status").isBlank()) {
+                                existing.getCurrentStatus().setStatus(update.get("status"));
+                                changed = true;
+                            }
+                            if (changed) {
+                                existing.setUpdateTime(LocalDateTime.now());
+                                characterStateService.updateCharacter(existing);
+                                log.info("更新人物状态: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
+                            }
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("更新人物状态失败: {}, 错误: {}", name, e.getMessage());
+                }
+            }
+
+            // 3. 记录人物关系
+            List<Map<String, String>> relationships = (List<Map<String, String>>) result.getOrDefault("relationships", Collections.emptyList());
+            for (Map<String, String> rel : relationships) {
+                String char1Name = rel.get("character1");
+                String char2Name = rel.get("character2");
+
+                if (char1Name == null || char2Name == null) continue;
+
+                try {
+                    String char1Id = findCharacterId(existingChars, char1Name);
+                    String char2Id = findCharacterId(existingChars, char2Name);
+                    if (char1Id != null && char2Id != null) {
+                        characterStateService.updateRelationship(novelId, char1Id, char2Id, 10);
+                        log.info("记录人物关系: {} <-> {} (小说:{}, 章节:{})",
+                                char1Name, char2Name, novelId, chapterNum);
+                    }
+                } catch (Exception e) {
+                    log.warn("记录人物关系失败: {} <-> {}, 错误: {}", char1Name, char2Name, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LLM提取人物失败: {}", e.getMessage());
+        }
+
+        // === 第二步：程序化兜底 — 从对话引号前提取人名 ===
+        Pattern dialoguePattern = Pattern.compile("([\\u4e00-\\u9fa5]{1,4})[说道喊问答笑叫叹]");
+        Matcher matcher = dialoguePattern.matcher(content);
+        Set<String> commonVerbs = Set.of("他", "她", "它", "我", "你", "谁", "人们", "众人", "大家",
+                "对方", "那人", "这人", "那人", "对方", "某人", "别人");
+        while (matcher.find()) {
+            String name = matcher.group(1);
+            if (commonVerbs.contains(name)) continue;
+            allExtractedNames.add(name);
+
+            // 如果人物既不在已有列表也不在 LLM 提取结果中，创建最小化人物
+            if (!existingNames.contains(name)) {
                 try {
                     CharacterState character = new CharacterState();
                     character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
                     character.setNovelId(novelId);
                     character.setCharacterName(name);
-
-                    // 将特质字符串拆分为列表
-                    String traitsStr = charData.get("traits");
-                    if (traitsStr != null && !traitsStr.isBlank()) {
-                        character.setCoreTraits(Arrays.asList(traitsStr.split("[,，、]")));
-                    }
-
-                    character.setBackground(charData.get("background"));
-
                     CharacterState.CurrentStatus status = new CharacterState.CurrentStatus();
                     status.setHealth(100);
                     status.setEmotion("平静");
-                    status.setLocation(charData.getOrDefault("location", "未知"));
+                    status.setLocation("未知");
                     character.setCurrentStatus(status);
 
                     characterStateService.createCharacter(character);
                     existingNames.add(name);
-                    log.info("自动提取新人物: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
+                    log.info("程序化兜底提取人物: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
                 } catch (Exception e) {
-                    log.warn("创建人物失败: {}, 错误: {}", name, e.getMessage());
+                    log.warn("兜底创建人物失败: {}, 错误: {}", name, e.getMessage());
                 }
             }
-        } catch (Exception e) {
-            log.warn("提取人物失败: {}", e.getMessage());
         }
+
+        log.info("人物提取完成: 共{}个角色 (小说:{}, 章节:{})", allExtractedNames.size(), novelId, chapterNum);
+        return allExtractedNames;
+    }
+
+    /**
+     * 根据人物名称查找ID
+     */
+    private String findCharacterId(List<CharacterState> characters, String name) {
+        for (CharacterState c : characters) {
+            if (name.equals(c.getCharacterName())) {
+                return c.getCharacterId();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从SecurityContextHolder获取当前用户ID
+     */
+    private String getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof String) {
+            String principal = (String) auth.getPrincipal();
+            if (!"anonymousUser".equals(principal)) {
+                return principal;
+            }
+        }
+        return null;
     }
 
     /**
@@ -237,25 +408,118 @@ public class ChapterPostProcessService {
             if (timeDesc != null && !timeDesc.isBlank()) {
                 log.info("自动提取时间线: {} (小说:{}, 章节:{})", timeDesc, novelId, chapterNum);
 
-                // 更新小说的时间线字段（如果存在）
+                // 持久化时间线到 StoryState
                 try {
-                    NovelBase novel = novelBaseMapper.selectById(novelId);
-                    if (novel != null) {
-                        String currentTime = (String) timeline.get("season");
-                        if (currentTime != null) {
-                            // 将时间信息写入小说的 worldSetting 或扩展字段
-                            log.debug("时间线详情: 季节={}, 天气={}, 日变化={}",
-                                    timeline.get("season"),
-                                    timeline.get("weather"),
-                                    timeline.get("dayChange"));
-                        }
-                    }
+                    storyStateService.updateTimeline(
+                        novelId,
+                        timeDesc,
+                        (String) timeline.get("season"),
+                        null  // timeOfDay 由 timeDescription 推断
+                    );
+                    log.info("时间线已持久化到StoryState: novelId={}, chapter={}", novelId, chapterNum);
                 } catch (Exception e) {
-                    log.warn("更新时间线数据失败: {}", e.getMessage());
+                    log.warn("持久化时间线到StoryState失败: {}", e.getMessage());
                 }
             }
         } catch (Exception e) {
             log.warn("提取时间线失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 同步所有人物到关系图谱节点
+     * 确保 character_state 中的每个人物在 novel_graph.nodes 中都有对应节点
+     */
+    private void syncCharactersToGraph(String novelId, int chapterNum) {
+        try {
+            List<CharacterState> allChars = characterStateService.getCharactersByNovelId(novelId);
+            if (allChars.isEmpty()) return;
+
+            NovelGraph graph = novelGraphRepository.findById(novelId).orElseGet(() -> {
+                NovelGraph g = new NovelGraph();
+                g.setNovelId(novelId);
+                g.setNodes(new ArrayList<>());
+                g.setEdges(new ArrayList<>());
+                return g;
+            });
+
+            Set<String> existingNodeNames = new HashSet<>();
+            for (NovelGraph.Node n : graph.getNodes()) {
+                existingNodeNames.add(n.getName());
+            }
+
+            int added = 0;
+            for (CharacterState c : allChars) {
+                if (c.getCharacterName() != null && !existingNodeNames.contains(c.getCharacterName())) {
+                    NovelGraph.Node node = new NovelGraph.Node();
+                    node.setId(c.getCharacterId());
+                    node.setName(c.getCharacterName());
+                    node.setType("person");
+                    graph.getNodes().add(node);
+                    existingNodeNames.add(c.getCharacterName());
+                    added++;
+                }
+            }
+
+            if (added > 0) {
+                novelGraphRepository.save(graph);
+                log.info("同步人物到图谱: 新增{}个节点 (小说:{}, 章节:{})", added, novelId, chapterNum);
+            }
+        } catch (Exception e) {
+            log.warn("同步人物到图谱失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 提取事件到事件图谱
+     * 使用LLM提取关键事件，同时用程序化提取补充对话事件
+     */
+    private void extractEvents(String novelId, int chapterNum,
+                                String content, Set<String> knownCharacters) {
+        try {
+            // 1. LLM提取关键事件
+            List<com.novel.system.entity.mongo.EventNode> llmEvents =
+                eventExtractionService.extractEvents(novelId, chapterNum, content, knownCharacters);
+
+            // 2. 程序化提取对话事件（作为补充）
+            List<ContentExtractorService.DialogueEvent> dialogues =
+                contentExtractorService.extractDialogues(content);
+            List<com.novel.system.entity.mongo.EventNode> dialogueEvents = new java.util.ArrayList<>();
+            for (ContentExtractorService.DialogueEvent d : dialogues) {
+                com.novel.system.entity.mongo.EventNode node =
+                    new com.novel.system.entity.mongo.EventNode();
+                node.setEventId(java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                node.setNovelId(novelId);
+                node.setChapter(chapterNum);
+                node.setType("dialogue");
+                node.setContent(d.getSpeaker() + "：" + d.getContent());
+                node.setCharacters(java.util.Collections.singletonList(d.getSpeaker()));
+                node.setImportance(3);
+                node.setTags(java.util.Collections.singletonList("对话"));
+                node.setLinkedEvents(java.util.Collections.emptyList());
+                node.setCreateTime(java.time.LocalDateTime.now());
+                dialogueEvents.add(node);
+            }
+
+            // 3. 合并保存
+            java.util.List<com.novel.system.entity.mongo.EventNode> allEvents =
+                new java.util.ArrayList<>(llmEvents);
+            allEvents.addAll(dialogueEvents);
+
+            if (!allEvents.isEmpty()) {
+                eventGraphService.saveAll(allEvents);
+                log.info("事件图谱更新: novelId={}, chapter={}, 保存{}个事件(LLM:{}, 对话:{})",
+                    novelId, chapterNum, allEvents.size(), llmEvents.size(), dialogueEvents.size());
+            }
+
+            // 4. 程序化提取位置变化
+            String newLocation = contentExtractorService.extractLocation(content);
+            if (newLocation != null) {
+                log.info("程序化提取位置变化: {} (小说:{}, 章节:{})", newLocation, novelId, chapterNum);
+            }
+
+        } catch (Exception e) {
+            log.warn("事件图谱提取失败（不影响后处理）: {}", e.getMessage());
         }
     }
 
