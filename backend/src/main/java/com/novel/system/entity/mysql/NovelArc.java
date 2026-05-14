@@ -1,6 +1,7 @@
 package com.novel.system.entity.mysql;
 
 import lombok.Data;
+import java.time.LocalDateTime;
 
 /**
  * 小说弧线/卷实体
@@ -27,4 +28,8 @@ public class NovelArc {
     private Integer rhythmIntensity = 5;
     /** 章节级编排计划JSON（由ArcOrchestrationService生成） */
     private String chapterPlan;
+    /** 创建时间 */
+    private LocalDateTime createTime;
+    /** 更新时间 */
+    private LocalDateTime updateTime;
 }
