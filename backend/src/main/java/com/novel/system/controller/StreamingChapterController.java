@@ -224,6 +224,12 @@ public class StreamingChapterController {
                                         } catch (Exception e) {
                                             log.warn("写入校验警告失败: {}", e.getMessage());
                                         }
+                                    } else {
+                                        try {
+                                            storyStateService.clearWarnings(request.getNovelId());
+                                        } catch (Exception e) {
+                                            log.warn("清除校验警告失败: {}", e.getMessage());
+                                        }
                                     }
 
                                     String valSummary = valResult.getSummary();
