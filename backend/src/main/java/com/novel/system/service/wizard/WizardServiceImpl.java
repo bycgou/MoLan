@@ -83,6 +83,7 @@ public class WizardServiceImpl implements WizardService {
         novel.setTabooList(request.getTabooList());
         novel.setTotalOutline(request.getTotalOutline());
         novel.setWorldSetting(request.getWorldSetting());
+        novel.setLlmConfigId(request.getLlmConfigId());
         novel.setStatus(0);
         novel.setCreateTime(LocalDateTime.now());
         novel.setUpdateTime(LocalDateTime.now());
