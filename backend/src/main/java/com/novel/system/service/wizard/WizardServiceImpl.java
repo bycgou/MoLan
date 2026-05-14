@@ -315,12 +315,16 @@ public class WizardServiceImpl implements WizardService {
                             progress.setCompletedChapters(progress.getCompletedChapters() + 1);
                         } else {
                             progress.setFailedChapters(progress.getFailedChapters() + 1);
-                            progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成失败: " + response.getErrorMessage());
+                            if (progress.getErrorMessage() == null || progress.getErrorMessage().isEmpty()) {
+                                progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成失败: " + response.getErrorMessage());
+                            }
                             log.warn("第{}章生成失败: {}", chapter.getChapterNum(), response.getErrorMessage());
                         }
                     } catch (Exception e) {
                         progress.setFailedChapters(progress.getFailedChapters() + 1);
-                        progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成异常: " + e.getMessage());
+                        if (progress.getErrorMessage() == null || progress.getErrorMessage().isEmpty()) {
+                            progress.setErrorMessage("第" + chapter.getChapterNum() + "章生成异常: " + e.getMessage());
+                        }
                         log.error("批量生成章节 {} 异常", chapter.getChapterNum(), e);
                     }
 
