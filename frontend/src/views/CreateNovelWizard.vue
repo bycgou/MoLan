@@ -248,6 +248,16 @@
             <p class="form-tip">每卷包含 {{ arcs[currentArcIndex]?.chapterCount }} 章，可能需要几分钟</p>
           </div>
 
+          <!-- 生成失败状态 -->
+          <div v-if="generationFailed && !generatingChapterOutlines" class="generating-indicator">
+            <el-result icon="error" title="章纲生成失败" sub-title="请重试或检查后端日志">
+              <template #extra>
+                <el-button type="primary" @click="generateCurrentArcOutlines">重试</el-button>
+                <el-button @click="goToStep(1)">返回卷纲编辑</el-button>
+              </template>
+            </el-result>
+          </div>
+
           <!-- 章纲列表（可编辑） -->
           <div v-if="currentChapterOutlines.length > 0 && !generatingChapterOutlines">
             <h4>第 {{ currentArcIndex + 1 }} 卷「{{ arcs[currentArcIndex]?.arcName }}」章纲</h4>
@@ -342,6 +352,7 @@ const currentStep = ref(0)
 const generatingVolumes = ref(false)
 const saving = ref(false)
 const generatingChapterOutlines = ref(false)
+const generationFailed = ref(false)
 const confirmingOutlines = ref(false)
 const batchGenerating = ref(false)
 const cancellingBatch = ref(false)
@@ -533,6 +544,7 @@ const generateCurrentArcOutlines = async () => {
     return
   }
 
+  generationFailed.value = false
   generatingChapterOutlines.value = true
   currentChapterOutlines.value = []
 
@@ -547,6 +559,7 @@ const generateCurrentArcOutlines = async () => {
   } catch (error) {
     console.error('章纲生成失败:', error)
     ElMessage.error('章纲生成失败，请重试')
+    generationFailed.value = true
   } finally {
     generatingChapterOutlines.value = false
   }
