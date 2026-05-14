@@ -26,6 +26,8 @@ public class StoryStateServiceImpl implements StoryStateService {
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
 
+    private static final int MAX_INVENTORY_SIZE = 20;
+
     @Override
     public StoryState getOrCreate(String novelId) {
         return storyStateRepository.findByNovelId(novelId)
@@ -309,6 +311,10 @@ public class StoryStateServiceImpl implements StoryStateService {
             if (item != null && !item.isBlank() && !current.contains(item)) {
                 current.add(item);
             }
+        }
+        // Cap inventory size: keep most recent items
+        if (current.size() > MAX_INVENTORY_SIZE) {
+            current = new ArrayList<>(current.subList(current.size() - MAX_INVENTORY_SIZE, current.size()));
         }
         state.getProtagonist().setInventory(current);
         save(state);
