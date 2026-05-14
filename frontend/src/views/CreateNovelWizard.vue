@@ -290,7 +290,7 @@
             <h3>正文生成进度</h3>
             <el-progress :text-inside="true" :stroke-width="24"
               :percentage="batchProgress.totalChapters > 0
-                ? Math.round((batchProgress.completedChapters / batchProgress.totalChapters) * 100) : 0"
+                ? Math.round(((batchProgress.completedChapters + batchProgress.failedChapters) / batchProgress.totalChapters) * 100) : 0"
               :status="batchProgress.status === 'COMPLETED' ? 'success' : ''" />
 
             <div class="progress-details">
@@ -298,13 +298,22 @@
               <p v-if="batchProgress.totalChapters > 0">
                 进度: {{ batchProgress.completedChapters }} / {{ batchProgress.totalChapters }} 章
               </p>
+              <p v-if="batchProgress.failedChapters > 0" class="error-text">
+                失败: {{ batchProgress.failedChapters }} 章
+              </p>
               <p v-if="batchProgress.currentChapterNum">
                 当前: 第 {{ batchProgress.currentChapterNum }} 章
               </p>
               <p v-if="batchProgress.errorMessage" class="error-text">{{ batchProgress.errorMessage }}</p>
             </div>
 
-            <div v-if="batchProgress.status === 'COMPLETED'" class="step-actions">
+            <div v-if="batchProgress.status === 'GENERATING'" class="step-actions">
+              <el-button type="danger" @click="handleCancelBatch" :loading="cancellingBatch">
+                取消批量生成
+              </el-button>
+            </div>
+
+            <div v-if="batchProgress.status === 'COMPLETED' || batchProgress.status === 'CANCELLED'" class="step-actions">
               <el-button type="primary" @click="router.push(`/novel/${novelId}`)">
                 进入小说详情页
               </el-button>
@@ -335,6 +344,7 @@ const saving = ref(false)
 const generatingChapterOutlines = ref(false)
 const confirmingOutlines = ref(false)
 const batchGenerating = ref(false)
+const cancellingBatch = ref(false)
 const llmConfigList = ref<{ configId: string; configName: string }[]>([])
 
 const novelId = ref('')
@@ -347,12 +357,15 @@ const batchProgress = reactive<BatchGenerationProgress>({
   status: '',
   totalChapters: 0,
   completedChapters: 0,
+  failedChapters: 0,
   currentChapterNum: 0,
   currentPhase: '',
   errorMessage: ''
 })
 
 let pollingTimer: ReturnType<typeof setInterval> | null = null
+const MAX_POLL_COUNT = 60
+let pollCount = 0
 
 const form = reactive({
   novelName: '',
@@ -384,6 +397,7 @@ const batchStatusText = computed(() => {
     case 'GENERATING': return '生成中...'
     case 'COMPLETED': return '已完成'
     case 'FAILED': return '生成失败'
+    case 'CANCELLED': return '已取消'
     default: return '未知'
   }
 })
@@ -592,18 +606,28 @@ const handleBatchGenerate = async () => {
 }
 
 const startBatchPolling = () => {
+  pollCount = 0
   pollingTimer = setInterval(async () => {
     if (!batchTaskId.value || !novelId.value) return
+
+    pollCount++
+    if (pollCount > MAX_POLL_COUNT) {
+      stopPolling()
+      ElMessage.warning('轮询超时，请刷新页面查看最终状态')
+      return
+    }
 
     try {
       const response = await wizardApi.getBatchStatus(novelId.value, batchTaskId.value)
       if (response.code === 200 && response.data) {
         Object.assign(batchProgress, response.data)
 
-        if (batchProgress.status === 'COMPLETED' || batchProgress.status === 'FAILED') {
+        if (batchProgress.status === 'COMPLETED' || batchProgress.status === 'FAILED' || batchProgress.status === 'CANCELLED') {
           stopPolling()
           if (batchProgress.status === 'COMPLETED') {
             ElMessage.success('全部章节生成完成！')
+          } else if (batchProgress.status === 'CANCELLED') {
+            ElMessage.info('批量生成已取消')
           }
         }
       }
@@ -617,6 +641,23 @@ const stopPolling = () => {
   if (pollingTimer) {
     clearInterval(pollingTimer)
     pollingTimer = null
+  }
+}
+
+const handleCancelBatch = async () => {
+  cancellingBatch.value = true
+  try {
+    const response = await wizardApi.batchCancel(novelId.value, batchTaskId.value)
+    if (response.code === 200) {
+      ElMessage.success('已请求取消，将在当前章节完成后停止')
+    } else {
+      ElMessage.error(response.message || '取消失败')
+    }
+  } catch (error) {
+    console.error('取消批量生成失败:', error)
+    ElMessage.error('取消失败')
+  } finally {
+    cancellingBatch.value = false
   }
 }
 
