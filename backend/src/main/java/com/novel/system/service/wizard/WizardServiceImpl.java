@@ -26,6 +26,8 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -203,6 +205,12 @@ public class WizardServiceImpl implements WizardService {
         }
 
         return results;
+    }
+
+    @Override
+    public void generateArcChapterOutlinesStream(String novelId, int arcIndex, SseEmitter emitter) {
+        // TODO: Task 2 - implement SSE streaming chapter outline generation
+        throw new UnsupportedOperationException("Stream implementation pending - see Task 2");
     }
 
     @Override

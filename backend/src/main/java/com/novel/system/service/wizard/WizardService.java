@@ -3,6 +3,7 @@ package com.novel.system.service.wizard;
 import com.novel.system.dto.request.WizardSaveRequest;
 import com.novel.system.dto.request.WizardSettingsRequest;
 import com.novel.system.dto.response.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -25,6 +26,11 @@ public interface WizardService {
      * Step 4: 生成指定卷的所有章纲
      */
     List<ArcChapterOutlineDTO> generateArcChapterOutlines(String novelId, int arcIndex);
+
+    /**
+     * Step 4: 生成指定卷的所有章纲（SSE 流式推送）
+     */
+    void generateArcChapterOutlinesStream(String novelId, int arcIndex, SseEmitter emitter);
 
     /**
      * Step 4: 确认/编辑章纲并保存到数据库
