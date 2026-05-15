@@ -8,9 +8,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * 小说创建向导控制器
@@ -22,6 +27,9 @@ import java.util.List;
 public class WizardController {
 
     private final WizardService wizardService;
+
+    @Qualifier("ioTaskExecutor")
+    private final Executor ioTaskExecutor;
 
     /**
      * Step 1: 根据设定生成卷纲
@@ -69,6 +77,24 @@ public class WizardController {
             log.error("章纲生成失败", e);
             return ApiResponse.error(500, "章纲生成失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * Step 4: 生成指定卷的所有章纲（SSE 流式推送）
+     */
+    @PostMapping(value = "/novel/{novelId}/arc/{arcIndex}/chapter-outlines/stream",
+                 produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter generateArcChapterOutlinesStream(
+            @PathVariable String novelId,
+            @PathVariable int arcIndex) {
+        SseEmitter emitter = new SseEmitter(600_000L); // 10min 超时
+
+        // 异步执行，避免阻塞请求线程
+        CompletableFuture.runAsync(() -> {
+            wizardService.generateArcChapterOutlinesStream(novelId, arcIndex, emitter);
+        }, ioTaskExecutor);
+
+        return emitter;
     }
 
     /**
