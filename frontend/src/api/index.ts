@@ -239,6 +239,14 @@ export const wizardApi = {
     api.post<ApiResponse<import('@/types').NovelVO>>('/wizard/save', data).then(res => res.data),
   generateArcChapterOutlines: (novelId: string, arcIndex: number) =>
     api.post<ApiResponse<import('@/types').ArcChapterOutlineDTO[]>>(`/wizard/novel/${novelId}/arc/${arcIndex}/chapter-outlines`).then(res => res.data),
+  generateArcChapterOutlinesStream: (novelId: string, arcIndex: number) => {
+    return fetch(`/api/wizard/novel/${novelId}/arc/${arcIndex}/chapter-outlines/stream`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+    });
+  },
   confirmChapterOutlines: (novelId: string, arcIndex: number, data: import('@/types').ArcChapterOutlineDTO[]) =>
     api.put<ApiResponse<null>>(`/wizard/novel/${novelId}/arc/${arcIndex}/chapter-outlines`, data).then(res => res.data),
   batchGenerate: (novelId: string) =>
