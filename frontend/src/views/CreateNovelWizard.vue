@@ -228,13 +228,21 @@
           <div class="arc-progress">
             <h3>章纲生成进度</h3>
             <el-progress :text-inside="true" :stroke-width="20"
-              :percentage="arcs.length > 0 ? Math.round((currentArcIndex / arcs.length) * 100) : 0"
-              status="success" />
+              :percentage="outlineGenerationTotal > 0
+                ? Math.round((outlineGenerationProgress / outlineGenerationTotal) * 100)
+                : (arcs.length > 0 ? Math.round((currentArcIndex / arcs.length) * 100) : 0)"
+              :status="generationFailed ? 'exception' : (generatingChapterOutlines ? '' : 'success')" />
 
             <p class="progress-text">
-              当前进度：第 {{ currentArcIndex + 1 }}/{{ arcs.length }} 卷
-              <template v-if="currentArcIndex < arcs.length">
-                — {{ arcs[currentArcIndex].arcName }}
+              <template v-if="generatingChapterOutlines && outlineGenerationTotal > 0">
+                正在生成第 {{ outlineGenerationCurrentChapter }} 章...
+                ({{ outlineGenerationProgress }}/{{ outlineGenerationTotal }})
+              </template>
+              <template v-else>
+                当前进度：第 {{ currentArcIndex + 1 }}/{{ arcs.length }} 卷
+                <template v-if="currentArcIndex < arcs.length">
+                  — {{ arcs[currentArcIndex].arcName }}
+                </template>
               </template>
             </p>
           </div>
@@ -245,7 +253,9 @@
               <Loading />
             </el-icon>
             <p>正在生成第 {{ currentArcIndex + 1 }} 卷「{{ arcs[currentArcIndex]?.arcName }}」的章纲...</p>
-            <p class="form-tip">每卷包含 {{ arcs[currentArcIndex]?.chapterCount }} 章，可能需要几分钟</p>
+            <p class="form-tip" v-if="outlineGenerationTotal > 0">
+              已生成 {{ currentChapterOutlines.length }}/{{ outlineGenerationTotal }} 章
+            </p>
           </div>
 
           <!-- 生成失败状态 -->
@@ -258,9 +268,14 @@
             </el-result>
           </div>
 
-          <!-- 章纲列表（可编辑） -->
-          <div v-if="currentChapterOutlines.length > 0 && !generatingChapterOutlines">
-            <h4>第 {{ currentArcIndex + 1 }} 卷「{{ arcs[currentArcIndex]?.arcName }}」章纲</h4>
+          <!-- 章纲列表（可编辑）- 生成中也可查看已生成的章纲 -->
+          <div v-if="currentChapterOutlines.length > 0">
+            <h4>
+              第 {{ currentArcIndex + 1 }} 卷「{{ arcs[currentArcIndex]?.arcName }}」章纲
+              <el-tag v-if="generatingChapterOutlines" type="warning" size="small" style="margin-left: 8px;">
+                生成中...
+              </el-tag>
+            </h4>
 
             <div v-for="(outline, index) in currentChapterOutlines" :key="index" class="chapter-outline-item">
               <el-card shadow="hover" size="small">
@@ -276,7 +291,7 @@
               </el-card>
             </div>
 
-            <div class="step-actions">
+            <div class="step-actions" v-if="!generatingChapterOutlines">
               <el-button type="primary" @click="handleConfirmChapterOutlines" :loading="confirmingOutlines">
                 确认本卷章纲{{ currentArcIndex < arcs.length - 1 ? '，进入下一卷' : '' }}
               </el-button>
@@ -361,6 +376,9 @@ const novelId = ref('')
 const arcs = ref<ArcOutlineDTO[]>([])
 const currentArcIndex = ref(0)
 const currentChapterOutlines = ref<ArcChapterOutlineDTO[]>([])
+const outlineGenerationProgress = ref(0)
+const outlineGenerationTotal = ref(0)
+const outlineGenerationCurrentChapter = ref(0)
 const batchTaskId = ref('')
 const batchProgress = reactive<BatchGenerationProgress>({
   taskId: '',
@@ -529,7 +547,6 @@ const startChapterOutlineGeneration = () => {
 
 const generateCurrentArcOutlines = async () => {
   if (currentArcIndex.value >= arcs.value.length) {
-    // 所有卷章纲完成
     goToStep(4)
     return
   }
@@ -537,22 +554,88 @@ const generateCurrentArcOutlines = async () => {
   generationFailed.value = false
   generatingChapterOutlines.value = true
   currentChapterOutlines.value = []
+  outlineGenerationProgress.value = 0
+  outlineGenerationTotal.value = 0
+  outlineGenerationCurrentChapter.value = 0
 
   try {
-    const response = await wizardApi.generateArcChapterOutlines(novelId.value, currentArcIndex.value)
-    if (response.code === 200 && response.data) {
-      currentChapterOutlines.value = response.data
-      ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
-    } else {
-      ElMessage.error(response.message || '章纲生成失败')
-      generationFailed.value = true
+    const response = await wizardApi.generateArcChapterOutlinesStream(
+      novelId.value, currentArcIndex.value
+    )
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('无法读取响应流')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEventType = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEventType = line.substring(6).trim()
+          continue
+        }
+        if (line.startsWith('data:')) {
+          const data = line.substring(5).trim()
+          try {
+            const parsed = JSON.parse(data)
+            handleSSEEvent(currentEventType || 'unknown', parsed)
+          } catch (e) {
+            console.warn('解析 SSE 数据失败:', data, e)
+          }
+        }
+      }
+    }
+
+    ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
   } catch (error) {
     console.error('章纲生成失败:', error)
     ElMessage.error('章纲生成失败，请重试')
     generationFailed.value = true
   } finally {
     generatingChapterOutlines.value = false
+  }
+}
+
+const handleSSEEvent = (type: string, data: any) => {
+  switch (type) {
+    case 'progress':
+      outlineGenerationProgress.value = data.current
+      outlineGenerationTotal.value = data.total
+      outlineGenerationCurrentChapter.value = data.chapterNum
+      break
+
+    case 'outline':
+      currentChapterOutlines.value.push({
+        chapterNum: data.chapterNum,
+        chapterTitle: data.chapterTitle,
+        outline: data.outline,
+        implementationIdeas: data.implementationIdeas || []
+      })
+      break
+
+    case 'complete':
+      console.log('章纲生成完成:', data)
+      break
+
+    case 'error':
+      ElMessage.error(data.message || '章纲生成失败')
+      generationFailed.value = true
+      break
   }
 }
 
