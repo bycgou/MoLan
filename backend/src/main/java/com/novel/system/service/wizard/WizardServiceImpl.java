@@ -209,8 +209,90 @@ public class WizardServiceImpl implements WizardService {
 
     @Override
     public void generateArcChapterOutlinesStream(String novelId, int arcIndex, SseEmitter emitter) {
-        // TODO: Task 2 - implement SSE streaming chapter outline generation
-        throw new UnsupportedOperationException("Stream implementation pending - see Task 2");
+        List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
+        NovelBase novel = novelBaseMapper.selectById(novelId);
+        if (novel == null) {
+            try {
+                emitter.send(SseEmitter.event().name("error")
+                    .data("{\"message\":\"小说不存在: " + novelId + "\"}"));
+            } catch (Exception ignored) {}
+            emitter.complete();
+            return;
+        }
+
+        String llmConfigId = novel.getLlmConfigId();
+        if (arcIndex < 0 || arcIndex >= arcs.size()) {
+            try {
+                emitter.send(SseEmitter.event().name("error")
+                    .data("{\"message\":\"卷索引无效: " + arcIndex + "\"}"));
+            } catch (Exception ignored) {}
+            emitter.complete();
+            return;
+        }
+
+        NovelArc arc = arcs.get(arcIndex);
+        int startChapter = arc.getStartChapter() != null ? arc.getStartChapter() : 1;
+        int endChapter = arc.getEndChapter() != null ? arc.getEndChapter() : startChapter + 9;
+        int totalChapters = endChapter - startChapter + 1;
+
+        try {
+            for (int ch = startChapter; ch <= endChapter; ch++) {
+                int current = ch - startChapter + 1;
+
+                // 推送进度事件
+                emitter.send(SseEmitter.event().name("progress")
+                    .data("{\"current\":" + current + ",\"total\":" + totalChapters + ",\"chapterNum\":" + ch + "}"));
+
+                log.info("生成第{}卷第{}章章纲 ({}/{})", arc.getArcName(), ch, current, totalChapters);
+
+                ChapterGenerationRequest genRequest = new ChapterGenerationRequest();
+                genRequest.setNovelId(novelId);
+                genRequest.setChapterNum(ch);
+                genRequest.setLlmConfigId(llmConfigId);
+
+                try {
+                    ChapterGenerationResponse response = chapterGenerationService.generateOutline(genRequest);
+
+                    if (response.getSuccess()) {
+                        String outlineData = String.format(
+                            "{\"chapterNum\":%d,\"chapterTitle\":\"第%d章\",\"outline\":\"%s\",\"implementationIdeas\":%s}",
+                            ch, ch,
+                            escapeJson(response.getChapterOutline()),
+                            response.getImplementationIdeas() != null
+                                ? objectMapper.writeValueAsString(response.getImplementationIdeas())
+                                : "[]"
+                        );
+                        emitter.send(SseEmitter.event().name("outline").data(outlineData));
+                    } else {
+                        String errorData = String.format(
+                            "{\"chapterNum\":%d,\"chapterTitle\":\"第%d章\",\"outline\":\"章纲生成失败: %s\"}",
+                            ch, ch, escapeJson(response.getErrorMessage())
+                        );
+                        emitter.send(SseEmitter.event().name("outline").data(errorData));
+                    }
+                } catch (Exception e) {
+                    log.error("第{}章章纲生成异常", ch, e);
+                    String errorData = String.format(
+                        "{\"chapterNum\":%d,\"chapterTitle\":\"第%d章\",\"outline\":\"章纲生成异常: %s\"}",
+                        ch, ch, escapeJson(e.getMessage())
+                    );
+                    emitter.send(SseEmitter.event().name("outline").data(errorData));
+                }
+            }
+
+            // 推送完成事件
+            emitter.send(SseEmitter.event().name("complete")
+                .data("{\"totalChapters\":" + totalChapters + "}"));
+            emitter.complete();
+
+        } catch (Exception e) {
+            log.error("章纲流式生成失败", e);
+            try {
+                emitter.send(SseEmitter.event().name("error")
+                    .data("{\"message\":\"章纲生成失败: " + escapeJson(e.getMessage()) + "\"}"));
+            } catch (Exception ignored) {}
+            emitter.complete();
+        }
     }
 
     @Override
@@ -382,6 +464,15 @@ public class WizardServiceImpl implements WizardService {
     }
 
     // ========== 辅助方法 ==========
+
+    private String escapeJson(String text) {
+        if (text == null) return "";
+        return text.replace("\\", "\\\\")
+                   .replace("\"", "\\\"")
+                   .replace("\n", "\\n")
+                   .replace("\r", "\\r")
+                   .replace("\t", "\\t");
+    }
 
     private void saveBatchProgress(String taskId, BatchGenerationProgress progress) {
         try {
