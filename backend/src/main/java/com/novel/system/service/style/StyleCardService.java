@@ -677,28 +677,41 @@ public class StyleCardService {
         // 注入样本片段（限制数量和长度）
         if (!samples.isEmpty()) {
             sb.append("### 风格参考片段\n\n");
-            // 最多注入2个样本
-            int sampleCount = 0;
+            // 按维度覆盖：每个维度最多取 1 个样本，总共最多 5 个
+            java.util.Set<String> coveredTypes = new java.util.LinkedHashSet<>();
+            List<StyleSample> selectedSamples = new ArrayList<>();
             for (StyleSample sample : samples) {
-                if (sampleCount >= 2) break;
-                sb.append("【").append(sample.getSampleType() != null ? sample.getSampleType() : "参考").append("场景参考】\n");
-                // 每个样本截断到200字
+                String type = sample.getSampleType() != null ? sample.getSampleType() : "参考";
+                if (selectedSamples.size() >= 5) break;
+                if (coveredTypes.contains(type)) continue;
+                coveredTypes.add(type);
+                selectedSamples.add(sample);
+            }
+            // 如果按维度去重后不足 5 个，补充剩余样本
+            for (StyleSample sample : samples) {
+                if (selectedSamples.size() >= 5) break;
+                if (!selectedSamples.contains(sample)) {
+                    selectedSamples.add(sample);
+                }
+            }
+            for (StyleSample sample : selectedSamples) {
+                String type = sample.getSampleType() != null ? sample.getSampleType() : "参考";
+                sb.append("【").append(type).append("】\n");
                 String content = sample.getContent();
-                if (content != null && content.length() > 200) {
-                    content = content.substring(0, 200) + "...";
+                if (content != null && content.length() > 300) {
+                    content = content.substring(0, 300) + "...";
                 }
                 sb.append("```\n").append(content).append("\n```\n");
                 if (sample.getAnnotation() != null) {
                     sb.append("风格特征：").append(sample.getAnnotation()).append("\n\n");
                 }
-                sampleCount++;
             }
         }
 
-        // 整体截断到2000字
+        // 整体截断到3000字
         String result = sb.toString();
-        if (result.length() > 2000) {
-            result = result.substring(0, 2000) + "\n\n[文风卡片内容过长，已截断]";
+        if (result.length() > 3000) {
+            result = result.substring(0, 3000) + "\n\n[文风卡片内容过长，已截断]";
         }
         return result;
     }
@@ -769,28 +782,41 @@ public class StyleCardService {
         // 注入样本片段（限制数量和长度）
         if (!samples.isEmpty()) {
             sb.append("### 风格参考片段\n\n");
-            // 最多注入2个样本
-            int sampleCount = 0;
+            // 按维度覆盖：每个维度最多取 1 个样本，总共最多 5 个
+            java.util.Set<String> coveredTypes = new java.util.LinkedHashSet<>();
+            List<StyleSample> selectedSamples = new ArrayList<>();
             for (StyleSample sample : samples) {
-                if (sampleCount >= 2) break;
-                sb.append("【").append(sample.getSampleType() != null ? sample.getSampleType() : "参考").append("场景参考】\n");
-                // 每个样本截断到200字
+                String type = sample.getSampleType() != null ? sample.getSampleType() : "参考";
+                if (selectedSamples.size() >= 5) break;
+                if (coveredTypes.contains(type)) continue;
+                coveredTypes.add(type);
+                selectedSamples.add(sample);
+            }
+            // 如果按维度去重后不足 5 个，补充剩余样本
+            for (StyleSample sample : samples) {
+                if (selectedSamples.size() >= 5) break;
+                if (!selectedSamples.contains(sample)) {
+                    selectedSamples.add(sample);
+                }
+            }
+            for (StyleSample sample : selectedSamples) {
+                String type = sample.getSampleType() != null ? sample.getSampleType() : "参考";
+                sb.append("【").append(type).append("】\n");
                 String content = sample.getContent();
-                if (content != null && content.length() > 200) {
-                    content = content.substring(0, 200) + "...";
+                if (content != null && content.length() > 300) {
+                    content = content.substring(0, 300) + "...";
                 }
                 sb.append("```\n").append(content).append("\n```\n");
                 if (sample.getAnnotation() != null) {
                     sb.append("风格特征：").append(sample.getAnnotation()).append("\n\n");
                 }
-                sampleCount++;
             }
         }
 
-        // 整体截断到2000字
+        // 整体截断到3000字
         String result = sb.toString();
-        if (result.length() > 2000) {
-            result = result.substring(0, 2000) + "\n\n[文风卡片内容过长，已截断]";
+        if (result.length() > 3000) {
+            result = result.substring(0, 3000) + "\n\n[文风卡片内容过长，已截断]";
         }
         return result;
     }
