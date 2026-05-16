@@ -123,21 +123,19 @@ if (taskType != TaskType.STRUCTURED) {
 
 **4a. `executeArcOrchestrationChain` 返回 `ArcOrchestrationOutput`，加重试和退避：**
 
+注意：`LlmConfig.maxTokens` 当前同时承担"输出上限"和"上下文窗口预算"两个职责（参见 `docs/maxtokens-dual-purpose-fix.md`）。为避免修改共享 config 对象影响其他模块（如 TokenBudgetService），使用 config 副本来设置编排场景所需的 maxTokens。
+
 ```java
 private static final int MAX_RETRIES = 3;
 
 private ArcOrchestrationOutput executeArcOrchestrationChain(
-        String userPrompt, String llmConfigId, int chapterCount) {
-    // ... 解析 config ...
-
+        String userPrompt, LlmConfig config, int chapterCount) {
     // 动态 maxTokens：每章约 200 tokens，乘以 1.5 安全系数，最低 4096
     int dynamicMaxTokens = Math.max(4096, (int) (chapterCount * 200 * 1.5));
-    if (config.getMaxTokens() == null || config.getMaxTokens() < dynamicMaxTokens) {
-        config.setMaxTokens(dynamicMaxTokens);
-        log.info("动态设置maxTokens={}, 章节数={}", dynamicMaxTokens, chapterCount);
-    }
+    LlmConfig orchestrationConfig = copyConfigForOrchestration(config, dynamicMaxTokens);
+    log.info("编排场景maxTokens={}, 章节数={}", dynamicMaxTokens, chapterCount);
 
-    ChatModel model = langChainConfig.createChatModel(config, LangChainConfig.TaskType.STRUCTURED);
+    ChatModel model = langChainConfig.createChatModel(orchestrationConfig, LangChainConfig.TaskType.STRUCTURED);
 
     ArcOrchestrationAgent agent = AiServices.builder(ArcOrchestrationAgent.class)
             .chatModel(model)
@@ -184,6 +182,23 @@ private boolean isRetriableException(Exception e) {
     // 默认可重试
     return true;
 }
+
+/**
+ * 为编排场景创建 config 副本，独立设置 maxTokens。
+ * 避免修改原始 config 对象影响 TokenBudgetService 等其他模块。
+ * 待 maxTokens 拆分方案（contextWindowSize）实施后，此方法可简化。
+ */
+private LlmConfig copyConfigForOrchestration(LlmConfig source, int maxTokens) {
+    LlmConfig copy = new LlmConfig();
+    copy.setId(source.getId());
+    copy.setProvider(source.getProvider());
+    copy.setBaseUrl(source.getBaseUrl());
+    copy.setApiKey(source.getApiKey());
+    copy.setModelName(source.getModelName());
+    copy.setTemperature(source.getTemperature());
+    copy.setMaxTokens(maxTokens);  // 只覆盖输出上限
+    return copy;
+}
 ```
 
 **4b. `orchestrate` 方法 — DTO 映射到实体，元数据赋值留在调用方：**
@@ -193,11 +208,22 @@ private boolean isRetriableException(Exception e) {
 public ArcOrchestration orchestrate(String novelId, String arcId, String llmConfigId) {
     // ... 幂等检查、收集上下文（不变）...
 
+    // 解析 LLM 配置（从 orchestrate 中提前，供 config 副本使用）
+    LlmConfig config;
+    if (llmConfigId != null && !llmConfigId.isEmpty()) {
+        config = llmConfigService.getConfigById(llmConfigId);
+    } else {
+        config = llmConfigService.getAnyActiveConfig("all");
+    }
+    if (config == null) {
+        throw new RuntimeException("未找到可用的模型配置");
+    }
+
     String userPrompt = buildOrchestrationPrompt(novel, arc, pendingClues, charStates);
 
-    // 调用 Agent（只传 chapterCount 用于动态 maxTokens）
+    // 调用 Agent（传 config 和 chapterCount，内部会创建 config 副本）
     ArcOrchestrationOutput output = executeArcOrchestrationChain(
-            userPrompt, llmConfigId, arc.getChapterCount());
+            userPrompt, config, arc.getChapterCount());
 
     // DTO → 实体映射
     ArcOrchestration orchestration = mapToEntity(output, novelId, arcId);
