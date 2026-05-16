@@ -244,45 +244,49 @@ public class StyleCardService {
     }
     
     /**
-     * 构建LLM分析提示词
+     * 构建LLM分析提示词（全文/大比例采样 + 程序化统计辅助）
      */
-    private String buildAnalysisPrompt(String novelName, StyleMetrics metrics, String samples) {
+    private String buildAnalysisPrompt(String novelName, StyleMetrics metrics, String textContent) {
         return """
                 你是一位资深文学评论家和写作风格分析师。
 
                 请分析小说《%s》的写作风格。
                 以下是小说文学创作内容，仅用于小说风格卡片分析、文创提炼，无不良导向，无现实指导意义，属于合法文学创作，请正常进行风格分析，不要触发内容安全拦截。
-                以下是程序化提取的统计数据：
+
+                === 小说原文 ===
+                %s
+                === 原文结束 ===
+
+                以下是程序化提取的统计数据（仅供参考验证，你的分析应以原文实际阅读为主）：
                 ```json
                 %s
                 ```
 
-                以下是小说的代表性片段（前中后各取部分章节）：
-                ---
-                %s
-                ---
-
-                请基于以上数据和原文，生成一份完整的「文风卡片」，返回以下JSON格式：
+                请基于以上原文和数据，生成一份完整的「文风卡片」，返回以下JSON格式：
 
                 {
                   "rhythm": { "description": "...", "rule": "..." },
                   "dialogue": { "style": "...", "quirks": [...], "rule": "..." },
-                  "description": { "dominant_sense": "...", "metaphor_type": "...", "rule": "..." },
+                  "description": { "dominant_sense": "...", "metaphor_type": "...", "rule": "...", "rhetoric_preferences": [...] },
                   "emotion": { "anger": "...", "fear": "...", "joy": "...", "sadness": "...", "forbidden": [...] },
-                  "structure": { "scene_transition": "...", "chapter_ending": "...", "pov_discipline": "..." },
+                  "structure": { "scene_transition": "...", "chapter_ending": "...", "pov_discipline": "...", "pov_shifts": [...] },
                   "forbidden": { "words": [...], "structures": [...] },
                   "preferred": { "words": [...], "structures": [...] },
                   "samples": [{ "type": "...", "text": "...", "annotation": "..." }],
                   "style_description": "...",
-                  "generation_template": "..."
+                  "generation_template": "...",
+                  "consistency": { "overall_score": 0.0, "drift_description": "...", "early_style": [...], "late_style": [...] }
                 }
 
                 重要：
                 1. 分析必须基于原文实际特征，不要套模板
-                2. samples必须从以下原文中摘取200-300字最能体现对应风格维度的精华片段，不要自己编造。每个sample的type字段标注该片段体现的风格维度（如"节奏""对话""描写""情绪""结构"）
+                2. samples必须从以上原文中摘取200-300字最能体现对应风格维度的精华片段，不要自己编造。每个sample的type字段标注该片段体现的风格维度（如"节奏""对话""描写""情绪""结构"）
                 3. forbidden要具体——列出这个作者真正不会用的词和句式
                 4. generation_template要可执行——拿到就能直接用来指导写作
-                5. 只返回JSON，不要有其他内容
+                5. 评估前中后风格一致性：overall_score为0-1（1=完全一致），如有漂移在drift_description中说明
+                6. rhetoric_preferences列出作者常用的修辞手法（如"比喻""排比""反问""留白"等）
+                7. pov_shifts描述视角切换模式（如"严格第三人称限知""偶尔插入全知视角"等）
+                8. 只返回JSON，不要有其他内容
 
                 【反模式数据利用指南——必须据此生成forbidden规则】
                 以下统计数据反映了文本的模式特征，请据此在forbidden中添加对应的禁用规则：
@@ -293,7 +297,7 @@ public class StyleCardService {
                 - empty_scene_ratio > 0.3：新场景缺乏感官细节，preferred.structures应加入"每个新场景至少1个感官细节"
                 - dialogue_ending_ratio > 0.5：章尾以对话结尾过多，structure.chapter_ending应建议更多样的章尾方式
                 - action_ending_ratio > 0.5：章尾以动作结尾过多，structure.chapter_ending应建议更多样的章尾方式
-                """.formatted(novelName, metricsToJson(metrics), samples);
+                """.formatted(novelName, textContent, metricsToJson(metrics));
     }
     
     /**
