@@ -559,7 +559,21 @@ public class StyleCardService {
         card.setDialogueRules(analysis.getDialogue());
         card.setDescriptionRules(analysis.getDescription());
         card.setEmotionRules(analysis.getEmotion());
-        card.setStructureRules(analysis.getStructure());
+        // Merge consistency report into structureRules (avoid ALTER TABLE)
+        if (analysis.getStructure() != null) {
+            try {
+                Map<String, Object> structureMap = objectMapper.convertValue(analysis.getStructure(), Map.class);
+                if (analysis.getConsistency() != null) {
+                    structureMap.put("consistency", objectMapper.convertValue(analysis.getConsistency(), Map.class));
+                }
+                card.setStructureRules(structureMap);
+            } catch (Exception e) {
+                card.setStructureRules(analysis.getStructure());
+                log.warn("合并consistency到structureRules失败: {}", e.getMessage());
+            }
+        } else {
+            card.setStructureRules(analysis.getStructure());
+        }
         card.setForbiddenRules(analysis.getForbidden());
         card.setPreferredRules(analysis.getPreferred());
         card.setSamplesJson(analysis.getSamples());
