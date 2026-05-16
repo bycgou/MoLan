@@ -57,7 +57,7 @@ public class StyleCardService {
      * @return 创建的卡片（状态=分析中）
      */
     @Transactional
-    public StyleCard createFromNovel(String userId, String novelName, String fullText) {
+    public StyleCard createFromNovel(String userId, String novelName, String fullText, String configId) {
         // 1. 创建卡片记录（状态=分析中）
         StyleCard card = new StyleCard();
         card.setCardId(UUID.randomUUID().toString().replace("-", ""));
@@ -70,7 +70,7 @@ public class StyleCardService {
         card.setUsageCount(0);
         card.setIsPublic(false);
         styleCardMapper.insert(card);
-        
+
         // 2. 添加到用户卡片库
         UserStyleLibrary library = new UserStyleLibrary();
         library.setId(UUID.randomUUID().toString().replace("-", ""));
@@ -79,11 +79,11 @@ public class StyleCardService {
         library.setIsFavorite(false);
         library.setAddTime(LocalDateTime.now());
         userStyleLibraryMapper.insert(library);
-        
+
         // 3. 异步分析（使用独立线程池，避免阻塞 commonPool）
         CompletableFuture.runAsync(() -> {
             try {
-                analyzeAndFill(card.getCardId(), novelName, fullText, userId);
+                analyzeAndFill(card.getCardId(), novelName, fullText, userId, configId);
             } catch (Exception e) {
                 log.error("风格分析失败: cardId={}", card.getCardId(), e);
                 // 更新状态为失败
@@ -93,14 +93,14 @@ public class StyleCardService {
                 styleCardMapper.updateById(failedCard);
             }
         }, ioTaskExecutor);
-        
+
         return card;
     }
     
     /**
      * 分析核心逻辑
      */
-    private void analyzeAndFill(String cardId, String novelName, String text, String userId) {
+    private void analyzeAndFill(String cardId, String novelName, String text, String userId, String configId) {
         log.info("开始分析文风: cardId={}, novelName={}", cardId, novelName);
         
         // Step 1: 程序化提取量化指标
@@ -113,10 +113,10 @@ public class StyleCardService {
         String combinedSample = String.join("\n---\n", sampledTexts);
         log.info("采样完成: 共{}个片段", sampledTexts.size());
         
-        // Step 3: 调用LLM分析
+        // Step 3: 调用LLM分析（使用更高 maxTokens 避免输出截断）
         String analysisPrompt = buildAnalysisPrompt(novelName, metrics, combinedSample);
         String systemInstruction = "你是一位专业的文学风格分析师。你的任务是分析小说文本的写作风格特征，包括句式节奏、对话风格、描写手法、情感表达、结构特点等，并生成结构化的分析报告。用户会提供小说原文片段和统计数据，请基于这些材料进行客观的文学分析。";
-        String analysisResult = llmService.generateWithUsage(systemInstruction, analysisPrompt, "audit", userId);
+        String analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 16384, configId);
 
         // 检测LLM安全拒绝（返回非JSON文本）
         if (analysisResult != null && !analysisResult.trim().startsWith("{")) {
@@ -277,7 +277,7 @@ public class StyleCardService {
 
                 重要：
                 1. 分析必须基于原文实际特征，不要套模板
-                2. samples必须是原文真实片段（200-300字），不要自己编
+                2. samples必须从以下原文中摘取200-300字最能体现对应风格维度的精华片段，不要自己编造。每个sample的type字段标注该片段体现的风格维度（如"节奏""对话""描写""情绪""结构"）
                 3. forbidden要具体——列出这个作者真正不会用的词和句式
                 4. generation_template要可执行——拿到就能直接用来指导写作
                 5. 只返回JSON，不要有其他内容
@@ -310,6 +310,7 @@ public class StyleCardService {
                   "ellipsis_count": %d,
                   "em_dash_count": %d,
                   "exclamation_count": %d,
+                  "question_mark_count": %d,
                   "visual_density": %.2f,
                   "auditory_density": %.2f,
                   "tactile_density": %.2f,
@@ -334,6 +335,7 @@ public class StyleCardService {
                 metrics.getEllipsisCount(),
                 metrics.getEmDashCount(),
                 metrics.getExclamationCount(),
+                metrics.getQuestionMarkCount(),
                 metrics.getVisualDensity(),
                 metrics.getAuditoryDensity(),
                 metrics.getTactileDensity(),
@@ -359,16 +361,23 @@ public class StyleCardService {
             if (result.contains("```json")) {
                 json = result.substring(result.indexOf("```json") + 7, result.indexOf("```", result.indexOf("```json") + 7));
             } else if (result.contains("{")) {
-                json = result.substring(result.indexOf("{"), result.lastIndexOf("}") + 1);
+                json = result.substring(result.indexOf("{"));
             }
-            
+
             // 使用Jackson解析，配置忽略未知字段
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            return mapper.readValue(json, StyleCardAnalysis.class);
+            try {
+                return mapper.readValue(json, StyleCardAnalysis.class);
+            } catch (Exception parseError) {
+                // JSON 可能被截断，尝试修复：截断到最后一个完整值，关闭所有括号
+                log.warn("JSON解析失败，尝试修复截断: {}", parseError.getMessage());
+                String repaired = repairTruncatedJson(json);
+                return mapper.readValue(repaired, StyleCardAnalysis.class);
+            }
         } catch (Exception e) {
             log.warn("解析LLM分析结果失败，尝试提取samples: {}", e.getMessage());
-            
+
             // 即使解析失败，也尝试提取samples
             StyleCardAnalysis defaultAnalysis = buildDefaultAnalysis();
             List<StyleCardAnalysis.StyleSampleItem> samples = tryExtractSamples(result);
@@ -376,9 +385,72 @@ public class StyleCardService {
                 defaultAnalysis.setSamples(samples);
                 log.info("成功从失败的解析中提取到{}个samples", samples.size());
             }
-            
+
             return defaultAnalysis;
         }
+    }
+
+    /**
+     * 修复被截断的 JSON：移除末尾不完整内容，关闭所有未闭合的括号。
+     */
+    private String repairTruncatedJson(String json) {
+        // 移除末尾的逗号和不完整内容
+        String trimmed = json.trim();
+
+        // 如果末尾是不完整的字符串（引号未关闭），截断到上一个完整值
+        int lastComplete = findLastCompletePosition(trimmed);
+        if (lastComplete > 0) {
+            trimmed = trimmed.substring(0, lastComplete);
+        }
+
+        // 移除末尾逗号
+        while (trimmed.endsWith(",")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+        }
+
+        // 统计未闭合的括号
+        int openBraces = 0, openBrackets = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (char c : trimmed.toCharArray()) {
+            if (escaped) { escaped = false; continue; }
+            if (c == '\\') { escaped = true; continue; }
+            if (c == '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (c == '{') openBraces++;
+            else if (c == '}') openBraces--;
+            else if (c == '[') openBrackets++;
+            else if (c == ']') openBrackets--;
+        }
+
+        // 关闭未闭合的括号
+        StringBuilder sb = new StringBuilder(trimmed);
+        for (int i = 0; i < openBrackets; i++) sb.append(']');
+        for (int i = 0; i < openBraces; i++) sb.append('}');
+
+        return sb.toString();
+    }
+
+    /**
+     * 找到 JSON 字符串中最后一个完整值的位置（用于截断修复）。
+     */
+    private int findLastCompletePosition(String json) {
+        boolean inString = false;
+        boolean escaped = false;
+        int lastComplete = -1;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (escaped) { escaped = false; continue; }
+            if (c == '\\') { escaped = true; continue; }
+            if (c == '"') {
+                inString = !inString;
+                if (!inString) lastComplete = i + 1;
+                continue;
+            }
+            if (inString) continue;
+            if (c == '}' || c == ']') lastComplete = i + 1;
+        }
+        return lastComplete;
     }
     
     /**
@@ -407,19 +479,24 @@ public class StyleCardService {
             // 查找 "samples" 数组
             int samplesStart = llmResult.indexOf("\"samples\"");
             if (samplesStart == -1) return samples;
-            
+
             int arrayStart = llmResult.indexOf("[", samplesStart);
             if (arrayStart == -1) return samples;
-            
+
             int arrayEnd = findMatchingBracket(llmResult, arrayStart, '[', ']');
-            if (arrayEnd == -1) return samples;
-            
-            String samplesJson = llmResult.substring(arrayStart, arrayEnd + 1);
-            
+
+            String samplesJson;
+            if (arrayEnd == -1) {
+                // 数组被截断，尝试修复
+                samplesJson = repairTruncatedJson(llmResult.substring(arrayStart));
+            } else {
+                samplesJson = llmResult.substring(arrayStart, arrayEnd + 1);
+            }
+
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            
-            samples = mapper.readValue(samplesJson, 
+
+            samples = mapper.readValue(samplesJson,
                 mapper.getTypeFactory().constructCollectionType(List.class, StyleCardAnalysis.StyleSampleItem.class));
         } catch (Exception e) {
             log.warn("提取samples失败: {}", e.getMessage());
@@ -852,7 +929,17 @@ public class StyleCardService {
                     metrics = (StyleMetrics) card.getStatsJson();
                 } else if (card.getStatsJson() instanceof String) {
                     String json = unwrapDoubleEncodedJson(card.getStatsJson());
-                    metrics = objectMapper.readValue(json, StyleMetrics.class);
+                    try {
+                        metrics = objectMapper.readValue(json, StyleMetrics.class);
+                    } catch (Exception e1) {
+                        // fallback：先解析为 Map，再 convertValue
+                        try {
+                            Map<String, Object> map = objectMapper.readValue(json, Map.class);
+                            metrics = objectMapper.convertValue(map, StyleMetrics.class);
+                        } catch (Exception e2) {
+                            log.warn("转换statsJson失败: {}", e1.getMessage());
+                        }
+                    }
                 } else {
                     metrics = objectMapper.convertValue(card.getStatsJson(), StyleMetrics.class);
                 }
@@ -909,7 +996,18 @@ public class StyleCardService {
             Object parsed = samplesJson;
             if (samplesJson instanceof String) {
                 String json = unwrapDoubleEncodedJson(samplesJson);
-                parsed = objectMapper.readValue(json, List.class);
+                try {
+                    parsed = objectMapper.readValue(json, List.class);
+                } catch (Exception e1) {
+                    // fallback：先解析为 Object，再 convertValue
+                    try {
+                        Object raw = objectMapper.readValue(json, Object.class);
+                        parsed = objectMapper.convertValue(raw, List.class);
+                    } catch (Exception e2) {
+                        log.warn("转换samplesJson失败: {}", e1.getMessage());
+                        return Collections.emptyList();
+                    }
+                }
             }
             if (parsed instanceof List) {
                 List<?> list = (List<?>) parsed;
@@ -955,20 +1053,41 @@ public class StyleCardService {
     @SuppressWarnings("unchecked")
     /**
      * 处理可能被双重编码的 JSON 字符串。
-     * 如果 input 是一个 JSON 字符串字面量（以"开头、以"结尾），
-     * 则先解析出内部字符串，再返回；否则原样返回。
+     * 情况1：以"开头、以"结尾 → Jackson 解析去掉一层引号。
+     * 情况2：含 \" 转义（可能无外层引号） → 循环反转义直到合法 JSON。
+     * 首字符检测：非 { [ " 的字符串不可能是 JSON，直接返回。
      */
     private String unwrapDoubleEncodedJson(Object input) {
         if (!(input instanceof String)) return null;
         String str = ((String) input).trim();
-        if (str.length() < 2 || !str.startsWith("\"") || !str.endsWith("\"")) {
+        if (str.isEmpty()) return str;
+
+        // 情况1：外层有引号 "..." → Jackson 解析去掉一层
+        if (str.length() >= 2 && str.startsWith("\"") && str.endsWith("\"")) {
+            try {
+                return objectMapper.readValue(str, String.class);
+            } catch (Exception e) {
+                return str;
+            }
+        }
+
+        // 情况2：含 \" 转义 → 循环反转义直到合法 JSON
+        if (str.contains("\\\"")) {
+            String candidate = str;
+            String prev = null;
+            while (!candidate.equals(prev)) {
+                prev = candidate;
+                candidate = candidate.replace("\\\"", "\"");
+                try {
+                    objectMapper.readValue(candidate, Object.class);
+                    return candidate;
+                } catch (Exception ignored) {
+                }
+            }
             return str;
         }
-        try {
-            return objectMapper.readValue(str, String.class);
-        } catch (Exception e) {
-            return str;
-        }
+
+        return str;
     }
 
     private Map<String, Object> toMap(Object obj) {
@@ -987,58 +1106,31 @@ public class StyleCardService {
 
     /**
      * 修复数据库中被双重编码的 JSON 字段。
-     * 遍历所有 style_card，检测并修复 9 个 JSON 字段的双重编码问题。
+     * 使用 raw SQL 绕过 JacksonTypeHandler，去掉外层引号。
+     * 去掉后仍含 \" 转义的值由读取时的 unwrapDoubleEncodedJson 处理。
      */
     @Transactional
     public Map<String, Object> fixDoubleEncodedCards() {
-        String[] jsonFields = {
-            "samplesJson", "statsJson",
-            "rhythmRules", "dialogueRules", "descriptionRules",
-            "emotionRules", "structureRules", "forbiddenRules", "preferredRules"
-        };
-
-        List<StyleCard> allCards = styleCardMapper.selectList(null);
-        int total = allCards.size();
+        List<String> allIds = styleCardMapper.selectAllCardIds();
+        int total = allIds.size();
         int fixed = 0;
-        int fieldsFixed = 0;
 
-        for (StyleCard card : allCards) {
-            boolean cardDirty = false;
-            for (String field : jsonFields) {
-                if (fixDoubleEncodedField(card, field)) {
-                    cardDirty = true;
-                    fieldsFixed++;
-                }
-            }
-            if (cardDirty) {
-                styleCardMapper.updateById(card);
+        for (String cardId : allIds) {
+            // 先检查是否有需要修复的字段（以"开头的值）
+            String samplesRaw = styleCardMapper.selectSamplesJsonRaw(cardId);
+            String statsRaw = styleCardMapper.selectStatsJsonRaw(cardId);
+            boolean needsFix = (samplesRaw != null && samplesRaw.startsWith("\""))
+                    || (statsRaw != null && statsRaw.startsWith("\""));
+
+            styleCardMapper.fixDoubleEncodedJson(cardId);
+
+            if (needsFix) {
                 fixed++;
+                log.info("修复卡片: cardId={}", cardId);
             }
         }
 
-        log.info("双重编码修复完成: 总卡片数={}, 修复卡片数={}, 修复字段数={}", total, fixed, fieldsFixed);
-        return Map.of("total", total, "fixed", fixed, "fieldsFixed", fieldsFixed);
-    }
-
-    private boolean fixDoubleEncodedField(StyleCard card, String fieldName) {
-        try {
-            java.lang.reflect.Method getter = StyleCard.class.getMethod("get" +
-                    fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
-            Object value = getter.invoke(card);
-
-            if (!(value instanceof String)) return false;
-            String str = (String) value;
-            if (str.length() < 2 || !str.startsWith("\"") || !str.endsWith("\"")) return false;
-
-            String unwrapped = objectMapper.readValue(str, String.class);
-            Object fixed = objectMapper.readValue(unwrapped, Object.class);
-
-            java.lang.reflect.Method setter = StyleCard.class.getMethod("set" +
-                    fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1), Object.class);
-            setter.invoke(card, fixed);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        log.info("双重编码修复完成: 总卡片数={}, 修复卡片数={}", total, fixed);
+        return Map.of("total", total, "fixed", fixed);
     }
 }
