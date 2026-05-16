@@ -103,15 +103,25 @@ public class StyleCardService {
     private void analyzeAndFill(String cardId, String novelName, String text, String userId, String configId) {
         log.info("开始分析文风: cardId={}, novelName={}", cardId, novelName);
         
-        // Step 1: 程序化提取量化指标
-        StyleMetrics metrics = textAnalyzer.analyze(text);
-        log.info("程序化分析完成: avgSentenceLength={}, dialogueRatio={}", 
-                metrics.getAvgSentenceLength(), metrics.getDialogueRatio());
-        
-        // Step 2: 采样文本片段（前3章+中间3章+后3章）
-        List<String> sampledTexts = sampleChapters(text, 9, 500);
-        String combinedSample = String.join("\n---\n", sampledTexts);
-        log.info("采样完成: 共{}个片段", sampledTexts.size());
+        // Step 1: 程序化提取量化指标（在采样子集上运行，避免全文 N-gram 遍历的 GC 压力）
+        String metricsText = text.length() > 400_000 ? sampleForMetrics(text) : text;
+        StyleMetrics metrics = textAnalyzer.analyze(metricsText);
+        log.info("程序化分析完成: avgSentenceLength={}, dialogueRatio={}, 基于{}字样本",
+                metrics.getAvgSentenceLength(), metrics.getDialogueRatio(), metricsText.length());
+
+        // Step 2: 准备 LLM 输入文本（全文直传或降级采样）
+        String combinedSample;
+        int totalChars = text.length();
+        if (totalChars <= 400_000) {
+            // 40 万字以内：全文直传
+            combinedSample = text;
+            log.info("全文直传: {}字", totalChars);
+        } else {
+            // 超长篇：自适应采样
+            List<String> sampledTexts = sampleChapters(text, totalChars);
+            combinedSample = String.join("\n---\n", sampledTexts);
+            log.info("超长篇采样: 总{}字, 采样{}个片段", totalChars, sampledTexts.size());
+        }
         
         // Step 3: 调用LLM分析（使用更高 maxTokens 避免输出截断）
         String analysisPrompt = buildAnalysisPrompt(novelName, metrics, combinedSample);
@@ -136,109 +146,101 @@ public class StyleCardService {
     }
     
     /**
-     * 从文本中采样章节片段
+     * 为程序化分析采样子集（均匀采约 100 段）
+     * 全文直传时避免 textAnalyzer.analyze() 对 40 万字做 N-gram 遍历
+     */
+    private String sampleForMetrics(String text) {
+        String[] paragraphs = text.split("\\n+");
+        if (paragraphs.length <= 100) return text;
+
+        int step = Math.max(1, paragraphs.length / 100);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < paragraphs.length; i += step) {
+            sb.append(paragraphs[i]).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 超长篇降级采样（仅 totalChars > 400_000 时调用）
      *
      * @param text 完整文本
-     * @param sampleCount 采样数量
-     * @param sampleLength 每个采样的长度（字）
+     * @param totalChars 总字数
      * @return 采样的文本片段
      */
-    private List<String> sampleChapters(String text, int sampleCount, int sampleLength) {
+    private List<String> sampleChapters(String text, int totalChars) {
         List<String> samples = new ArrayList<>();
 
-        // 按章节分割 — 支持多种常见格式
-        // "第X章" "第0X章" "第X节" "Chapter X" "CHAPTER X" "一、" "1." "1、" 等
         String[] chapters = text.split("(?=(?:第[一二三四五六七八九十百千万零〇\\d]{1,6}[章节回卷集部])|(?:[Cc]hapter\\s+\\d)|(?:[一二三四五六七八九十]+[、.．])|(?:\\d{1,3}[、.．]\\s*(?=[\\u4e00-\\u9fff])))");
 
         if (chapters.length < 3) {
-            // 如果没有明确的章节分割，按长度均匀采样
+            // 无章节分割：自适应均匀采样
+            int targetSampleLength = Math.min(2000, totalChars / 30);
+            int sampleCount = Math.max(9, Math.min(30, totalChars / targetSampleLength));
             int partLength = text.length() / sampleCount;
             for (int i = 0; i < sampleCount && i * partLength < text.length(); i++) {
                 int start = i * partLength;
-                int end = Math.min(start + sampleLength, text.length());
+                int end = Math.min(start + targetSampleLength, text.length());
                 samples.add(text.substring(start, end));
             }
+            log.info("无章节降级采样: {}个片段, 每段{}字", samples.size(), targetSampleLength);
+            return samples;
+        }
+
+        int totalChapters = chapters.length;
+
+        if (totalChars <= 1_000_000) {
+            // 40-100 万字：均匀采 60-70% 章节，每章全量
+            double ratio = 0.65;
+            int targetChapters = (int) (totalChapters * ratio);
+            int step = Math.max(1, totalChapters / targetChapters);
+
+            for (int i = 0; i < totalChapters; i += step) {
+                String chapter = chapters[i].trim();
+                if (chapter.length() > 100) {
+                    samples.add(chapter);
+                }
+            }
+            log.info("中等长度降级采样: 总{}章, 采{}章(全量), 目标覆盖率{}%",
+                    totalChapters, samples.size(), (int)(ratio * 100));
         } else {
-            int totalChapters = chapters.length;
-            
-            // 自适应采样：根据总章节数调整
-            int actualSampleCount;
-            int actualSampleLength;
-            
-            if (totalChapters <= 10) {
-                // 短篇：全采
-                actualSampleCount = totalChapters;
-                actualSampleLength = 1500;
-            } else if (totalChapters <= 50) {
-                // 中篇：采10-15章
-                actualSampleCount = Math.min(15, totalChapters / 3);
-                actualSampleLength = 2000;
-            } else if (totalChapters <= 200) {
-                // 长篇：采20章
-                actualSampleCount = 20;
-                actualSampleLength = 2000;
-            } else {
-                // 超长篇：采30章
-                actualSampleCount = 30;
-                actualSampleLength = 2000;
-            }
-            
-            // 均匀分布采样索引
-            List<Integer> indices = new ArrayList<>();
-            
-            // 开头部分（前10%）：采20%
-            int startEnd = Math.max(1, totalChapters / 10);
-            for (int i = 0; i < Math.min(3, startEnd); i++) {
-                indices.add(i);
-            }
-            
-            // 中间部分（10%-90%）：采60%
-            int midStart = startEnd;
-            int midEnd = totalChapters - startEnd;
-            int midCount = (int) (actualSampleCount * 0.6);
-            for (int i = 0; i < midCount; i++) {
-                int idx = midStart + (int) ((double) i / midCount * (midEnd - midStart));
-                if (!indices.contains(idx)) {
-                    indices.add(idx);
-                }
-            }
-            
-            // 结尾部分（最后10%）：采20%
-            for (int i = Math.max(0, totalChapters - 3); i < totalChapters; i++) {
-                if (!indices.contains(i)) {
-                    indices.add(i);
-                }
-            }
-            
-            // 去重并排序
-            indices = indices.stream().distinct().sorted().collect(Collectors.toList());
-            
-            // 限制在actualSampleCount以内
-            if (indices.size() > actualSampleCount) {
-                // 均匀保留
-                List<Integer> filtered = new ArrayList<>();
-                double step = (double) indices.size() / actualSampleCount;
-                for (int i = 0; i < actualSampleCount; i++) {
-                    filtered.add(indices.get((int) (i * step)));
-                }
-                indices = filtered;
-            }
-            
-            // 提取样本
-            for (int idx : indices) {
-                if (idx >= 0 && idx < chapters.length) {
-                    String chapter = chapters[idx].trim();
-                    if (chapter.length() > 100) {
-                        samples.add(truncate(chapter, actualSampleLength));
+            // >100 万字：均匀采 100 章，每章全量（超大章做分层截取）
+            int targetChapters = 100;
+            int step = Math.max(1, totalChapters / targetChapters);
+            int maxChapterLength = 5000;
+
+            for (int i = 0; i < totalChapters; i += step) {
+                String chapter = chapters[i].trim();
+                if (chapter.length() > 100) {
+                    if (chapter.length() > maxChapterLength) {
+                        samples.add(sampleChapterInLayers(chapter, maxChapterLength));
+                    } else {
+                        samples.add(chapter);
                     }
                 }
             }
-            
-            log.info("自适应采样: 总章节数={}, 采样章节数={}, 每章字数={}", 
-                    totalChapters, samples.size(), actualSampleLength);
+            log.info("超长篇降级采样: 总{}章, 采{}章", totalChapters, samples.size());
         }
-        
+
         return samples;
+    }
+
+    /**
+     * 章内分层采样 — 仅用于 >100 万字超长篇降级。
+     * 全文直传和章节全量模式不调用此方法。
+     */
+    private String sampleChapterInLayers(String chapter, int sampleLength) {
+        if (chapter.length() <= sampleLength) {
+            return chapter;
+        }
+        int partLen = sampleLength / 3;
+        int totalLen = chapter.length();
+        String opening = chapter.substring(0, Math.min(partLen, totalLen));
+        int midStart = Math.max(0, totalLen / 2 - partLen / 2);
+        int midEnd = Math.min(totalLen, midStart + partLen);
+        String middle = chapter.substring(midStart, midEnd);
+        String ending = chapter.substring(Math.max(0, totalLen - partLen));
+        return "【开头】\n" + opening + "\n【中段】\n" + middle + "\n【结尾】\n" + ending;
     }
     
     /**
@@ -322,7 +324,13 @@ public class StyleCardService {
                   "dialogue_ending_ratio": %.2f,
                   "suspense_ending_ratio": %.2f,
                   "max_consecutive_dialogue": %d,
-                  "empty_scene_ratio": %.2f
+                  "empty_scene_ratio": %.2f,
+                  "metaphor_density": %.2f,
+                  "alternation_rate": %.2f,
+                  "positive_emotion_density": %.2f,
+                  "negative_emotion_density": %.2f,
+                  "olfactory_density": %.2f,
+                  "gustatory_density": %.2f
                 }
                 """.formatted(
                 metrics.getAvgSentenceLength(),
@@ -347,7 +355,13 @@ public class StyleCardService {
                 metrics.getDialogueEndingRatio(),
                 metrics.getSuspenseEndingRatio(),
                 metrics.getMaxConsecutiveDialogue(),
-                metrics.getEmptySceneRatio()
+                metrics.getEmptySceneRatio(),
+                metrics.getMetaphorDensity(),
+                metrics.getAlternationRate(),
+                metrics.getPositiveEmotionDensity(),
+                metrics.getNegativeEmotionDensity(),
+                metrics.getOlfactoryDensity(),
+                metrics.getGustatoryDensity()
         );
     }
     
