@@ -71,4 +71,17 @@ public interface LlmService {
      * @return ChatModel实例
      */
     dev.langchain4j.model.chat.ChatModel getModelForAgent(String llmConfigId);
+
+    /**
+     * 使用自定义 maxTokens 生成文本（用于需要更大输出的场景，如文风分析）
+     * @param systemInstruction 系统指令
+     * @param userMessage 用户消息
+     * @param usageType 用途
+     * @param userId 用户ID
+     * @param maxTokens 最大输出 token 数
+     * @param configId 可选的模型配置ID，为 null 时自动选择
+     * @return 生成的文本
+     */
+    String generateWithMaxTokens(String systemInstruction, String userMessage,
+                                  String usageType, String userId, int maxTokens, String configId);
 }

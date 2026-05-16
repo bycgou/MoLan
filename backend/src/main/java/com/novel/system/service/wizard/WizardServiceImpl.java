@@ -116,15 +116,19 @@ public class WizardServiceImpl implements WizardService {
             }
             novelArcMapper.insertBatch(arcs);
 
-            // 为每卷生成编排计划（异步，失败不影响小说创建）
-            for (NovelArc arc : arcs) {
-                try {
-                    arcOrchestrationService.orchestrate(novel.getNovelId(), arc.getArcId(), request.getLlmConfigId());
-                    log.info("卷编排生成成功: arcId={}", arc.getArcId());
-                } catch (Exception e) {
-                    log.warn("卷编排生成失败（不影响小说创建）: arcId={}, error={}", arc.getArcId(), e.getMessage());
+            // 为每卷生成编排计划（异步执行，不阻塞保存接口返回）
+            String novelId = novel.getNovelId();
+            String llmConfigId = request.getLlmConfigId();
+            CompletableFuture.runAsync(() -> {
+                for (NovelArc arc : arcs) {
+                    try {
+                        arcOrchestrationService.orchestrate(novelId, arc.getArcId(), llmConfigId);
+                        log.info("卷编排生成成功: arcId={}", arc.getArcId());
+                    } catch (Exception e) {
+                        log.warn("卷编排生成失败（不影响小说创建）: arcId={}, error={}", arc.getArcId(), e.getMessage());
+                    }
                 }
-            }
+            });
         }
 
         // 绑定文风卡片

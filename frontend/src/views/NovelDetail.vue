@@ -382,6 +382,7 @@ function resetGeekForm() {
 const streamingContent = ref('')
 const streamDialogVisible = ref(false)
 const streamingStatus = ref<'generating' | 'completed' | 'error'>('generating')
+let streamAbortController: AbortController | null = null
 const streamChapterNum = ref(0)
 const streamValidationSummary = ref('')
 const timelineForm = reactive({ currentTime: '', season: '', weather: '', chapterDay: 0, totalDays: 0 })
@@ -516,8 +517,12 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
   streamingStatus.value = 'generating'
   streamChapterNum.value = form.chapterNum
   streamValidationSummary.value = ''
+
+  // 创建 AbortController，支持客户端取消和超时
+  streamAbortController = new AbortController()
+  const timeoutId = setTimeout(() => streamAbortController?.abort(), 10 * 60 * 1000) // 10min 超时
+
   try {
-    // POST 流式生成请求
     const token = localStorage.getItem('token') || ''
     const body = JSON.stringify({
       novelId,
@@ -533,6 +538,7 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
         'Authorization': `Bearer ${token}`,
       },
       body,
+      signal: streamAbortController.signal,
     })
 
     if (!response.ok) {
@@ -549,19 +555,62 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
     generateDialogVisible.value = false
     streamDialogVisible.value = true
 
+    let receivedComplete = false
+    let currentEventName = ''  // 当前解析到的事件名
+    let reachedCharactersMarker = false  // 是否到达人物JSON分隔符
+
+    function processSSELine(line: string) {
+      // 解析命名事件: event: xxx
+      if (line.startsWith('event:')) {
+        currentEventName = line.slice(6).trim()
+        return
+      }
+      if (line.startsWith('data:')) {
+        const data = line.slice(5).trim()
+        if (!data) return
+
+        if (currentEventName === 'complete') {
+          // complete 事件的 data 是校验摘要
+          streamValidationSummary.value = data
+          receivedComplete = true
+          currentEventName = ''
+        } else if (currentEventName === 'validation_result') {
+          // validation_result 事件：提取校验摘要（兼容 JSON 格式）
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.summary) streamValidationSummary.value = parsed.summary
+          } catch {
+            streamValidationSummary.value = data
+          }
+          currentEventName = ''
+        } else {
+          // 普通内容 token — 检测人物JSON分隔符
+          if (!reachedCharactersMarker) {
+            const markerIdx = data.indexOf('---CHARACTERS---')
+            if (markerIdx >= 0) {
+              // 分隔符前可能有部分正文内容
+              const before = data.substring(0, markerIdx)
+              if (before) streamingContent.value += before
+              reachedCharactersMarker = true
+            } else {
+              streamingContent.value += data
+            }
+          }
+          // 分隔符后的 token 是人物JSON，不显示
+          currentEventName = ''
+        }
+      }
+    }
+
     let buffer = ''
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
-        // 处理缓冲区剩余内容
-        if (buffer.trim()) {
-          processSSELine(buffer.trim())
-        }
+        if (buffer.trim()) processSSELine(buffer.trim())
         break
       }
       const chunk = decoder.decode(value, { stream: true })
       buffer += chunk
-      // 按换行分割，保留最后一行（可能不完整）
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
       for (const line of lines) {
@@ -569,51 +618,59 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
       }
     }
 
-    let isCompleteEvent = false
+    clearTimeout(timeoutId)
 
-    function processSSELine(line: string) {
-      // 检测命名事件：event: complete
-      if (line.startsWith('event:') && line.includes('complete')) {
-        isCompleteEvent = true
-        return
-      }
-      if (line.startsWith('data:')) {
-        const data = line.slice(5).trim()
-        if (data) {
-          if (isCompleteEvent) {
-            // complete事件的data是校验摘要
-            streamValidationSummary.value = data
-            isCompleteEvent = false
-          } else {
-            streamingContent.value += data
-          }
-        }
+    // 流结束：如果有内容就视为成功（后端可能因异常未发 complete 事件）
+    if (receivedComplete || streamingContent.value) {
+      streamingStatus.value = 'completed'
+      generating.value = false
+      loadChapters()
+      loadNovel()
+      loadCharacters()
+      loadRhythmStatus()
+    } else {
+      streamingStatus.value = 'error'
+      generating.value = false
+      ElMessage.error('流式生成失败: 未收到任何内容')
+    }
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    // AbortError 是用户主动取消，不算失败
+    if (error.name === 'AbortError') {
+      streamingStatus.value = 'error'
+      generating.value = false
+      ElMessage.info('已取消生成')
+    } else {
+      // 连接异常断开：如果有已接收的内容，视为成功（后端已完成保存）
+      if (streamingContent.value) {
+        streamingStatus.value = 'completed'
+        generating.value = false
+        loadChapters()
+        loadNovel()
+        loadCharacters()
+        loadRhythmStatus()
+      } else {
+        streamingStatus.value = 'error'
+        generating.value = false
+        ElMessage.error('流式生成失败: ' + (error.message || '未知错误'))
       }
     }
-
-    // 流式生成完成（后端会发 complete 事件后关闭 emitter）
-    streamingStatus.value = 'completed'
-    generating.value = false
-    loadChapters()
-    loadNovel()
-    loadCharacters()
-    loadRhythmStatus()
-  } catch (error: any) {
-    streamingStatus.value = 'error'
-    generating.value = false
-    ElMessage.error('流式生成失败: ' + (error.message || '未知错误'))
+  } finally {
+    streamAbortController = null
   }
 }
 
 /** 取消流式生成 */
 async function cancelStreamGeneration() {
   try {
+    // 1. 通知后端设置取消标记（后端会在下一个 token 时检查）
     await fetch(`/api/chapter/cancel?novelId=${novelId}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     })
+    // 2. abort 前端 fetch 请求，立即中断读取
+    streamAbortController?.abort()
     ElMessage.info('已发送取消请求')
-    streamingStatus.value = 'error'
   } catch { ElMessage.error('取消失败') }
 }
 

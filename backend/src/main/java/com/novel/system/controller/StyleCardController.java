@@ -47,7 +47,7 @@ public class StyleCardController {
                 return ApiResponse.error("文本内容太短，至少需要100字");
             }
             
-            StyleCard card = styleCardService.createFromNovel(userId, request.getNovelName(), request.getText());
+            StyleCard card = styleCardService.createFromNovel(userId, request.getNovelName(), request.getText(), request.getConfigId());
             return ApiResponse.success(styleCardService.toVO(card));
         } catch (Exception e) {
             log.error("创建文风卡片失败", e);
@@ -59,17 +59,18 @@ public class StyleCardController {
     public ApiResponse<StyleCardVO> createFromFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam("novelName") String novelName,
+            @RequestParam(value = "configId", required = false) String configId,
             HttpServletRequest httpRequest) {
         try {
             String userId = getUserId(httpRequest);
             if (userId == null) {
                 return ApiResponse.error("未登录");
             }
-            
+
             if (file.isEmpty()) {
                 return ApiResponse.error("文件为空");
             }
-            
+
             String text;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
@@ -80,16 +81,16 @@ public class StyleCardController {
                 }
                 text = sb.toString();
             }
-            
+
             if (text.length() < 100) {
                 return ApiResponse.error("文件内容太短，至少需要100字");
             }
-            
+
             if (text.length() > 50_000_000) {
                 return ApiResponse.error("文件太大，最大支持50MB");
             }
-            
-            StyleCard card = styleCardService.createFromNovel(userId, novelName, text);
+
+            StyleCard card = styleCardService.createFromNovel(userId, novelName, text, configId);
             return ApiResponse.success(styleCardService.toVO(card));
         } catch (Exception e) {
             log.error("上传文件创建文风卡片失败", e);
@@ -304,6 +305,7 @@ public class StyleCardController {
     public static class CreateStyleCardRequest {
         private String novelName;
         private String text;
+        private String configId;
     }
     
     @lombok.Data

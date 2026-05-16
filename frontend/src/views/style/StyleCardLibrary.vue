@@ -3,10 +3,15 @@
     <!-- 页面标题 -->
     <div class="page-header">
       <h2>🎨 我的文风卡片库</h2>
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon>
-        创建新卡片
-      </el-button>
+      <div class="header-actions">
+        <el-button type="warning" plain @click="handleFixDoubleEncoding" :loading="fixing">
+          修复数据
+        </el-button>
+        <el-button type="primary" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          创建新卡片
+        </el-button>
+      </div>
     </div>
 
     <!-- 卡片列表 -->
@@ -154,6 +159,26 @@
         </el-tab-pane>
       </el-tabs>
 
+      <div class="model-selector">
+        <el-form label-width="100px">
+          <el-form-item label="分析模型">
+            <el-select
+              v-model="selectedConfigId"
+              placeholder="自动选择（推荐）"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="cfg in availableConfigs"
+                :key="cfg.configId"
+                :label="cfg.configName + ' (' + cfg.modelName + ')'"
+                :value="cfg.configId"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
         <el-button 
@@ -253,17 +278,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, More } from '@element-plus/icons-vue'
 import { styleApi, type StyleCard } from '@/api/style'
+import { llmConfigApi } from '@/api'
+import type { LlmConfigVO } from '@/types'
 
 const router = useRouter()
 
 const loading = ref(false)
+const fixing = ref(false)
 const cards = ref<StyleCard[]>([])
 const showCreateDialog = ref(false)
+const selectedConfigId = ref('')
+const availableConfigs = ref<LlmConfigVO[]>([])
 const showPreviewDialog = ref(false)
 const previewingCard = ref<StyleCard | null>(null)
 const creating = ref(false)
@@ -345,6 +375,29 @@ const loadCards = async () => {
   }
 }
 
+const handleFixDoubleEncoding = async () => {
+  fixing.value = true
+  try {
+    const res = await styleApi.fixDoubleEncoding()
+    if (res.code === 200) {
+      const data = res.data as { total: number; fixed: number }
+      if (data.fixed === 0) {
+        ElMessage.info(`检查了 ${data.total} 张卡片，没有需要修复的数据`)
+      } else {
+        ElMessage.success(`修复完成：共 ${data.total} 张卡片，修复了 ${data.fixed} 张`)
+        loadCards()
+      }
+    } else {
+      ElMessage.error(res.message || '修复失败')
+    }
+  } catch (error) {
+    console.error('修复双重编码失败:', error)
+    ElMessage.error('修复失败')
+  } finally {
+    fixing.value = false
+  }
+}
+
 const truncateText = (text: string | undefined, maxLength: number) => {
   if (!text) return '暂无描述'
   return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
@@ -361,18 +414,20 @@ const handleExceed = () => {
 const handleCreate = async () => {
   creating.value = true
   try {
+    const configId = selectedConfigId.value || undefined
     let res
     if (createTab.value === 'text') {
       res = await styleApi.createFromText({
         novelName: createForm.value.novelName,
-        text: createForm.value.text
+        text: createForm.value.text,
+        configId
       })
     } else {
       if (!selectedFile.value) {
         ElMessage.error('请选择文件')
         return
       }
-      res = await styleApi.createFromFile(selectedFile.value, fileForm.value.novelName)
+      res = await styleApi.createFromFile(selectedFile.value, fileForm.value.novelName, configId)
     }
 
     if (res.code === 200) {
@@ -396,6 +451,7 @@ const resetForms = () => {
   createForm.value = { novelName: '', text: '' }
   fileForm.value = { novelName: '' }
   selectedFile.value = null
+  selectedConfigId.value = ''
   uploadRef.value?.clearFiles()
 }
 
@@ -465,6 +521,23 @@ const handleCommand = async (command: string, card: StyleCard) => {
   }
 }
 
+const loadConfigs = async () => {
+  try {
+    const res = await llmConfigApi.getConfigList()
+    if (res.code === 200) {
+      availableConfigs.value = (res.data || []).filter(c => c.isActive === 1)
+    }
+  } catch {
+    // ignore
+  }
+}
+
+watch(showCreateDialog, (val) => {
+  if (val && availableConfigs.value.length === 0) {
+    loadConfigs()
+  }
+})
+
 onMounted(() => {
   loadCards()
 })
@@ -484,6 +557,11 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
 }
 
 .page-header h2 {
@@ -552,6 +630,12 @@ onUnmounted(() => {
 
 .text-tip .warning {
   color: #e6a23c;
+}
+
+.model-selector {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ebeef5;
 }
 
 .card-preview h3 {

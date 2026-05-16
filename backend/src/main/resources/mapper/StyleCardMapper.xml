@@ -8,17 +8,26 @@
         <result column="source_novel" property="sourceNovel"/>
         <result column="author_name" property="authorName"/>
         <result column="created_by" property="createdBy"/>
-        <result column="rhythm_rules" property="rhythmRules"/>
-        <result column="dialogue_rules" property="dialogueRules"/>
-        <result column="description_rules" property="descriptionRules"/>
-        <result column="emotion_rules" property="emotionRules"/>
-        <result column="structure_rules" property="structureRules"/>
-        <result column="forbidden_rules" property="forbiddenRules"/>
-        <result column="preferred_rules" property="preferredRules"/>
+        <result column="rhythm_rules" property="rhythmRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="dialogue_rules" property="dialogueRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="description_rules" property="descriptionRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="emotion_rules" property="emotionRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="structure_rules" property="structureRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="forbidden_rules" property="forbiddenRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="preferred_rules" property="preferredRules"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
         <result column="style_description" property="styleDescription"/>
         <result column="generation_template" property="generationTemplate"/>
-        <result column="samples_json" property="samplesJson"/>
-        <result column="stats_json" property="statsJson"/>
+        <result column="samples_json" property="samplesJson"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result column="stats_json" property="statsJson"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
         <result column="tags" property="tags"/>
         <result column="is_public" property="isPublic"/>
         <result column="usage_count" property="usageCount"/>

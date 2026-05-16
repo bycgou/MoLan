@@ -141,6 +141,7 @@ export interface StyleCheckResult {
 export interface CreateStyleCardRequest {
   novelName: string
   text: string
+  configId?: string
 }
 
 /** 绑定小说请求 */

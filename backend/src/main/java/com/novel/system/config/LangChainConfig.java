@@ -222,11 +222,10 @@ public class LangChainConfig {
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout);
 
-        // 结构化输出任务关闭 thinking，避免干扰 JSON 提取
-        if (taskType != TaskType.STRUCTURED) {
-            builder.returnThinking(true)
-                   .sendThinking(true);
-        }
+        // 始终启用 thinking 回传：DeepSeek API 可能在未请求时也返回 reasoning_content，
+        // 且要求后续请求必须将其传回，否则报错。thinking 内容在独立字段中，不干扰 JSON 提取。
+        builder.returnThinking(true)
+               .sendThinking(true);
 
         // 设置maxTokens（如果配置了的话）
         if (config.getMaxTokens() != null && config.getMaxTokens() > 0) {
@@ -281,11 +280,10 @@ public class LangChainConfig {
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout);
 
-        // 结构化输出任务关闭 thinking，避免干扰 JSON 提取
-        if (taskType != TaskType.STRUCTURED) {
-            builder.returnThinking(true)
-                   .sendThinking(true);
-        }
+        // 始终启用 thinking 回传：DeepSeek API 可能在未请求时也返回 reasoning_content，
+        // 且要求后续请求必须将其传回，否则报错。thinking 内容在独立字段中，不干扰 JSON 提取。
+        builder.returnThinking(true)
+               .sendThinking(true);
 
         // 设置maxTokens（如果配置了的话）
         if (config.getMaxTokens() != null && config.getMaxTokens() > 0) {

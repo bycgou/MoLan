@@ -161,7 +161,10 @@ public class StreamingChapterController {
                 }
 
                 userPromptBuilder.append(String.format(
-                    "===章纲===\n%s\n\n===上下文信息===\n%s\n\n请根据章纲生成第%d章正文。",
+                    "===章纲===\n%s\n\n===上下文信息===\n%s\n\n请根据章纲生成第%d章正文。\n\n" +
+                    "【重要】正文结束后，请另起一行输出以下分隔符和JSON（不要在正文中输出）：\n" +
+                    "---CHARACTERS---\n" +
+                    "{\"characters\":[{\"name\":\"人物名\",\"isNew\":true/false,\"traits\":\"性格\",\"location\":\"位置\",\"emotion\":\"情绪\"}],\"relationships\":[{\"from\":\"人物A\",\"to\":\"人物B\",\"type\":\"关系类型\"}]}",
                     request.getOutline(), contextPrompt, request.getChapterNum()));
 
                 String userPrompt = userPromptBuilder.toString();
@@ -195,6 +198,20 @@ public class StreamingChapterController {
                             fullContent.setLength(0);
                             fullContent.append(fullText);
 
+                            // 分离正文和人物JSON
+                            String chapterContent = fullText;
+                            String characterJson = null;
+                            int markerIdx = fullText.indexOf("---CHARACTERS---");
+                            if (markerIdx >= 0) {
+                                chapterContent = fullText.substring(0, markerIdx).trim();
+                                String jsonPart = fullText.substring(markerIdx + "---CHARACTERS---".length()).trim();
+                                if (jsonPart.startsWith("{")) {
+                                    characterJson = jsonPart;
+                                }
+                            }
+                            final String finalContent = chapterContent;
+                            final String finalCharacterJson = characterJson;
+
                             // 异步保存 + 校验
                             CompletableFuture.runAsync(() -> {
                                 SecurityContextHolder.setContext(securityContext);
@@ -203,7 +220,7 @@ public class StreamingChapterController {
                                     ValidationRequest valReq = new ValidationRequest();
                                     valReq.setNovelId(request.getNovelId());
                                     valReq.setChapterNum(request.getChapterNum());
-                                    valReq.setChapterContent(fullText);
+                                    valReq.setChapterContent(finalContent);
                                     valReq.setChapterOutline(request.getOutline());
                                     valReq.setTotalOutline(novel.getTotalOutline());
                                     valReq.setWorldSetting(novel.getWorldSetting());
@@ -260,7 +277,7 @@ public class StreamingChapterController {
                                     try {
                                         String summaryJson = chapterGenerationChain.executeSummaryChain(
                                             request.getNovelId(), request.getChapterNum(),
-                                            fullText, request.getOutline(), request.getLlmConfigId());
+                                            finalContent, request.getOutline(), request.getLlmConfigId());
                                         // 简单提取摘要内容
                                         if (summaryJson != null && !summaryJson.isEmpty()) {
                                             summaryContent = summaryJson.length() > 300
@@ -270,48 +287,58 @@ public class StreamingChapterController {
                                         log.warn("生成摘要失败: {}", e.getMessage());
                                     }
 
-                                    // 3. 保存到数据库
-                                    int wordCount = fullText.replaceAll("\\s+", "").length();
+                                    // 3. 保存到数据库（只保存正文，不含人物JSON）
+                                    int wordCount = finalContent.replaceAll("\\s+", "").length();
                                     chapterSaveService.saveGenerationResult(
                                         request.getNovelId(), request.getChapterNum(),
                                         "第" + request.getChapterNum() + "章",
-                                        request.getOutline(), fullText, wordCount,
+                                        request.getOutline(), finalContent, wordCount,
                                         request.getContextPrompt(), summaryContent, null);
 
                                     log.info("流式生成内容已保存, 小说ID: {}, 章节号: {}, 字数: {}",
                                         request.getNovelId(), request.getChapterNum(), wordCount);
 
-                                    // 4. 异步后处理（提取人物/伏笔/时间线）
-                                    chapterPostProcessService.postProcess(
-                                        request.getNovelId(), request.getChapterNum(),
-                                        fullText, request.getOutline());
-
-                                    // 5. 发送完成事件（含校验摘要）
+                                    // 4. 发送完成事件（含校验摘要）— 必须在 postProcess 之前，确保客户端收到
                                     String completeData = valSummary != null ? valSummary : "";
-                                    emitter.send(SseEmitter.event().name("complete").data(completeData));
-                                    emitter.complete();
+                                    try {
+                                        emitter.send(SseEmitter.event().name("complete").data(completeData));
+                                        emitter.complete();
+                                    } catch (Exception sendEx) {
+                                        log.warn("发送complete事件失败: {}", sendEx.getMessage());
+                                        try { emitter.complete(); } catch (Exception ignored) {}
+                                    }
+
+                                    // 5. 异步后处理（提取人物/伏笔/时间线）— 在 complete 之后，失败不影响客户端
+                                    try {
+                                        chapterPostProcessService.postProcess(
+                                            request.getNovelId(), request.getChapterNum(),
+                                            finalContent, request.getOutline(), finalCharacterJson);
+                                    } catch (Exception postEx) {
+                                        log.warn("后处理提交失败: {}", postEx.getMessage());
+                                    }
                                 } catch (Exception e) {
                                     log.error("保存流式内容失败", e);
-                                    emitter.completeWithError(e);
+                                    try { emitter.complete(); } catch (Exception ignored) {}
                                 } finally {
                                     SecurityContextHolder.clearContext();
                                 }
                             }, ioTaskExecutor);
                         } catch (Exception e) {
-                            emitter.completeWithError(e);
+                            log.error("onCompleteResponse处理失败: {}", e.getMessage());
+                            try { emitter.complete(); } catch (Exception ignored) {}
                         }
                     }
-                    
+
                     @Override
                     public void onError(Throwable error) {
                         log.error("流式生成失败: {}", error.getMessage());
-                        emitter.completeWithError(error);
+                        try { emitter.complete(); } catch (Exception ignored) {}
                     }
                 });
-                
+
             } catch (Exception e) {
                 log.error("流式写作初始化失败: {}", e.getMessage());
-                emitter.completeWithError(e);
+                try { emitter.complete(); } catch (Exception ignored) {}
             }
         }, ioTaskExecutor);
         

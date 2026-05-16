@@ -119,13 +119,17 @@ public class LlmServiceImpl implements LlmService {
     @Override
     public float[] getEmbedding(String text) {
         try {
-            String userId = getCurrentUserId();
-            LlmConfig config = null;
-            if (userId != null) {
-                config = llmConfigService.getActiveConfig(userId, "all");
-            }
+            // 1. 优先查找专用向量化模型
+            LlmConfig config = llmConfigService.getAnyActiveConfig("embedding");
             if (config == null) {
-                config = getLlmConfig(null);
+                // 2. 回退到用户配置
+                String userId = getCurrentUserId();
+                if (userId != null) {
+                    config = llmConfigService.getActiveConfig(userId, "all");
+                }
+                if (config == null) {
+                    config = getLlmConfig(null);
+                }
             }
             if (config == null) {
                 log.warn("未找到模型配置，返回空向量");
@@ -245,7 +249,51 @@ public class LlmServiceImpl implements LlmService {
         dev.langchain4j.model.chat.response.ChatResponse response = model.chat(request);
         return response.aiMessage().text();
     }
-    
+
+    @Override
+    public String generateWithMaxTokens(String systemInstruction, String userMessage,
+                                         String usageType, String userId, int maxTokens, String configId) {
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                LlmConfig config = null;
+                // 优先使用用户指定的 configId
+                if (configId != null && !configId.isEmpty()) {
+                    config = llmConfigService.getConfigById(configId);
+                }
+                // 未指定或未找到，走自动选择
+                if (config == null && userId != null && !userId.isEmpty()) {
+                    config = llmConfigService.getActiveConfig(userId, usageType);
+                    if (config == null) config = llmConfigService.getActiveConfig(userId, "all");
+                }
+                if (config == null) config = llmConfigService.getAnyActiveConfig(usageType);
+                if (config == null) throw new RuntimeException("未找到可用的模型配置");
+
+                // 创建 config 副本，覆盖 maxTokens
+                LlmConfig copy = new LlmConfig();
+                copy.setConfigId(config.getConfigId() + "_mt" + maxTokens);
+                copy.setConfigName(config.getConfigName());
+                copy.setApiKey(config.getApiKey());
+                copy.setBaseUrl(config.getBaseUrl());
+                copy.setModelName(config.getModelName());
+                copy.setModelType(config.getModelType());
+                copy.setTemperature(config.getTemperature());
+                copy.setMaxTokens(maxTokens);
+
+                log.info("自定义maxTokens生成 -> 模型: {}, maxTokens: {}", copy.getModelName(), maxTokens);
+                return callModel(copy, systemInstruction, userMessage);
+            } catch (Exception e) {
+                log.warn("LLM调用失败，第{}次重试: {}", attempt, e.getMessage());
+                if (attempt < MAX_RETRIES) {
+                    try { Thread.sleep(RETRY_DELAY_MS * attempt); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("重试被中断", ie);
+                    }
+                }
+            }
+        }
+        throw new RuntimeException("LLM调用失败，已重试" + MAX_RETRIES + "次");
+    }
+
     @Override
     public ChatModel getModelForAgent(String llmConfigId) {
         LlmConfig config = getLlmConfig(llmConfigId);

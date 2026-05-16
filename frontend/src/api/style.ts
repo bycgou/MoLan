@@ -7,10 +7,11 @@ export const styleApi = {
   createFromText: (data: CreateStyleCardRequest) =>
     api.post<{ code: number; message: string; data: StyleCard }>('/style-card/create', data).then(res => res.data),
 
-  createFromFile: (file: File, novelName: string) => {
+  createFromFile: (file: File, novelName: string, configId?: string) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('novelName', novelName)
+    if (configId) formData.append('configId', configId)
     return api.post<{ code: number; message: string; data: StyleCard }>('/style-card/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }).then(res => res.data)
@@ -45,4 +46,7 @@ export const styleApi = {
 
   updatePublic: (cardId: string, isPublic: boolean) =>
     api.put<{ code: number; message: string }>(`/style-card/${cardId}/public`, { isPublic }).then(res => res.data),
+
+  fixDoubleEncoding: () =>
+    api.post<{ code: number; message: string; data: Record<string, unknown> }>('/style-card/admin/fix-double-encoding').then(res => res.data),
 }

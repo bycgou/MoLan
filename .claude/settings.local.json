@@ -48,7 +48,17 @@
       "WebFetch(domain:central.sonatype.com)",
       "WebFetch(domain:blog.langchain4j.dev)",
       "WebFetch(domain:mvnrepository.com)",
-      "WebFetch(domain:search.maven.org)"
+      "WebFetch(domain:search.maven.org)",
+      "Bash(mvn dependency:tree -q)",
+      "Bash(mvn dependency:tree)",
+      "Skill(superpowers:writing-plans)",
+      "Bash(npx vue-tsc *)",
+      "Skill(superpowers:brainstorming)",
+      "Bash(xargs grep -l -i \"outline\\\\|章纲\")",
+      "Bash(mvn dependency:resolve -pl . -U)",
+      "Bash(mvn help:effective-pom -pl .)",
+      "Bash(mvn dependency:purge-local-repository -pl . -DmanualInclude=\"dev.langchain4j\")",
+      "Bash(git *)"
     ]
   }
 }

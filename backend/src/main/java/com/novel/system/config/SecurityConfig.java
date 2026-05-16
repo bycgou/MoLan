@@ -1,5 +1,6 @@
 package com.novel.system.config;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -23,12 +24,16 @@ public class SecurityConfig {
     
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        return http
+        // 主安全链：只处理 REQUEST 类型的请求
+        SecurityFilterChain mainChain = http
+            .securityMatchers(matchers -> matchers
+                .requestMatchers(new org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher(DispatcherType.REQUEST)))
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/**", "/genre-template/**", "/genre/**").permitAll()
                 .requestMatchers("/mcp/**").permitAll()
+                .requestMatchers("/error").permitAll()
                 .requestMatchers("/admin/**").hasRole("admin")
                 .requestMatchers("/style-card/**", "/novel/**", "/llm-config/**", "/chapter/**").authenticated()
                 .anyRequest().authenticated()
@@ -46,6 +51,21 @@ public class SecurityConfig {
                 })
             )
             .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
+            .build();
+        return mainChain;
+    }
+
+    /**
+     * 放行所有 ASYNC/ERROR dispatch — 避免 SSE 连接关闭后 error page dispatch 触发 AccessDeniedException
+     */
+    @Bean
+    public SecurityFilterChain asyncErrorPermitAllChain(HttpSecurity http) throws Exception {
+        return http
+            .securityMatchers(matchers -> matchers
+                .requestMatchers(
+                    new org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher(DispatcherType.ASYNC),
+                    new org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher(DispatcherType.ERROR)))
+            .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
             .build();
     }
     

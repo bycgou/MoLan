@@ -25,8 +25,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 章节后处理服务
@@ -64,6 +62,14 @@ public class ChapterPostProcessService {
      */
     @Async
     public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline) {
+        postProcess(novelId, chapterNum, chapterContent, chapterOutline, null);
+    }
+
+    /**
+     * 异步后处理（带 LLM 提供的人物 JSON）
+     */
+    @Async
+    public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline, String characterJson) {
         log.info("开始后处理章节: 小说ID={}, 章节号={}", novelId, chapterNum);
 
         String idempotentKey = novelId + ":" + chapterNum;
@@ -109,7 +115,13 @@ public class ChapterPostProcessService {
                     ? chapterContent.substring(0, 4000) : chapterContent;
 
             // 1. 提取所有提到的人物
-            extractCharacters(model, novelId, chapterNum, contentForExtraction, existingCharNames);
+            if (characterJson != null && !characterJson.isEmpty()) {
+                // LLM 已提供人物 JSON，直接解析
+                extractCharactersFromJson(characterJson, novelId, chapterNum, existingCharNames);
+            } else {
+                // 回退到 LLM 提取
+                extractCharacters(model, novelId, chapterNum, contentForExtraction, existingCharNames);
+            }
 
             // 2. 提取伏笔/线索
             extractClues(model, novelId, chapterNum, contentForExtraction, existingClueContents);
@@ -279,40 +291,94 @@ public class ChapterPostProcessService {
             log.warn("LLM提取人物失败: {}", e.getMessage());
         }
 
-        // === 第二步：程序化兜底 — 从对话引号前提取人名 ===
-        Pattern dialoguePattern = Pattern.compile("([\\u4e00-\\u9fa5]{1,4})[说道喊问答笑叫叹]");
-        Matcher matcher = dialoguePattern.matcher(content);
-        Set<String> commonVerbs = Set.of("他", "她", "它", "我", "你", "谁", "人们", "众人", "大家",
-                "对方", "那人", "这人", "那人", "对方", "某人", "别人");
-        while (matcher.find()) {
-            String name = matcher.group(1);
-            if (commonVerbs.contains(name)) continue;
-            allExtractedNames.add(name);
-
-            // 如果人物既不在已有列表也不在 LLM 提取结果中，创建最小化人物
-            if (!existingNames.contains(name)) {
-                try {
-                    CharacterState character = new CharacterState();
-                    character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
-                    character.setNovelId(novelId);
-                    character.setCharacterName(name);
-                    CharacterState.CurrentStatus status = new CharacterState.CurrentStatus();
-                    status.setHealth(100);
-                    status.setEmotion("平静");
-                    status.setLocation("未知");
-                    character.setCurrentStatus(status);
-
-                    characterStateService.createCharacter(character);
-                    existingNames.add(name);
-                    log.info("程序化兜底提取人物: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
-                } catch (Exception e) {
-                    log.warn("兜底创建人物失败: {}, 错误: {}", name, e.getMessage());
-                }
-            }
-        }
-
         log.info("人物提取完成: 共{}个角色 (小说:{}, 章节:{})", allExtractedNames.size(), novelId, chapterNum);
         return allExtractedNames;
+    }
+
+    /**
+     * 从 LLM 提供的 JSON 中提取人物信息（流式生成时 LLM 直接输出）
+     */
+    private void extractCharactersFromJson(String characterJson, String novelId, int chapterNum,
+                                            Set<String> existingNames) {
+        try {
+            Map<String, Object> data = objectMapper.readValue(characterJson, new TypeReference<>() {});
+
+            // 处理人物
+            List<Map<String, Object>> characters = (List<Map<String, Object>>) data.getOrDefault("characters", Collections.emptyList());
+            for (Map<String, Object> charData : characters) {
+                String name = (String) charData.get("name");
+                if (name == null || name.isBlank()) continue;
+
+                Boolean isNew = charData.get("isNew") instanceof Boolean ? (Boolean) charData.get("isNew") : true;
+                if (isNew && !existingNames.contains(name)) {
+                    try {
+                        CharacterState character = new CharacterState();
+                        character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                        character.setNovelId(novelId);
+                        character.setCharacterName(name);
+
+                        CharacterState.CurrentStatus status = new CharacterState.CurrentStatus();
+                        status.setHealth(100);
+                        status.setEmotion(charData.get("emotion") instanceof String ? (String) charData.get("emotion") : "平静");
+                        status.setLocation(charData.get("location") instanceof String ? (String) charData.get("location") : "未知");
+                        character.setCurrentStatus(status);
+
+                        characterStateService.createCharacter(character);
+                        existingNames.add(name);
+                        log.info("JSON提取新人物: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
+                    } catch (Exception e) {
+                        log.warn("JSON创建人物失败: {}, 错误: {}", name, e.getMessage());
+                    }
+                } else if (!isNew && existingNames.contains(name)) {
+                    // 更新已有人物状态
+                    try {
+                        CharacterState existing = characterStateService.getCharactersByNovelId(novelId).stream()
+                                .filter(c -> name.equals(c.getCharacterName())).findFirst().orElse(null);
+                        if (existing != null) {
+                            if (charData.get("location") instanceof String) {
+                                existing.getCurrentStatus().setLocation((String) charData.get("location"));
+                            }
+                            if (charData.get("emotion") instanceof String) {
+                                existing.getCurrentStatus().setEmotion((String) charData.get("emotion"));
+                            }
+                            characterStateService.updateCharacter(existing);
+                            log.info("JSON更新人物状态: {} (小说:{}, 章节:{})", name, novelId, chapterNum);
+                        }
+                    } catch (Exception e) {
+                        log.warn("JSON更新人物失败: {}, 错误: {}", name, e.getMessage());
+                    }
+                }
+            }
+
+            // 处理关系
+            List<Map<String, Object>> relationships = (List<Map<String, Object>>) data.getOrDefault("relationships", Collections.emptyList());
+            List<CharacterState> existingChars = characterStateService.getCharactersByNovelId(novelId);
+            for (Map<String, Object> rel : relationships) {
+                String from = (String) rel.get("from");
+                String to = (String) rel.get("to");
+                if (from == null || to == null) continue;
+                try {
+                    String fromId = findCharacterId(existingChars, from);
+                    String toId = findCharacterId(existingChars, to);
+                    if (fromId != null && toId != null) {
+                        characterStateService.updateRelationship(novelId, fromId, toId, 10);
+                        log.info("JSON记录人物关系: {} <-> {} (小说:{}, 章节:{})", from, to, novelId, chapterNum);
+                    }
+                } catch (Exception e) {
+                    log.warn("JSON记录关系失败: {} <-> {}, 错误: {}", from, to, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析人物JSON失败，回退到LLM提取: {}", e.getMessage());
+            // JSON 解析失败时回退到 LLM 提取
+            LlmConfig llmConfig = llmConfigService.getAnyActiveConfig("all");
+            if (llmConfig != null) {
+                ChatModel model = langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED);
+                extractCharacters(model, novelId, chapterNum,
+                        characterJson.length() > 4000 ? characterJson.substring(0, 4000) : characterJson,
+                        existingNames);
+            }
+        }
     }
 
     /**

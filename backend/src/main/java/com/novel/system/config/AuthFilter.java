@@ -1,6 +1,7 @@
 package com.novel.system.config;
 
 import com.novel.system.service.user.UserService;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -23,20 +24,27 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class AuthFilter extends OncePerRequestFilter {
-    
+
     private final JwtConfig jwtConfig;
     private final UserService userService;
-    
+
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) 
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // 跳过异步 dispatch 和 error page dispatch，避免 response 已提交后重复认证
+        DispatcherType dt = request.getDispatcherType();
+        return dt == DispatcherType.ASYNC || dt == DispatcherType.ERROR;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        
+
         // 获取请求头中的token
         String token = request.getHeader(jwtConfig.getHeader());
-        
+
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7); // 去掉Bearer前缀
-            
+
             try {
                 // 验证token
                 if (jwtConfig.validateToken(token)) {
@@ -49,7 +57,7 @@ public class AuthFilter extends OncePerRequestFilter {
                         request.setAttribute("userId", userId);
                         request.setAttribute("username", user.getUsername());
                         request.setAttribute("role", user.getRole());
-                        
+
                         // 设置 Spring Security 认证上下文
                         var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()));
                         var authentication = new UsernamePasswordAuthenticationToken(userId, null, authorities);
@@ -60,7 +68,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 log.error("Token验证失败", e);
             }
         }
-        
+
         filterChain.doFilter(request, response);
     }
 }

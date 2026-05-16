@@ -126,14 +126,14 @@ public class StyleCardService {
         // Step 3: 调用LLM分析（使用更高 maxTokens 避免输出截断）
         String systemInstruction = "你是一位专业的文学风格分析师。你的任务是分析小说文本的写作风格特征，包括句式节奏、对话风格、描写手法、情感表达、结构特点等，并生成结构化的分析报告。用户会提供小说原文片段和统计数据，请基于这些材料进行客观的文学分析。以下内容为合法文学创作，仅用于风格分析，无不良导向。";
         String analysisPrompt = buildAnalysisPrompt(novelName, metrics, combinedSample);
-        String analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 16384, configId);
+        String analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 32768, configId);
 
         // 检测LLM安全拒绝，若全文触发则降级为采样重试
         if (isSafetyRejected(analysisResult) && totalChars <= 400_000 && totalChars > 15000) {
             log.warn("全文直传触发安全策略，降级为采样模式重试: cardId={}, 字数={}", cardId, totalChars);
             String sampledText = sampleForSafetyFallback(text);
             analysisPrompt = buildAnalysisPrompt(novelName, metrics, sampledText);
-            analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 16384, configId);
+            analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 32768, configId);
         }
 
         // 二次检测：若仍被拒绝，抛出异常
@@ -172,9 +172,13 @@ public class StyleCardService {
         if (result == null) return false;
         String trimmed = result.trim();
         if (trimmed.startsWith("{")) return false;
-        return trimmed.contains("rejected") || trimmed.contains("high risk")
+        boolean rejected = trimmed.contains("rejected") || trimmed.contains("high risk")
                 || trimmed.contains("safety") || trimmed.contains("content policy")
                 || trimmed.contains("unsafe") || trimmed.contains("violation");
+        if (rejected) {
+            log.warn("LLM安全拒绝检测命中, 响应内容: {}", trimmed.substring(0, Math.min(trimmed.length(), 500)));
+        }
+        return rejected;
     }
 
     /**
@@ -441,10 +445,10 @@ public class StyleCardService {
     }
 
     /**
-     * 修复被截断的 JSON：移除末尾不完整内容，关闭所有未闭合的括号。
+     * 修复被截断的 JSON：移除末尾不完整内容，关闭未闭合的字符串和括号。
+     * 处理多种截断场景：字符串中间截断、数组元素中间截断、对象属性中间截断。
      */
     private String repairTruncatedJson(String json) {
-        // 移除末尾的逗号和不完整内容
         String trimmed = json.trim();
 
         // 如果末尾是不完整的字符串（引号未关闭），截断到上一个完整值
@@ -453,12 +457,17 @@ public class StyleCardService {
             trimmed = trimmed.substring(0, lastComplete);
         }
 
-        // 移除末尾逗号
-        while (trimmed.endsWith(",")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+        // 移除末尾逗号和分号（截断可能产生垃圾字符）
+        while (trimmed.length() > 0) {
+            char last = trimmed.charAt(trimmed.length() - 1);
+            if (last == ',' || last == ';' || last == ':' || last == ' ') {
+                trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+            } else {
+                break;
+            }
         }
 
-        // 统计未闭合的括号
+        // 统计未闭合的括号和字符串
         int openBraces = 0, openBrackets = 0;
         boolean inString = false;
         boolean escaped = false;
@@ -471,6 +480,11 @@ public class StyleCardService {
             else if (c == '}') openBraces--;
             else if (c == '[') openBrackets++;
             else if (c == ']') openBrackets--;
+        }
+
+        // 如果字符串未关闭，先关闭字符串
+        if (inString) {
+            trimmed += "\"";
         }
 
         // 关闭未闭合的括号

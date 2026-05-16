@@ -114,8 +114,8 @@ public class ArcOrchestrationServiceImpl implements ArcOrchestrationService {
             String userPrompt, LlmConfig config, int chapterCount) {
         log.info("执行卷级编排链, 章节数={}", chapterCount);
 
-        // 动态 maxTokens：每章约 400 tokens（含中文 cluePlan），乘以 1.5 安全系数，最低 4096
-        int dynamicMaxTokens = Math.max(4096, (int) (chapterCount * 400 * 1.5));
+        // 动态 maxTokens：每章约 800 tokens（含中文 cluePlan bury/recycle 数组），乘以 1.5 安全系数，最低 8192
+        int dynamicMaxTokens = Math.max(8192, (int) (chapterCount * 800 * 1.5));
         LlmConfig orchestrationConfig = copyConfigForOrchestration(config, dynamicMaxTokens);
         log.info("编排场景maxTokens={}, 章节数={}", dynamicMaxTokens, chapterCount);
 
