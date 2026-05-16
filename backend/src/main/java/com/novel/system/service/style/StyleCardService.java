@@ -984,4 +984,61 @@ public class StyleCardService {
             return null;
         }
     }
+
+    /**
+     * 修复数据库中被双重编码的 JSON 字段。
+     * 遍历所有 style_card，检测并修复 9 个 JSON 字段的双重编码问题。
+     */
+    @Transactional
+    public Map<String, Object> fixDoubleEncodedCards() {
+        String[] jsonFields = {
+            "samplesJson", "statsJson",
+            "rhythmRules", "dialogueRules", "descriptionRules",
+            "emotionRules", "structureRules", "forbiddenRules", "preferredRules"
+        };
+
+        List<StyleCard> allCards = styleCardMapper.selectList(null);
+        int total = allCards.size();
+        int fixed = 0;
+        int fieldsFixed = 0;
+
+        for (StyleCard card : allCards) {
+            boolean cardDirty = false;
+            for (String field : jsonFields) {
+                if (fixDoubleEncodedField(card, field)) {
+                    cardDirty = true;
+                    fieldsFixed++;
+                }
+            }
+            if (cardDirty) {
+                styleCardMapper.updateById(card);
+                fixed++;
+            }
+        }
+
+        log.info("双重编码修复完成: 总卡片数={}, 修复卡片数={}, 修复字段数={}", total, fixed, fieldsFixed);
+        return Map.of("total", total, "fixed", fixed, "fieldsFixed", fieldsFixed);
+    }
+
+    private boolean fixDoubleEncodedField(StyleCard card, String fieldName) {
+        try {
+            java.lang.reflect.Method getter = StyleCard.class.getMethod("get" +
+                    fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1));
+            Object value = getter.invoke(card);
+
+            if (!(value instanceof String)) return false;
+            String str = (String) value;
+            if (str.length() < 2 || !str.startsWith("\"") || !str.endsWith("\"")) return false;
+
+            String unwrapped = objectMapper.readValue(str, String.class);
+            Object fixed = objectMapper.readValue(unwrapped, Object.class);
+
+            java.lang.reflect.Method setter = StyleCard.class.getMethod("set" +
+                    fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1), Object.class);
+            setter.invoke(card, fixed);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

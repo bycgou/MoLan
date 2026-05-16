@@ -17,6 +17,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -275,6 +276,17 @@ public class StyleCardController {
         }
     }
     
+    @PostMapping("/admin/fix-double-encoding")
+    public ApiResponse<Map<String, Object>> fixDoubleEncoding() {
+        try {
+            Map<String, Object> result = styleCardService.fixDoubleEncodedCards();
+            return ApiResponse.success(result);
+        } catch (Exception e) {
+            log.error("修复双重编码失败", e);
+            return ApiResponse.error("修复失败：" + e.getMessage());
+        }
+    }
+
     private String getUserId(HttpServletRequest request) {
         try {
             String token = request.getHeader("Authorization");
