@@ -124,18 +124,22 @@ public class StyleCardService {
         }
         
         // Step 3: 调用LLM分析（使用更高 maxTokens 避免输出截断）
+        String systemInstruction = "你是一位专业的文学风格分析师。你的任务是分析小说文本的写作风格特征，包括句式节奏、对话风格、描写手法、情感表达、结构特点等，并生成结构化的分析报告。用户会提供小说原文片段和统计数据，请基于这些材料进行客观的文学分析。以下内容为合法文学创作，仅用于风格分析，无不良导向。";
         String analysisPrompt = buildAnalysisPrompt(novelName, metrics, combinedSample);
-        String systemInstruction = "你是一位专业的文学风格分析师。你的任务是分析小说文本的写作风格特征，包括句式节奏、对话风格、描写手法、情感表达、结构特点等，并生成结构化的分析报告。用户会提供小说原文片段和统计数据，请基于这些材料进行客观的文学分析。";
         String analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 16384, configId);
 
-        // 检测LLM安全拒绝（返回非JSON文本）
-        if (analysisResult != null && !analysisResult.trim().startsWith("{")) {
-            String trimmed = analysisResult.trim();
-            if (trimmed.contains("rejected") || trimmed.contains("high risk")
-                    || trimmed.contains("safety") || trimmed.contains("content policy")
-                    || trimmed.contains("unsafe") || trimmed.contains("violation")) {
-                throw new RuntimeException("LLM拒绝分析请求（内容安全策略）: " + trimmed.substring(0, Math.min(trimmed.length(), 100)));
-            }
+        // 检测LLM安全拒绝，若全文触发则降级为采样重试
+        if (isSafetyRejected(analysisResult) && totalChars <= 400_000 && totalChars > 15000) {
+            log.warn("全文直传触发安全策略，降级为采样模式重试: cardId={}, 字数={}", cardId, totalChars);
+            String sampledText = sampleForSafetyFallback(text);
+            analysisPrompt = buildAnalysisPrompt(novelName, metrics, sampledText);
+            analysisResult = llmService.generateWithMaxTokens(systemInstruction, analysisPrompt, "audit", userId, 16384, configId);
+        }
+
+        // 二次检测：若仍被拒绝，抛出异常
+        if (isSafetyRejected(analysisResult)) {
+            String trimmed = analysisResult != null ? analysisResult.trim() : "";
+            throw new RuntimeException("LLM拒绝分析请求（内容安全策略）: " + trimmed.substring(0, Math.min(trimmed.length(), 100)));
         }
 
         // Step 4: 解析结果并存储
@@ -159,6 +163,34 @@ public class StyleCardService {
             sb.append(paragraphs[i]).append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * 检测LLM返回结果是否为安全拒绝
+     */
+    private boolean isSafetyRejected(String result) {
+        if (result == null) return false;
+        String trimmed = result.trim();
+        if (trimmed.startsWith("{")) return false;
+        return trimmed.contains("rejected") || trimmed.contains("high risk")
+                || trimmed.contains("safety") || trimmed.contains("content policy")
+                || trimmed.contains("unsafe") || trimmed.contains("violation");
+    }
+
+    /**
+     * 安全降级采样：从前中后各取 ~10000 字，总约 30000 字
+     * 用于全文直传触发内容安全策略时的降级重试
+     */
+    private String sampleForSafetyFallback(String text) {
+        int targetLen = 10000;
+        int totalLen = text.length();
+        if (totalLen <= targetLen * 3) return text;
+
+        String opening = text.substring(0, targetLen);
+        int midStart = totalLen / 2 - targetLen / 2;
+        String middle = text.substring(midStart, midStart + targetLen);
+        String ending = text.substring(totalLen - targetLen);
+        return opening + "\n---\n" + middle + "\n---\n" + ending;
     }
 
     /**
