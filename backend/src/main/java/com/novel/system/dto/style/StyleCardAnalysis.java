@@ -74,7 +74,12 @@ public class StyleCardAnalysis {
      */
     @JsonProperty("generation_template")
     private String generationTemplate;
-    
+
+    /**
+     * 风格一致性报告
+     */
+    private ConsistencyReport consistency;
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -121,6 +126,8 @@ public class StyleCardAnalysis {
         private String adjectiveDensity;
         @JsonProperty("detail_approach")
         private String detailApproach;
+        @JsonProperty("rhetoric_preferences")
+        private List<String> rhetoricPreferences;
     }
     
     @Data
@@ -146,6 +153,8 @@ public class StyleCardAnalysis {
         private String chapterEnding;
         @JsonProperty("pov_discipline")
         private String povDiscipline;
+        @JsonProperty("pov_shifts")
+        private List<String> povShifts;
     }
     
     @Data
@@ -166,6 +175,21 @@ public class StyleCardAnalysis {
         private List<String> structures;
     }
     
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConsistencyReport {
+        @JsonProperty("overall_score")
+        private Double overallScore;
+        @JsonProperty("drift_description")
+        private String driftDescription;
+        @JsonProperty("early_style")
+        private List<String> earlyStyle;
+        @JsonProperty("late_style")
+        private List<String> lateStyle;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
