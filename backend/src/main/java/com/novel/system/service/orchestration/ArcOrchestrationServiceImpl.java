@@ -1,7 +1,7 @@
 package com.novel.system.service.orchestration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.ai.agent.ArcOrchestrationAgent;
+import com.novel.system.ai.dto.ArcOrchestrationOutput;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mongo.ArcOrchestration;
 import com.novel.system.entity.mysql.ClueBook;
@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -35,7 +36,8 @@ public class ArcOrchestrationServiceImpl implements ArcOrchestrationService {
     private final ArcOrchestrationRepository orchestrationRepository;
     private final LangChainConfig langChainConfig;
     private final LlmConfigService llmConfigService;
-    private final ObjectMapper objectMapper;
+
+    private static final int MAX_RETRIES = 3;
 
     @Override
     public ArcOrchestration orchestrate(String novelId, String arcId, String llmConfigId) {
@@ -56,14 +58,26 @@ public class ArcOrchestrationServiceImpl implements ArcOrchestrationService {
         List<ClueBook> pendingClues = clueBookService.getUnrecycledClues(novelId);
         String charStates = characterStateService.formatForPrompt(novelId);
 
-        // 3. 构建prompt
+        // 3. 解析 LLM 配置
+        LlmConfig config;
+        if (llmConfigId != null && !llmConfigId.isEmpty()) {
+            config = llmConfigService.getConfigById(llmConfigId);
+        } else {
+            config = llmConfigService.getAnyActiveConfig("all");
+        }
+        if (config == null) {
+            throw new RuntimeException("未找到可用的模型配置");
+        }
+
+        // 4. 构建prompt
         String userPrompt = buildOrchestrationPrompt(novel, arc, pendingClues, charStates);
 
-        // 4. 调用Agent
-        String resultJson = executeArcOrchestrationChain(userPrompt, llmConfigId);
+        // 5. 调用Agent（传 config 和 chapterCount，内部创建 config 副本）
+        ArcOrchestrationOutput output = executeArcOrchestrationChain(
+                userPrompt, config, arc.getChapterCount());
 
-        // 5. 解析并存储
-        ArcOrchestration orchestration = parseOrchestrationResult(resultJson, novelId, arcId);
+        // 6. DTO → 实体映射并存储
+        ArcOrchestration orchestration = mapToEntity(output, novelId, arcId);
         orchestrationRepository.save(orchestration);
 
         log.info("卷编排生成完成: novelId={}, arcId={}, 章节数={}",
@@ -96,27 +110,55 @@ public class ArcOrchestrationServiceImpl implements ArcOrchestrationService {
         log.info("卷编排已失效: arcId={}", arcId);
     }
 
-    private String executeArcOrchestrationChain(String userPrompt, String llmConfigId) {
-        log.info("执行卷级编排链");
+    private ArcOrchestrationOutput executeArcOrchestrationChain(
+            String userPrompt, LlmConfig config, int chapterCount) {
+        log.info("执行卷级编排链, 章节数={}", chapterCount);
 
-        LlmConfig config;
-        if (llmConfigId != null && !llmConfigId.isEmpty()) {
-            config = llmConfigService.getConfigById(llmConfigId);
-        } else {
-            config = llmConfigService.getAnyActiveConfig("all");
-        }
+        // 动态 maxTokens：每章约 200 tokens，乘以 1.5 安全系数，最低 4096
+        int dynamicMaxTokens = Math.max(4096, (int) (chapterCount * 200 * 1.5));
+        LlmConfig orchestrationConfig = copyConfigForOrchestration(config, dynamicMaxTokens);
+        log.info("编排场景maxTokens={}, 章节数={}", dynamicMaxTokens, chapterCount);
 
-        if (config == null) {
-            throw new RuntimeException("未找到可用的模型配置");
-        }
-
-        ChatModel model = langChainConfig.createChatModel(config, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = langChainConfig.createChatModel(orchestrationConfig, LangChainConfig.TaskType.STRUCTURED);
 
         ArcOrchestrationAgent agent = AiServices.builder(ArcOrchestrationAgent.class)
                 .chatModel(model)
                 .build();
 
-        return agent.orchestrateArc(userPrompt);
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                ArcOrchestrationOutput result = agent.orchestrateArc(userPrompt);
+                if (result == null) {
+                    log.warn("LLM返回null, attempt={}/{}, model={}",
+                            attempt, MAX_RETRIES, config.getModelName());
+                    if (attempt < MAX_RETRIES) {
+                        try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("编排重试被中断", ie);
+                        }
+                    }
+                    continue;
+                }
+                return result;
+            } catch (Exception e) {
+                lastException = e;
+                if (!isRetriableException(e)) {
+                    log.error("编排调用不可重试异常, model={}, error={}",
+                            config.getModelName(), e.getMessage());
+                    throw new RuntimeException("卷编排失败（不可重试）: " + e.getMessage(), e);
+                }
+                log.warn("编排调用可重试异常, attempt={}/{}, model={}, error={}",
+                        attempt, MAX_RETRIES, config.getModelName(), e.getMessage());
+                if (attempt < MAX_RETRIES) {
+                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("编排重试被中断", ie);
+                    }
+                }
+            }
+        }
+        throw new RuntimeException("卷编排失败，已重试" + MAX_RETRIES + "次", lastException);
     }
 
     private String buildOrchestrationPrompt(NovelBase novel, NovelArc arc,
@@ -160,27 +202,58 @@ public class ArcOrchestrationServiceImpl implements ArcOrchestrationService {
         return sb.toString();
     }
 
-    private ArcOrchestration parseOrchestrationResult(String json, String novelId, String arcId) {
-        try {
-            String cleaned = json.trim();
-            if (cleaned.startsWith("```")) {
-                cleaned = cleaned.replaceAll("^```(?:json)?\\s*", "")
-                        .replaceAll("\\s*```$", "");
-            }
+    private LlmConfig copyConfigForOrchestration(LlmConfig source, int maxTokens) {
+        LlmConfig copy = new LlmConfig();
+        copy.setConfigId(source.getConfigId());
+        copy.setConfigName(source.getConfigName());
+        copy.setApiKey(source.getApiKey());
+        copy.setBaseUrl(source.getBaseUrl());
+        copy.setModelName(source.getModelName());
+        copy.setModelType(source.getModelType());
+        copy.setTemperature(source.getTemperature());
+        copy.setMaxTokens(maxTokens);
+        return copy;
+    }
 
-            ArcOrchestration result = objectMapper.readValue(cleaned, ArcOrchestration.class);
-            result.setNovelId(novelId);
-            result.setArcId(arcId);
-            result.setCreatedAt(LocalDateTime.now().toString());
+    private boolean isRetriableException(Exception e) {
+        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+        if (msg.contains("connection") || msg.contains("timeout") || msg.contains("reset")) return true;
+        if (msg.contains("500") || msg.contains("502") || msg.contains("503")) return true;
+        if (msg.contains("json") || msg.contains("deserialize") || msg.contains("schema")) return false;
+        return true;
+    }
 
-            if (result.getId() == null) {
-                result.setId(novelId + "_" + arcId);
-            }
+    private ArcOrchestration mapToEntity(ArcOrchestrationOutput output, String novelId, String arcId) {
+        ArcOrchestration entity = new ArcOrchestration();
+        entity.setId(novelId + "_" + arcId);
+        entity.setNovelId(novelId);
+        entity.setArcId(arcId);
+        entity.setArcName(output.getArcName());
+        entity.setOverallRhythm(output.getOverallRhythm());
+        entity.setClimaxChapters(output.getClimaxChapters());
+        entity.setCreatedAt(LocalDateTime.now().toString());
 
-            return result;
-        } catch (Exception e) {
-            log.error("解析编排结果失败: {}", e.getMessage());
-            throw new RuntimeException("解析编排结果失败: " + e.getMessage());
+        if (output.getChapters() != null) {
+            entity.setChapters(output.getChapters().stream().map(ch -> {
+                ArcOrchestration.ChapterPlan plan = new ArcOrchestration.ChapterPlan();
+                plan.setChapterNum(ch.getChapterNum());
+                plan.setRhythmTag(ch.getRhythmTag());
+                plan.setRhythmIntensity(ch.getRhythmIntensity());
+                plan.setPerspective(ch.getPerspective());
+                plan.setNarrativeMode(ch.getNarrativeMode());
+                if (ch.getCluePlan() != null) {
+                    ArcOrchestration.CluePlan cluePlan = new ArcOrchestration.CluePlan();
+                    cluePlan.setBury(ch.getCluePlan().getBury());
+                    cluePlan.setRecycle(ch.getCluePlan().getRecycle());
+                    plan.setCluePlan(cluePlan);
+                }
+                plan.setConflictType(ch.getConflictType());
+                plan.setOutcomeType(ch.getOutcomeType());
+                plan.setKeyEvent(ch.getKeyEvent());
+                plan.setHookDirection(ch.getHookDirection());
+                return plan;
+            }).collect(Collectors.toList()));
         }
+        return entity;
     }
 }
