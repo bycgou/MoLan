@@ -117,7 +117,7 @@ public class LangChainConfig {
      * @see #buildChatModel 实际创建模型的方法
      */
     public ChatModel createChatModel(LlmConfig config) {
-        return modelCache.computeIfAbsent(config.getConfigId(), id -> buildChatModel(config));
+        return modelCache.computeIfAbsent(config.getConfigId(), id -> buildChatModel(config, null));
     }
     
     /**
@@ -141,7 +141,7 @@ public class LangChainConfig {
         tempConfig.setTemperature(temperature);
         tempConfig.setMaxTokens(config.getMaxTokens());
         
-        return modelCache.computeIfAbsent(tempConfig.getConfigId(), id -> buildChatModel(tempConfig));
+        return modelCache.computeIfAbsent(tempConfig.getConfigId(), id -> buildChatModel(tempConfig, taskType));
     }
     
     /**
@@ -180,12 +180,32 @@ public class LangChainConfig {
      * @return StreamingChatModel 实例
      */
     public StreamingChatModel createStreamingChatModel(LlmConfig config) {
+        return buildStreamingChatModel(config, null);
+    }
+
+    /**
+     * 创建带任务类型的流式聊天模型
+     * @param config LLM配置
+     * @param taskType 任务类型
+     * @return StreamingChatModel 实例
+     */
+    public StreamingChatModel createStreamingChatModel(LlmConfig config, TaskType taskType) {
+        return buildStreamingChatModel(config, taskType);
+    }
+
+    /**
+     * 构建StreamingChatModel
+     * @param config LLM配置
+     * @param taskType 任务类型（null表示默认启用thinking）
+     * @return StreamingChatModel 实例
+     */
+    private StreamingChatModel buildStreamingChatModel(LlmConfig config, TaskType taskType) {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
         String modelName = config.getModelName();
-        
+
         log.info("创建StreamingChatModel: model={}, baseUrl={}", modelName, baseUrl);
-        
+
         // 根据baseUrl判断超时时间
         Duration timeout;
         if (baseUrl.contains("dashscope") || baseUrl.contains("aliyuncs.com")) {
@@ -193,20 +213,26 @@ public class LangChainConfig {
         } else {
             timeout = Duration.ofSeconds(120);
         }
-        
-        OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = 
+
+        OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder =
             OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey != null ? apiKey : "***")
                 .modelName(modelName)
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout);
-        
+
+        // 结构化输出任务关闭 thinking，避免干扰 JSON 提取
+        if (taskType != TaskType.STRUCTURED) {
+            builder.returnThinking(true)
+                   .sendThinking(true);
+        }
+
         // 设置maxTokens（如果配置了的话）
         if (config.getMaxTokens() != null && config.getMaxTokens() > 0) {
             builder.maxTokens(config.getMaxTokens());
         }
-        
+
         return builder.build();
     }
     
@@ -226,16 +252,17 @@ public class LangChainConfig {
      * - https://api.openai.com（自动添加/v1）
      * 
      * @param config LlmConfig配置对象
+     * @param taskType 任务类型（null表示默认启用thinking）
      * @return ChatModel实例
      * @throws RuntimeException 如果baseUrl为空
      */
-    private ChatModel buildChatModel(LlmConfig config) {
+    private ChatModel buildChatModel(LlmConfig config, TaskType taskType) {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
         String modelName = config.getModelName();
-        
+
         log.info("创建ChatModel: model={}, baseUrl={}", modelName, baseUrl);
-        
+
         // 根据baseUrl判断超时时间
         Duration timeout;
         if (baseUrl.contains("dashscope") || baseUrl.contains("aliyuncs.com")) {
@@ -246,19 +273,25 @@ public class LangChainConfig {
             // 默认超时时间（2分钟）
             timeout = Duration.ofSeconds(120);
         }
-        
+
         OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey != null ? apiKey : "***")
                 .modelName(modelName)
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout);
-        
+
+        // 结构化输出任务关闭 thinking，避免干扰 JSON 提取
+        if (taskType != TaskType.STRUCTURED) {
+            builder.returnThinking(true)
+                   .sendThinking(true);
+        }
+
         // 设置maxTokens（如果配置了的话）
         if (config.getMaxTokens() != null && config.getMaxTokens() > 0) {
             builder.maxTokens(config.getMaxTokens());
         }
-        
+
         return builder.build();
     }
     
