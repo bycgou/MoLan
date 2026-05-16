@@ -33,21 +33,62 @@ public class StyleTextAnalyzer {
     
     // 视觉词
     private static final String[] VISUAL_WORDS = {
-        "看见", "看到", "颜色", "光", "暗", "亮", "红", "白", "黑", "影",
-        "闪烁", "刺眼", "昏暗", "明亮", "漆黑", "光芒", "阳光", "月光",
-        "目光", "眼睛", "眼神", "视线", "注视", "凝视", "盯着", "望着"
+        "看见", "看到", "注视", "凝视", "盯着", "望着", "瞥见", "端详", "打量", "环顾",
+        "光", "暗", "亮", "闪烁", "刺眼", "昏暗", "明亮", "漆黑", "光芒", "阳光", "月光",
+        "斑驳", "朦胧", "刺目", "幽暗", "黯淡", "耀眼", "微光", "余晖", "晨曦", "暮色",
+        "红", "白", "黑", "绯红", "湛蓝", "墨绿", "雪白", "漆黑", "金黄", "碧绿",
+        "殷红", "苍翠", "灰白", "深蓝", "暗红", "淡紫", "青灰", "蜡黄",
+        "影", "目光", "眼睛", "眼神", "视线", "幽深", "空旷", "逼仄", "轮廓", "身影",
+        "晃动", "凝固", "摇曳", "消散", "隐没", "浮现", "映照"
     };
     
     // 听觉词
     private static final String[] AUDITORY_WORDS = {
-        "听到", "声音", "响", "叫", "喊", "低语", "寂静", "吵", "安静",
-        "噪音", "脚步声", "说话声", "笑声", "哭声", "叹气", "呼吸", "心跳"
+        "听到", "声音", "响", "叫", "喊", "低语", "寂静", "吵", "安静", "聆听",
+        "脚步声", "说话声", "笑声", "哭声", "叹气", "呼吸", "心跳", "呻吟", "呜咽", "咆哮",
+        "哗啦", "咕咚", "窸窣", "噼啪", "咯吱", "轰隆", "滴答", "砰砰", "沙沙", "簌簌",
+        "风声", "雨声", "蝉鸣", "鸟鸣", "雷鸣", "水声", "涛声"
     };
     
     // 触觉词
     private static final String[] TACTILE_WORDS = {
-        "摸", "触", "冷", "热", "硬", "软", "光滑", "粗糙",
-        "温暖", "冰凉", "疼痛", "舒服", "难受", "紧", "松", "轻", "重"
+        "摸", "触", "握", "抓", "捏", "按", "抚", "推", "拉", "扯",
+        "光滑", "粗糙", "细腻", "黏腻", "干涩", "湿润", "柔软", "坚硬",
+        "冷", "热", "温暖", "冰凉", "灼热", "温热", "滚烫", "冰冷", "微凉",
+        "疼痛", "舒服", "难受", "酸麻", "刺痛", "酥软", "紧", "松", "轻", "重"
+    };
+
+    // 嗅觉词
+    private static final String[] OLFACTORY_WORDS = {
+        "闻到", "气味", "香味", "臭味", "清香", "腐臭", "血腥", "花香", "药味",
+        "烟味", "汗味", "泥土味", "果香", "草木香", "霉味", "腥味", "焦味",
+        "芬芳", "刺鼻", "馥郁", "淡雅", "恶臭", "馊味", "檀香", "酒气"
+    };
+
+    // 味觉词
+    private static final String[] GUSTATORY_WORDS = {
+        "尝到", "味道", "甘甜", "苦涩", "酸涩", "辛辣", "咸腥", "清冽", "醇厚",
+        "苦味", "甜味", "酸味", "辣味", "咸味", "鲜美", "回甘", "发苦",
+        "寡淡", "浓烈", "爽口"
+    };
+
+    // 比喻标记词（与 AntiAICliches.CLICHES 去重，不含"仿佛"）
+    private static final String[] METAPHOR_MARKERS = {
+        "好比", "如同", "好似", "恰似", "犹如",
+        "仿若", "宛若", "一似", "宛如", "就像",
+        "像是", "好比是", "恰如", "俨然"
+    };
+
+    // 正面情绪词
+    private static final String[] POSITIVE_EMOTION_WORDS = {
+        "高兴", "快乐", "喜悦", "兴奋", "满足", "幸福", "欣慰", "感动", "温暖",
+        "期待", "希望", "满意", "骄傲", "自豪", "感恩", "欣喜", "愉悦", "畅快"
+    };
+
+    // 负面情绪词
+    private static final String[] NEGATIVE_EMOTION_WORDS = {
+        "悲伤", "愤怒", "恐惧", "焦虑", "绝望", "痛苦", "悔恨", "嫉妒", "孤独",
+        "失落", "沮丧", "烦躁", "不安", "惊恐", "怨恨", "委屈", "压抑", "凄凉"
     };
     
     // 中文标点
@@ -106,6 +147,13 @@ public class StyleTextAnalyzer {
         int maxConsecutiveDialogue = calcMaxConsecutiveDialogue(cleanText);
         double emptySceneRatio = calcEmptySceneRatio(cleanText);
 
+        double metaphorDensity = calcSenseDensity(cleanText, METAPHOR_MARKERS);
+        double alternationRate = calcAlternationRate(cleanText);
+        double positiveEmotionDensity = calcSenseDensity(cleanText, POSITIVE_EMOTION_WORDS);
+        double negativeEmotionDensity = calcSenseDensity(cleanText, NEGATIVE_EMOTION_WORDS);
+        double olfactoryDensity = calcSenseDensity(cleanText, OLFACTORY_WORDS);
+        double gustatoryDensity = calcSenseDensity(cleanText, GUSTATORY_WORDS);
+
         return StyleMetrics.builder()
                 .avgSentenceLength(avgSentenceLength)
                 .shortSentenceRatio(shortSentenceRatio)
@@ -134,6 +182,12 @@ public class StyleTextAnalyzer {
                 .suspenseEndingRatio(suspenseEndingRatio)
                 .maxConsecutiveDialogue(maxConsecutiveDialogue)
                 .emptySceneRatio(emptySceneRatio)
+                .metaphorDensity(metaphorDensity)
+                .alternationRate(alternationRate)
+                .positiveEmotionDensity(positiveEmotionDensity)
+                .negativeEmotionDensity(negativeEmotionDensity)
+                .olfactoryDensity(olfactoryDensity)
+                .gustatoryDensity(gustatoryDensity)
                 .build();
     }
     
@@ -254,7 +308,13 @@ public class StyleTextAnalyzer {
         }
         
         // 过滤常见词，返回高频词
-        Set<String> commonWords = Set.of("一个", "没有", "什么", "怎么", "这个", "那个", "可以", "因为", "所以", "但是");
+        Set<String> commonWords = Set.of(
+            "一个", "没有", "什么", "怎么", "这个", "那个", "可以", "因为", "所以", "但是",
+            "他们", "我们", "你们", "自己", "一些", "已经", "只是", "不过", "如果", "虽然",
+            "然后", "时候", "知道", "看到", "听到", "觉得", "开始", "起来", "出来", "下来",
+            "一直", "一定", "一下", "一样", "一般", "这么", "那么", "这里", "那里",
+            "可能", "应该", "不会", "不是", "不能", "不要", "还是", "就是", "正在"
+        );
         return wordCount.entrySet().stream()
                 .filter(e -> e.getValue() >= 3 && !commonWords.contains(e.getKey()))
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
@@ -439,6 +499,25 @@ public class StyleTextAnalyzer {
             }
         }
         return sceneCount > 0 ? (double) emptyCount / sceneCount : 0;
+    }
+
+    /**
+     * 长短交替率：相邻两句一句>均值一句<均值的比例
+     * 与 sentenceDiversityIndex 互补：多样性衡量离散度，交替率衡量变化模式
+     */
+    private double calcAlternationRate(String text) {
+        String[] sentences = splitSentences(text);
+        if (sentences.length < 3) return 0;
+        double[] lengths = Arrays.stream(sentences).mapToDouble(String::length).toArray();
+        double mean = Arrays.stream(lengths).average().orElse(0);
+        if (mean == 0) return 0;
+        int alternations = 0;
+        for (int i = 1; i < lengths.length; i++) {
+            boolean prevAbove = lengths[i - 1] > mean;
+            boolean currAbove = lengths[i] > mean;
+            if (prevAbove != currAbove) alternations++;
+        }
+        return (double) alternations / (lengths.length - 1);
     }
 
     // ========== 辅助方法 ==========

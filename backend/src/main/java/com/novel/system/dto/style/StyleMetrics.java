@@ -162,4 +162,36 @@ public class StyleMetrics {
      * 新场景感官细节覆盖率（0-1，无感官细节的新场景占比）
      */
     private double emptySceneRatio;
+
+    // ========== 新增指标 ==========
+
+    /**
+     * 比喻密度（每千字，基于比喻标记词频率）
+     */
+    private double metaphorDensity;
+
+    /**
+     * 长短交替率（相邻两句一长一短的比例，0-1）
+     */
+    private double alternationRate;
+
+    /**
+     * 正面情绪词密度（每千字）
+     */
+    private double positiveEmotionDensity;
+
+    /**
+     * 负面情绪词密度（每千字）
+     */
+    private double negativeEmotionDensity;
+
+    /**
+     * 嗅觉词密度（每千字）
+     */
+    private double olfactoryDensity;
+
+    /**
+     * 味觉词密度（每千字）
+     */
+    private double gustatoryDensity;
 }
