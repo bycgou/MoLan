@@ -1,5 +1,6 @@
 package com.novel.system.ai.agent;
 
+import com.novel.system.ai.dto.ArcOrchestrationOutput;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 
@@ -30,6 +31,8 @@ public interface ArcOrchestrationAgent {
         1. 只输出纯JSON，不得有任何前缀、后缀、说明文字或markdown代码块
         2. chapters数组长度必须等于该卷总章节数
         3. 所有字段必须填写，不得省略
+        4. 所有数值字段(rhythmIntensity, chapterNum)必须输出整数，不要输出字符串
+        5. bury和recycle必须输出字符串数组，即使为空也要输出空数组[]
 
         【输出格式】
         {
@@ -55,5 +58,5 @@ public interface ArcOrchestrationAgent {
           ]
         }
         """)
-    String orchestrateArc(@UserMessage String userPrompt);
+    ArcOrchestrationOutput orchestrateArc(@UserMessage String userPrompt);
 }
