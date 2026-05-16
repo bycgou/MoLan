@@ -851,7 +851,8 @@ public class StyleCardService {
                 if (card.getStatsJson() instanceof StyleMetrics) {
                     metrics = (StyleMetrics) card.getStatsJson();
                 } else if (card.getStatsJson() instanceof String) {
-                    metrics = objectMapper.readValue((String) card.getStatsJson(), StyleMetrics.class);
+                    String json = unwrapDoubleEncodedJson(card.getStatsJson());
+                    metrics = objectMapper.readValue(json, StyleMetrics.class);
                 } else {
                     metrics = objectMapper.convertValue(card.getStatsJson(), StyleMetrics.class);
                 }
@@ -907,7 +908,8 @@ public class StyleCardService {
         try {
             Object parsed = samplesJson;
             if (samplesJson instanceof String) {
-                parsed = objectMapper.readValue((String) samplesJson, List.class);
+                String json = unwrapDoubleEncodedJson(samplesJson);
+                parsed = objectMapper.readValue(json, List.class);
             }
             if (parsed instanceof List) {
                 List<?> list = (List<?>) parsed;
@@ -951,12 +953,31 @@ public class StyleCardService {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * 处理可能被双重编码的 JSON 字符串。
+     * 如果 input 是一个 JSON 字符串字面量（以"开头、以"结尾），
+     * 则先解析出内部字符串，再返回；否则原样返回。
+     */
+    private String unwrapDoubleEncodedJson(Object input) {
+        if (!(input instanceof String)) return null;
+        String str = ((String) input).trim();
+        if (str.length() < 2 || !str.startsWith("\"") || !str.endsWith("\"")) {
+            return str;
+        }
+        try {
+            return objectMapper.readValue(str, String.class);
+        } catch (Exception e) {
+            return str;
+        }
+    }
+
     private Map<String, Object> toMap(Object obj) {
         if (obj == null) return null;
         if (obj instanceof Map) return (Map<String, Object>) obj;
         try {
             if (obj instanceof String) {
-                return objectMapper.readValue((String) obj, Map.class);
+                String json = unwrapDoubleEncodedJson(obj);
+                return objectMapper.readValue(json, Map.class);
             }
             return objectMapper.convertValue(obj, Map.class);
         } catch (Exception e) {
