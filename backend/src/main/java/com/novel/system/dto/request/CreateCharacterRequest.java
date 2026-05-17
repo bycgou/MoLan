@@ -39,33 +39,19 @@ public class CreateCharacterRequest {
     
     /** 说话风格（如：沉稳、幽默、毒舌） */
     private String voiceStyle;
-    
+
     /** 人物背景故事 */
     private String background;
-    
+
+    /** 人物描述 */
+    private String description;
+
+    /** 角色分类：主角/配角/反派/龙套 */
+    private String role;
+
     /** 当前所在位置 */
     private String currentLocation;
-    
+
     /** 禁止行为列表（防止OOC的硬性规则） */
     private List<String> forbiddenBehaviors;
-    
-    /** 前端发送 role → 映射到 background */
-    @JsonAlias({"role"})
-    public void setRole(String role) {
-        if (role != null && this.background == null) {
-            this.background = "角色: " + role;
-        }
-    }
-    
-    /** 前端发送 description → 映射到 background */
-    @JsonAlias({"description"})
-    public void setDescription(String description) {
-        if (description != null) {
-            if (this.background == null) {
-                this.background = description;
-            } else {
-                this.background = this.background + "\n" + description;
-            }
-        }
-    }
 }

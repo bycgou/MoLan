@@ -93,6 +93,19 @@ public class StreamingChapterController {
     @PostMapping(value = "/stream-write", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamWrite(@RequestBody StreamWriteRequest request) {
         SseEmitter emitter = new SseEmitter(600_000L); // 10min 超时
+
+        emitter.onTimeout(() -> {
+            log.warn("SSE流式写作超时: novelId={}, chapter={}", request.getNovelId(), request.getChapterNum());
+            try {
+                emitter.send(SseEmitter.event().name("error").data("生成超时，已生成的内容可能已保存，请刷新查看"));
+            } catch (Exception ignored) {}
+            emitter.complete();
+        });
+
+        emitter.onError(e -> {
+            log.warn("SSE流式写作连接异常: novelId={}, error={}", request.getNovelId(), e.getMessage());
+        });
+
         String cancelKey = "novel:cancel:" + request.getNovelId();
         SecurityContext securityContext = SecurityContextHolder.getContext();
 

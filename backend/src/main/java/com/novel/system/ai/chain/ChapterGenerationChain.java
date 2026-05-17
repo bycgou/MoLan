@@ -146,7 +146,7 @@ public class ChapterGenerationChain {
     public String executeOutlineChain(String novelId, int chapterNum, String contextPrompt, String llmConfigId) {
         log.info("执行章纲生成链: novelId={}, chapter={}", novelId, chapterNum);
 
-        ChatModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = getModelWithMinTokens(llmConfigId, LangChainConfig.TaskType.STRUCTURED, 16384);
 
         if (toolProvider.hasMcpTools()) {
             log.info("MCP 工具可用，工具数: {}", toolProvider.getMcpToolSpecifications().size());
@@ -197,7 +197,7 @@ public class ChapterGenerationChain {
                                       String contextPrompt, String llmConfigId) {
         log.info("执行写作生成链: novelId={}, chapter={}", novelId, chapterNum);
 
-        ChatModel model = getModel(llmConfigId);
+        ChatModel model = getModelWithMinTokens(llmConfigId, LangChainConfig.TaskType.CREATIVE, 16384);
 
         WritingAgent writingAgent = AiServices.builder(WritingAgent.class)
                 .chatModel(model)
@@ -275,7 +275,7 @@ public class ChapterGenerationChain {
                                             String llmConfigId) {
         log.info("执行卷纲生成链");
 
-        ChatModel model = getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
+        ChatModel model = getModelWithMinTokens(llmConfigId, LangChainConfig.TaskType.STRUCTURED, 32768);
 
         VolumeOutlineAgent agent = AiServices.builder(VolumeOutlineAgent.class)
                 .chatModel(model)
@@ -430,6 +430,14 @@ public class ChapterGenerationChain {
     }
 
     private ChatModel getModel(String llmConfigId, LangChainConfig.TaskType taskType) {
+        return getModelWithMinTokens(llmConfigId, taskType, 0);
+    }
+
+    /**
+     * 获取模型，保证 maxTokens 不低于指定最小值。
+     * 用于向导模式等需要大输出的场景。
+     */
+    private ChatModel getModelWithMinTokens(String llmConfigId, LangChainConfig.TaskType taskType, int minMaxTokens) {
         LlmConfig config;
         if (llmConfigId != null && !llmConfigId.isEmpty()) {
             config = llmConfigService.getConfigById(llmConfigId);
@@ -439,6 +447,19 @@ public class ChapterGenerationChain {
 
         if (config == null) {
             throw new RuntimeException("未找到可用的模型配置，请先在模型配置页面添加并激活一个模型");
+        }
+
+        if (minMaxTokens > 0 && (config.getMaxTokens() == null || config.getMaxTokens() < minMaxTokens)) {
+            LlmConfig copy = new LlmConfig();
+            copy.setConfigId(config.getConfigId() + "_min" + minMaxTokens);
+            copy.setConfigName(config.getConfigName());
+            copy.setApiKey(config.getApiKey());
+            copy.setBaseUrl(config.getBaseUrl());
+            copy.setModelName(config.getModelName());
+            copy.setModelType(config.getModelType());
+            copy.setTemperature(config.getTemperature());
+            copy.setMaxTokens(minMaxTokens);
+            config = copy;
         }
 
         return langChainConfig.createChatModel(config, taskType);

@@ -39,6 +39,7 @@ public class CharacterController {
         character.setCoreTraits(request.getCoreTraits());
         character.setVoiceStyle(request.getVoiceStyle());
         character.setBackground(request.getBackground());
+        character.setRole(request.getRole() != null ? request.getRole() : "龙套");
         character.setForbiddenBehaviors(request.getForbiddenBehaviors());
         
         // 设置初始状态
@@ -139,6 +140,8 @@ public class CharacterController {
         response.setCharacterId(character.getCharacterId());
         response.setNovelId(character.getNovelId());
         response.setCharacterName(character.getCharacterName());
+        response.setRole(character.getRole() != null ? character.getRole() : "龙套");
+        response.setDescription(character.getBackground());
         response.setCoreTraits(character.getCoreTraits());
         response.setVoiceStyle(character.getVoiceStyle());
         response.setBackground(character.getBackground());
@@ -150,7 +153,21 @@ public class CharacterController {
         if (character.getCoreTraits() != null && !character.getCoreTraits().isEmpty()) {
             response.setPersonality(String.join("、", character.getCoreTraits()));
         }
-        response.setGrowthNodes(character.getGrowthNodes());
+        // 转换 GrowthNode
+        if (character.getGrowthNodes() != null) {
+            List<CharacterResponse.GrowthNodeResponse> growthResponses = new java.util.ArrayList<>();
+            for (int i = 0; i < character.getGrowthNodes().size(); i++) {
+                CharacterState.GrowthNode node = character.getGrowthNodes().get(i);
+                CharacterResponse.GrowthNodeResponse gr = new CharacterResponse.GrowthNodeResponse();
+                gr.setNodeId(character.getCharacterId() + "-gn-" + i);
+                gr.setChapterNum(node.getTriggerChapter());
+                gr.setTitle(node.getTriggerEvent());
+                gr.setDescription(node.getDescription());
+                gr.setGrowthType(node.getNewTraits() != null ? String.join("/", node.getNewTraits()) : "其他");
+                growthResponses.add(gr);
+            }
+            response.setGrowthNodes(growthResponses);
+        }
         response.setUpdateTime(character.getUpdateTime());
         return response;
     }

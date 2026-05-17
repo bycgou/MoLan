@@ -34,7 +34,10 @@ public class CharacterState {
     
     /** 人物名称 */
     private String characterName;
-    
+
+    /** 角色分类：主角/配角/反派/龙套 */
+    private String role;
+
     /** 核心特质（不可变，如：坚韧、善良） */
     private List<String> coreTraits;
     

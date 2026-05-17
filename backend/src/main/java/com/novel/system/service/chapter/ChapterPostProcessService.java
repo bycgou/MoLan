@@ -60,7 +60,7 @@ public class ChapterPostProcessService {
     /**
      * 异步后处理：从章节内容中提取人物、伏笔、时间线
      */
-    @Async
+    @Async("postProcessExecutor")
     public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline) {
         postProcess(novelId, chapterNum, chapterContent, chapterOutline, null);
     }
@@ -68,7 +68,7 @@ public class ChapterPostProcessService {
     /**
      * 异步后处理（带 LLM 提供的人物 JSON）
      */
-    @Async
+    @Async("postProcessExecutor")
     public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline, String characterJson) {
         log.info("开始后处理章节: 小说ID={}, 章节号={}", novelId, chapterNum);
 
@@ -185,7 +185,7 @@ public class ChapterPostProcessService {
                 existingNames.toString(), content
             );
 
-            String response = model.chat(prompt);
+            String response = chatWithRetry(model, prompt, 3);
             String jsonStr = JsonExtractor.extractJson(response);
             Map<String, Object> result = objectMapper.readValue(jsonStr, new TypeReference<>() {});
 
@@ -203,6 +203,7 @@ public class ChapterPostProcessService {
                         character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
                         character.setNovelId(novelId);
                         character.setCharacterName(name);
+                        character.setRole("龙套");
 
                         String traitsStr = (String) charData.get("traits");
                         if (traitsStr != null && !traitsStr.isBlank()) {
@@ -316,6 +317,7 @@ public class ChapterPostProcessService {
                         character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
                         character.setNovelId(novelId);
                         character.setCharacterName(name);
+                        character.setRole("龙套");
 
                         CharacterState.CurrentStatus status = new CharacterState.CurrentStatus();
                         status.setHealth(100);
@@ -408,6 +410,37 @@ public class ChapterPostProcessService {
     }
 
     /**
+     * 带重试的 LLM 调用，应对临时网络抖动
+     */
+    private String chatWithRetry(ChatModel model, String prompt, int maxRetries) {
+        for (int i = 1; i <= maxRetries; i++) {
+            try {
+                return model.chat(prompt);
+            } catch (Exception e) {
+                if (i < maxRetries && isRetriable(e)) {
+                    log.warn("后处理LLM调用失败，第{}次重试: {}", i, e.getMessage());
+                    try { Thread.sleep(2000L * i); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                } else {
+                    throw e;
+                }
+            }
+        }
+        throw new RuntimeException("LLM调用失败");
+    }
+
+    private boolean isRetriable(Exception e) {
+        String msg = e.getMessage();
+        if (msg == null) return false;
+        return msg.contains("ConnectException")
+            || msg.contains("TimeoutException")
+            || msg.contains("SocketTimeoutException")
+            || msg.contains("ClosedChannelException")
+            || msg.contains("rate_limit")
+            || msg.contains("429")
+            || msg.contains("503");
+    }
+
+    /**
      * 提取伏笔/线索
      */
     private void extractClues(ChatModel model, String novelId, int chapterNum,
@@ -426,7 +459,7 @@ public class ChapterPostProcessService {
                 existingClues.toString(), content
             );
 
-            String response = model.chat(prompt);
+            String response = chatWithRetry(model, prompt, 3);
             String jsonStr = JsonExtractor.extractJson(response, "[]");
 
             List<Map<String, Object>> clues = objectMapper.readValue(jsonStr, new TypeReference<>() {});
@@ -480,7 +513,7 @@ public class ChapterPostProcessService {
                 content.length() > 3000 ? content.substring(0, 3000) : content
             );
 
-            String response = model.chat(prompt);
+            String response = chatWithRetry(model, prompt, 3);
             String jsonStr = JsonExtractor.extractJson(response);
 
             Map<String, Object> timeline = objectMapper.readValue(jsonStr, new TypeReference<>() {});

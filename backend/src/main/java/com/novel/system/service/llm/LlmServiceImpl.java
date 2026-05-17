@@ -118,10 +118,13 @@ public class LlmServiceImpl implements LlmService {
     
     @Override
     public float[] getEmbedding(String text) {
+        LlmConfig config = null;
         try {
             // 1. 优先查找专用向量化模型
-            LlmConfig config = llmConfigService.getAnyActiveConfig("embedding");
-            if (config == null) {
+            config = llmConfigService.getAnyActiveConfig("embedding");
+            if (config != null) {
+                log.info("使用专用 embedding 配置: {}", config.getConfigName());
+            } else {
                 // 2. 回退到用户配置
                 String userId = getCurrentUserId();
                 if (userId != null) {
@@ -130,20 +133,24 @@ public class LlmServiceImpl implements LlmService {
                 if (config == null) {
                     config = getLlmConfig(null);
                 }
+                if (config != null) {
+                    log.warn("未找到专用 embedding 配置，回退到聊天模型配置: {}（建议添加 usageType=embedding 的专用配置）", config.getConfigName());
+                }
             }
             if (config == null) {
                 log.warn("未找到模型配置，返回空向量");
                 return new float[0];
             }
-            
+
             EmbeddingModel embeddingModel = langChainConfig.createEmbeddingModel(config);
             String truncatedText = text.substring(0, Math.min(text.length(), 8000));
             Embedding embedding = embeddingModel.embed(truncatedText).content();
-            
+
             return embedding.vector();
-            
+
         } catch (Exception e) {
-            log.error("获取嵌入向量失败: {}", e.getMessage());
+            String info = config != null ? "baseUrl=" + config.getBaseUrl() + ", modelName=" + config.getModelName() : "config=null";
+            log.error("获取嵌入向量失败（{}）: {}", info, e.getMessage(), e);
             return new float[0];
         }
     }

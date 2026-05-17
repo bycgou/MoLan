@@ -15,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -76,8 +78,15 @@ public class ChapterSaveService {
                    wordCount, userIntent, plotFingerprint);
 
         // 阶段2: 异步写入（向量化、知识图谱、故事状态），使用指定线程池
+        // 传播 SecurityContext 以便异步线程中能获取当前用户ID
+        SecurityContext securityContext = SecurityContextHolder.getContext();
         return CompletableFuture.runAsync(() -> {
-            saveToMongoAsync(novelId, chapterNum, chapterTitle, chapterContent, wordCount, summary);
+            SecurityContextHolder.setContext(securityContext);
+            try {
+                saveToMongoAsync(novelId, chapterNum, chapterTitle, chapterContent, wordCount, summary);
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
         }, ioTaskExecutor);
     }
 

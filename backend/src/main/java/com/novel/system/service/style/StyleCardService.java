@@ -882,6 +882,68 @@ public class StyleCardService {
     }
 
     /**
+     * 安全地将任意格式的 JSON 值解析为 StyleMetrics。
+     * 处理多种双重编码场景，与 safeReadJsonList 同理。
+     */
+    private StyleMetrics safeReadStyleMetrics(Object input) {
+        if (input instanceof StyleMetrics) return (StyleMetrics) input;
+
+        if (!(input instanceof String)) {
+            return objectMapper.convertValue(input, StyleMetrics.class);
+        }
+
+        String str = ((String) input).trim();
+        if (str.isEmpty()) return null;
+
+        // 策略1：直接解析
+        try {
+            return objectMapper.readValue(str, StyleMetrics.class);
+        } catch (Exception ignored) {}
+
+        // 策略2：先解析为 Map，再 convertValue（处理类型不匹配）
+        try {
+            Map<String, Object> map = objectMapper.readValue(str, Map.class);
+            return objectMapper.convertValue(map, StyleMetrics.class);
+        } catch (Exception ignored) {}
+
+        // 策略3：去外层引号（双重编码）
+        if (str.length() >= 2 && str.startsWith("\"") && str.endsWith("\"")) {
+            try {
+                String unquoted = objectMapper.readValue(str, String.class);
+                if (unquoted != null && !unquoted.equals(str)) {
+                    String unescaped = unquoted.replace("\\\"", "\"");
+                    try {
+                        return objectMapper.readValue(unescaped, StyleMetrics.class);
+                    } catch (Exception ignored3) {}
+                    try {
+                        Map<String, Object> map2 = objectMapper.readValue(unescaped, Map.class);
+                        return objectMapper.convertValue(map2, StyleMetrics.class);
+                    } catch (Exception ignored4) {}
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 策略4：含 \" 转义 → 循环反转义
+        if (str.contains("\\\"")) {
+            String candidate = str;
+            String prev = null;
+            while (!candidate.equals(prev)) {
+                prev = candidate;
+                candidate = candidate.replace("\\\"", "\"");
+                try {
+                    return objectMapper.readValue(candidate, StyleMetrics.class);
+                } catch (Exception ignored) {}
+                try {
+                    Map<String, Object> map3 = objectMapper.readValue(candidate, Map.class);
+                    return objectMapper.convertValue(map3, StyleMetrics.class);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * 将对象转为紧凑JSON字符串
      */
     private String objectToJson(Object obj) {
@@ -1029,24 +1091,7 @@ public class StyleCardService {
         StyleMetrics metrics = null;
         if (card.getStatsJson() != null) {
             try {
-                if (card.getStatsJson() instanceof StyleMetrics) {
-                    metrics = (StyleMetrics) card.getStatsJson();
-                } else if (card.getStatsJson() instanceof String) {
-                    String json = unwrapDoubleEncodedJson(card.getStatsJson());
-                    try {
-                        metrics = objectMapper.readValue(json, StyleMetrics.class);
-                    } catch (Exception e1) {
-                        // fallback：先解析为 Map，再 convertValue
-                        try {
-                            Map<String, Object> map = objectMapper.readValue(json, Map.class);
-                            metrics = objectMapper.convertValue(map, StyleMetrics.class);
-                        } catch (Exception e2) {
-                            log.warn("转换statsJson失败: {}", e1.getMessage());
-                        }
-                    }
-                } else {
-                    metrics = objectMapper.convertValue(card.getStatsJson(), StyleMetrics.class);
-                }
+                metrics = safeReadStyleMetrics(card.getStatsJson());
             } catch (Exception e) {
                 log.warn("转换statsJson失败: {}", e.getMessage());
             }
@@ -1097,52 +1142,92 @@ public class StyleCardService {
         if (samplesJson == null) return Collections.emptyList();
 
         try {
-            Object parsed = samplesJson;
-            if (samplesJson instanceof String) {
-                String json = unwrapDoubleEncodedJson(samplesJson);
-                try {
-                    parsed = objectMapper.readValue(json, List.class);
-                } catch (Exception e1) {
-                    // fallback：先解析为 Object，再 convertValue
-                    try {
-                        Object raw = objectMapper.readValue(json, Object.class);
-                        parsed = objectMapper.convertValue(raw, List.class);
-                    } catch (Exception e2) {
-                        log.warn("转换samplesJson失败: {}", e1.getMessage());
-                        return Collections.emptyList();
-                    }
+            List<?> list = safeReadJsonList(samplesJson);
+            if (list == null) return Collections.emptyList();
+
+            List<StyleCardVO.SampleItem> result = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof StyleCardVO.SampleItem) {
+                    result.add((StyleCardVO.SampleItem) item);
+                } else if (item instanceof Map) {
+                    Map<String, Object> map = (Map<String, Object>) item;
+                    result.add(StyleCardVO.SampleItem.builder()
+                            .type(getStr(map, "type", "sample_type"))
+                            .text(getStr(map, "text", "content"))
+                            .annotation(getStr(map, "annotation", "annotation"))
+                            .build());
                 }
             }
-            if (parsed instanceof List) {
-                List<?> list = (List<?>) parsed;
-                List<StyleCardVO.SampleItem> result = new ArrayList<>();
-                for (Object item : list) {
-                    if (item instanceof StyleCardVO.SampleItem) {
-                        result.add((StyleCardVO.SampleItem) item);
-                    } else if (item instanceof Map) {
-                        Map<String, Object> map = (Map<String, Object>) item;
-                        String type = getStr(map, "type", "sample_type");
-                        String text = getStr(map, "text", "content");
-                        String annotation = getStr(map, "annotation", "annotation");
-                        result.add(StyleCardVO.SampleItem.builder()
-                                .type(type)
-                                .text(text)
-                                .annotation(annotation)
-                                .build());
-                    }
-                }
-                return result;
-            }
-            List<Map<String, Object>> list = objectMapper.convertValue(parsed, List.class);
-            return list.stream().map(map -> StyleCardVO.SampleItem.builder()
-                    .type(getStr(map, "type", "sample_type"))
-                    .text(getStr(map, "text", "content"))
-                    .annotation(getStr(map, "annotation", "annotation"))
-                    .build()).collect(Collectors.toList());
+            return result;
         } catch (Exception e) {
             log.warn("转换samplesJson失败: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * 安全地将任意格式的 JSON 值解析为 List。
+     * 处理多种双重编码场景：
+     * 1. 已经是 List → 直接返回
+     * 2. 合法 JSON 数组字符串 → readValue
+     * 3. 双重编码 "[...]" → 先去外层引号，再反转义内层 \" → 最后 parse
+     * 4. 含 \" 转义的裸 JSON → 反转义后 parse
+     */
+    private List<?> safeReadJsonList(Object input) {
+        if (input instanceof List) return (List<?>) input;
+
+        if (!(input instanceof String)) {
+            try {
+                return objectMapper.convertValue(input, List.class);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        String str = ((String) input).trim();
+        if (str.isEmpty()) return null;
+
+        // 策略1：直接解析（已是合法 JSON 数组）
+        try {
+            Object parsed = objectMapper.readValue(str, Object.class);
+            if (parsed instanceof List) return (List<?>) parsed;
+        } catch (Exception ignored) {}
+
+        // 策略2：去外层引号（双重编码的 JSON 字符串）
+        if (str.length() >= 2 && str.startsWith("\"") && str.endsWith("\"")) {
+            try {
+                String unquoted = objectMapper.readValue(str, String.class);
+                if (unquoted != null && !unquoted.equals(str)) {
+                    // 去引号后可能仍有 \" 转义，需要反转义
+                    String unescaped = unquoted.replace("\\\"", "\"");
+                    try {
+                        Object parsed2 = objectMapper.readValue(unescaped, Object.class);
+                        if (parsed2 instanceof List) return (List<?>) parsed2;
+                    } catch (Exception ignored2) {}
+                    // 直接尝试 unquoted
+                    try {
+                        Object parsed3 = objectMapper.readValue(unquoted, Object.class);
+                        if (parsed3 instanceof List) return (List<?>) parsed3;
+                    } catch (Exception ignored3) {}
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 策略3：含 \" 转义但无外层引号 → 循环反转义
+        if (str.contains("\\\"")) {
+            String candidate = str;
+            String prev = null;
+            while (!candidate.equals(prev)) {
+                prev = candidate;
+                candidate = candidate.replace("\\\"", "\"");
+                try {
+                    Object parsed = objectMapper.readValue(candidate, Object.class);
+                    if (parsed instanceof List) return (List<?>) parsed;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        return null;
     }
 
     @SuppressWarnings("unchecked")

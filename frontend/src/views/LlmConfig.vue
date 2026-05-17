@@ -228,7 +228,7 @@ const form = reactive({
   authType: 'bearer',
   apiKey: '',
   usageType: 'all',
-  maxTokens: 4096,
+  maxTokens: 16384,
   temperature: 0.7,
   topP: 1,
   isActive: 1

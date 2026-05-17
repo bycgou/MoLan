@@ -84,6 +84,10 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
 
     private static final String CONTEXT_CACHE_PREFIX = "novel:context:";
     private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
+    private static final long POST_PROCESS_TIMEOUT_SECONDS = 60;
+
+    /** 最近一次后处理的 Future，供批量生成等待 */
+    private volatile CompletableFuture<Void> postProcessFuture;
     
     @Override
     public ChapterGenerationResponse generateOutline(ChapterGenerationRequest request) {
@@ -308,7 +312,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             // 8. 事务保存所有结果（MySQL同步 + MongoDB异步）+ 后处理链式调用
             final String finalChapterContent = chapterContent;
             final String finalOutline = context.getOutline();
-            chapterSaveService.saveGenerationResultAsync(
+            this.postProcessFuture = chapterSaveService.saveGenerationResultAsync(
                 request.getNovelId(), request.getChapterNum(), chapter.getChapterTitle(),
                 context.getOutline(), chapterContent,
                 chapterContent.replaceAll("\\s+", "").length(),
@@ -453,9 +457,9 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             } catch (Exception ignored) {}
         }
         
-        // 调用 ChapterGenerationChain 摘要链
+        // 调用 ChapterGenerationChain 摘要链（使用用户配置的模型）
         String summaryJson = chapterGenerationChain.executeSummaryChain(
-            request.getNovelId(), request.getChapterNum(), content, outline, null);
+            request.getNovelId(), request.getChapterNum(), content, outline, request.getLlmConfigId());
         
         return parseSummaryJson(summaryJson);
     }
@@ -662,10 +666,10 @@ private List<String> getUnrecycledClues(String novelId) {
     }
     
     private ChapterSummary generateSummary(ChapterGenerationRequest request, GenerationContext context, NovelChapter chapter) {
-        // 调用 ChapterGenerationChain 摘要链
+        // 调用 ChapterGenerationChain 摘要链（使用用户配置的模型）
         String summaryJson = chapterGenerationChain.executeSummaryChain(
             request.getNovelId(), request.getChapterNum(),
-            chapter.getContent(), context.getOutline(), null);
+            chapter.getContent(), context.getOutline(), request.getLlmConfigId());
         
         SummaryAgentResponse summaryResponse = parseSummaryJson(summaryJson);
         
@@ -927,7 +931,18 @@ private List<String> getUnrecycledClues(String novelId) {
         if (s.endsWith("```")) s = s.substring(0, s.length() - 3);
         return s.trim();
     }
-    
+
+    @Override
+    public void waitForPostProcessing() {
+        CompletableFuture<Void> future = this.postProcessFuture;
+        if (future == null) return;
+        try {
+            future.get(POST_PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("等待后处理超时或中断: {}", e.getMessage());
+        }
+    }
+
     @Data
     private static class ArcInfo {
         private String arcName;

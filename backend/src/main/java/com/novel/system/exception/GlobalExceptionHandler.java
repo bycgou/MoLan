@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 /**
  * 全局异常处理
@@ -16,6 +17,15 @@ public class GlobalExceptionHandler {
     
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     
+    /**
+     * SSE 异步请求超时 — 连接已断开，无法写入响应体，仅记录日志
+     */
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncTimeout(AsyncRequestTimeoutException e) {
+        log.warn("异步请求超时（SSE连接已断开）");
+        // 不返回任何响应体，连接已关闭
+    }
+
     @ExceptionHandler(BusinessException.class)
     @ResponseStatus(HttpStatus.OK)
     public ApiResponse<Void> handleBusinessException(BusinessException e) {

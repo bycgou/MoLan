@@ -89,7 +89,7 @@ public class WizardController {
             @PathVariable int arcIndex) {
         SseEmitter emitter = new SseEmitter(600_000L); // 10min 超时
 
-        // 异步执行，避免阻塞请求线程
+        // 异步执行，避免阻塞请求线程（超时/错误回调由 WizardServiceImpl 注册）
         CompletableFuture.runAsync(() -> {
             wizardService.generateArcChapterOutlinesStream(novelId, arcIndex, emitter);
         }, ioTaskExecutor);

@@ -16,6 +16,7 @@
         <result column="word_count" property="wordCount"/>
         <result column="chapter_count" property="chapterCount"/>
         <result column="status" property="status"/>
+        <result column="creation_mode" property="creationMode"/>
         <result column="is_deleted" property="isDeleted"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
@@ -44,13 +45,14 @@
     <insert id="insert">
         INSERT INTO novel_base (novel_id, novel_name, user_id, genre, novel_type, tone, taboo_list,
             total_outline, world_setting, llm_config_id,
-            word_count, chapter_count, status, is_deleted, create_time, update_time)
+            word_count, chapter_count, status, creation_mode, is_deleted, create_time, update_time)
         VALUES (#{novelId}, #{novelName}, #{userId}, #{genre},
             #{novelType, jdbcType=VARCHAR},
             #{tone, jdbcType=VARCHAR},
             #{tabooList, jdbcType=VARCHAR},
             #{totalOutline}, #{worldSetting}, #{llmConfigId, jdbcType=VARCHAR},
-            #{wordCount}, #{chapterCount}, #{status}, #{isDeleted}, #{createTime}, #{updateTime})
+            #{wordCount}, #{chapterCount}, #{status}, #{creationMode, jdbcType=VARCHAR},
+            #{isDeleted}, #{createTime}, #{updateTime})
     </insert>
 
     <update id="updateById">

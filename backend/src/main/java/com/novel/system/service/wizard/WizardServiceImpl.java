@@ -28,6 +28,8 @@ import org.springframework.stereotype.Service;
 
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -91,6 +93,7 @@ public class WizardServiceImpl implements WizardService {
         novel.setWorldSetting(request.getWorldSetting());
         novel.setLlmConfigId(request.getLlmConfigId());
         novel.setStatus(0);
+        novel.setCreationMode("wizard");
         novel.setCreateTime(LocalDateTime.now());
         novel.setUpdateTime(LocalDateTime.now());
         novelBaseMapper.insert(novel);
@@ -213,24 +216,45 @@ public class WizardServiceImpl implements WizardService {
 
     @Override
     public void generateArcChapterOutlinesStream(String novelId, int arcIndex, SseEmitter emitter) {
+        // 跟踪 emitter 是否仍可用（超时/关闭后不再发送）
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        // 安全发送：emitter 已关闭时静默跳过
+        java.util.function.BiConsumer<String, String> safeSend = (eventName, data) -> {
+            if (completed.get()) return;
+            try {
+                emitter.send(SseEmitter.event().name(eventName).data(data));
+            } catch (IllegalStateException ise) {
+                log.debug("SSE emitter 已关闭，跳过发送: event={}", eventName);
+                completed.set(true);
+            } catch (Exception e) {
+                log.warn("SSE 发送失败: event={}, error={}", eventName, e.getMessage());
+                completed.set(true);
+            }
+        };
+
+        // 注册超时/错误回调
+        emitter.onTimeout(() -> {
+            completed.set(true);
+            log.warn("SSE章纲生成超时: novelId={}, arcIndex={}", novelId, arcIndex);
+        });
+        emitter.onError(e -> {
+            completed.set(true);
+            log.warn("SSE章纲生成连接异常: novelId={}, error={}", novelId, e.getMessage());
+        });
+
         List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel == null) {
-            try {
-                emitter.send(SseEmitter.event().name("error")
-                    .data("{\"message\":\"小说不存在: " + novelId + "\"}"));
-            } catch (Exception ignored) {}
-            emitter.complete();
+            safeSend.accept("error", "{\"message\":\"小说不存在: " + novelId + "\"}");
+            safeComplete(emitter, completed);
             return;
         }
 
         String llmConfigId = novel.getLlmConfigId();
         if (arcIndex < 0 || arcIndex >= arcs.size()) {
-            try {
-                emitter.send(SseEmitter.event().name("error")
-                    .data("{\"message\":\"卷索引无效: " + arcIndex + "\"}"));
-            } catch (Exception ignored) {}
-            emitter.complete();
+            safeSend.accept("error", "{\"message\":\"卷索引无效: " + arcIndex + "\"}");
+            safeComplete(emitter, completed);
             return;
         }
 
@@ -241,11 +265,15 @@ public class WizardServiceImpl implements WizardService {
 
         try {
             for (int ch = startChapter; ch <= endChapter; ch++) {
+                if (completed.get()) {
+                    log.info("SSE 已关闭，停止生成后续章纲: novelId={}, 已完成到第{}章", novelId, ch - 1);
+                    break;
+                }
+
                 int current = ch - startChapter + 1;
 
-                // 推送进度事件
-                emitter.send(SseEmitter.event().name("progress")
-                    .data("{\"current\":" + current + ",\"total\":" + totalChapters + ",\"chapterNum\":" + ch + "}"));
+                safeSend.accept("progress",
+                    "{\"current\":" + current + ",\"total\":" + totalChapters + ",\"chapterNum\":" + ch + "}");
 
                 log.info("生成第{}卷第{}章章纲 ({}/{})", arc.getArcName(), ch, current, totalChapters);
 
@@ -266,13 +294,13 @@ public class WizardServiceImpl implements WizardService {
                                 ? objectMapper.writeValueAsString(response.getImplementationIdeas())
                                 : "[]"
                         );
-                        emitter.send(SseEmitter.event().name("outline").data(outlineData));
+                        safeSend.accept("outline", outlineData);
                     } else {
                         String errorData = String.format(
                             "{\"chapterNum\":%d,\"chapterTitle\":\"第%d章\",\"outline\":\"章纲生成失败: %s\"}",
                             ch, ch, escapeJson(response.getErrorMessage())
                         );
-                        emitter.send(SseEmitter.event().name("outline").data(errorData));
+                        safeSend.accept("outline", errorData);
                     }
                 } catch (Exception e) {
                     log.error("第{}章章纲生成异常", ch, e);
@@ -280,22 +308,27 @@ public class WizardServiceImpl implements WizardService {
                         "{\"chapterNum\":%d,\"chapterTitle\":\"第%d章\",\"outline\":\"章纲生成异常: %s\"}",
                         ch, ch, escapeJson(e.getMessage())
                     );
-                    emitter.send(SseEmitter.event().name("outline").data(errorData));
+                    safeSend.accept("outline", errorData);
                 }
             }
 
-            // 推送完成事件
-            emitter.send(SseEmitter.event().name("complete")
-                .data("{\"totalChapters\":" + totalChapters + "}"));
-            emitter.complete();
+            if (!completed.get()) {
+                safeSend.accept("complete", "{\"totalChapters\":" + totalChapters + "}");
+            }
+            safeComplete(emitter, completed);
 
         } catch (Exception e) {
             log.error("章纲流式生成失败", e);
+            safeSend.accept("error", "{\"message\":\"章纲生成失败: " + escapeJson(e.getMessage()) + "\"}");
+            safeComplete(emitter, completed);
+        }
+    }
+
+    private void safeComplete(SseEmitter emitter, AtomicBoolean completed) {
+        if (completed.compareAndSet(false, true)) {
             try {
-                emitter.send(SseEmitter.event().name("error")
-                    .data("{\"message\":\"章纲生成失败: " + escapeJson(e.getMessage()) + "\"}"));
+                emitter.complete();
             } catch (Exception ignored) {}
-            emitter.complete();
         }
     }
 
@@ -404,6 +437,8 @@ public class WizardServiceImpl implements WizardService {
                         genRequest.setStyleCardId(styleCardId);
 
                         ChapterGenerationResponse response = chapterGenerationService.generateChapter(genRequest);
+                        // 等待后处理完成，避免批量生成时并发 LLM 请求堆积
+                        chapterGenerationService.waitForPostProcessing();
 
                         if (response.getSuccess()) {
                             progress.setCompletedChapters(progress.getCompletedChapters() + 1);

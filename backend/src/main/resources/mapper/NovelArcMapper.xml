@@ -70,4 +70,17 @@
         DELETE FROM novel_arc WHERE novel_id = #{novelId}
     </delete>
 
+    <select id="countByNovelId" resultType="int">
+        SELECT COUNT(*) FROM novel_arc WHERE novel_id = #{novelId}
+    </select>
+
+    <select id="countByNovelIds" resultType="java.util.Map">
+        SELECT novel_id AS novelId, COUNT(*) AS cnt FROM novel_arc
+        WHERE novel_id IN
+        <foreach collection="novelIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        GROUP BY novel_id
+    </select>
+
 </mapper>

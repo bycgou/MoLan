@@ -10,9 +10,11 @@ import com.novel.system.dto.response.GenerationResultResponse;
 import com.novel.system.dto.response.NovelResponse;
 import com.novel.system.dto.response.OutlineResponse;
 import com.novel.system.entity.mongo.NovelGraph;
+import com.novel.system.entity.mysql.NovelArc;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.NovelChapter;
 import com.novel.system.entity.mysql.WorldClock;
+import com.novel.system.mapper.NovelArcMapper;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.mapper.WorldClockMapper;
@@ -43,6 +45,7 @@ import java.util.*;
 public class NovelServiceImpl implements NovelService {
 
     private final NovelBaseMapper novelBaseMapper;
+    private final NovelArcMapper novelArcMapper;
     private final NovelChapterMapper novelChapterMapper;
     private final WorldClockMapper worldClockMapper;
     private final ChapterGenerationService chapterGenerationService;
@@ -65,6 +68,7 @@ public class NovelServiceImpl implements NovelService {
         novel.setTotalOutline(request.getTotalOutline());
         novel.setWorldSetting(request.getWorldSetting());
         novel.setStatus(0);
+        novel.setCreationMode("classic");
         novel.setCreateTime(LocalDateTime.now());
         novel.setUpdateTime(LocalDateTime.now());
 
@@ -122,8 +126,47 @@ public class NovelServiceImpl implements NovelService {
             throw new IllegalArgumentException("用户未认证");
         }
         List<NovelBase> novels = novelBaseMapper.selectByUserId(userId);
+        if (novels.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 收集向导模式小说的ID，批量查询卷结构
+        List<String> wizardNovelIds = novels.stream()
+                .filter(n -> "wizard".equals(n.getCreationMode()))
+                .map(NovelBase::getNovelId)
+                .toList();
+
+        Map<String, List<NovelArc>> arcsMap = new HashMap<>();
+        if (!wizardNovelIds.isEmpty()) {
+            for (String novelId : wizardNovelIds) {
+                List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
+                if (!arcs.isEmpty()) {
+                    arcsMap.put(novelId, arcs);
+                }
+            }
+        }
+
         return novels.stream()
-                .map(this::convertToNovelResponse)
+                .map(n -> {
+                    NovelResponse resp = convertToNovelResponse(n);
+                    List<NovelArc> arcs = arcsMap.get(n.getNovelId());
+                    if (arcs != null) {
+                        resp.setArcCount(arcs.size());
+                        resp.setVolumes(arcs.stream().map(arc -> {
+                            String outline = arc.getArcOutline();
+                            if (outline != null && outline.length() > 100) {
+                                outline = outline.substring(0, 100) + "...";
+                            }
+                            return new NovelResponse.VolumeSummary(
+                                    arc.getArcId(), arc.getArcName(),
+                                    arc.getStartChapter(), arc.getEndChapter(),
+                                    arc.getChapterCount(), outline);
+                        }).toList());
+                    } else {
+                        resp.setArcCount(0);
+                    }
+                    return resp;
+                })
                 .toList();
     }
 
@@ -131,7 +174,24 @@ public class NovelServiceImpl implements NovelService {
     public NovelResponse getNovel(String novelId) {
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel != null) {
-            return convertToNovelResponse(novel);
+            NovelResponse resp = convertToNovelResponse(novel);
+            if ("wizard".equals(novel.getCreationMode())) {
+                List<NovelArc> arcs = novelArcMapper.selectByNovelId(novelId);
+                resp.setArcCount(arcs.size());
+                resp.setVolumes(arcs.stream().map(arc -> {
+                    String outline = arc.getArcOutline();
+                    if (outline != null && outline.length() > 100) {
+                        outline = outline.substring(0, 100) + "...";
+                    }
+                    return new NovelResponse.VolumeSummary(
+                            arc.getArcId(), arc.getArcName(),
+                            arc.getStartChapter(), arc.getEndChapter(),
+                            arc.getChapterCount(), outline);
+                }).toList());
+            } else {
+                resp.setArcCount(0);
+            }
+            return resp;
         }
         throw new NoSuchElementException("小说不存在");
     }
@@ -373,6 +433,7 @@ public class NovelServiceImpl implements NovelService {
         response.setWordCount(novel.getWordCount());
         response.setChapterCount(novel.getChapterCount());
         response.setStatus(novel.getStatus());
+        response.setCreationMode(novel.getCreationMode());
         response.setCreateTime(novel.getCreateTime());
         response.setUpdateTime(novel.getUpdateTime());
         return response;

@@ -220,6 +220,7 @@ public class ChapterServiceImpl implements ChapterService {
         response.setWordCount(chapter.getWordCount());
         response.setRhythmTag(chapter.getRhythmTag());
         response.setPlotFingerprint(chapter.getPlotFingerprint());
+        response.setGenerationStatus(chapter.getGenerationStatus());
         response.setCreateTime(chapter.getCreateTime());
         return response;
     }

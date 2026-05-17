@@ -33,6 +33,8 @@ public class ChapterResponse {
     private String rhythmTag;
     /** 剧情指纹（300字摘要） */
     private String plotFingerprint;
+    /** 生成状态：0-待生成, 1-生成中, 2-已生成, 3-生成失败 */
+    private Integer generationStatus = 0;
     /** 创建时间 */
     private LocalDateTime createTime;
     
@@ -50,10 +52,10 @@ public class ChapterResponse {
         return plotFingerprint;
     }
     
-    /** 前端期望 status（后端是 generationStatus，这里默认 2=已生成） */
+    /** 前端期望 status（后端是 generationStatus） */
     @JsonProperty("status")
     public Integer getStatus() {
-        return 2;
+        return generationStatus != null ? generationStatus : 0;
     }
     
     /** 前端期望 updateTime（使用 createTime 兜底） */

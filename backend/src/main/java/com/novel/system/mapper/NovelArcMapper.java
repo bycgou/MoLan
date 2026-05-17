@@ -15,4 +15,8 @@ public interface NovelArcMapper {
     int updateById(NovelArc arc);
     int deleteById(@Param("arcId") String arcId);
     int deleteByNovelId(@Param("novelId") String novelId);
+
+    int countByNovelId(@Param("novelId") String novelId);
+
+    List<java.util.Map<String, Object>> countByNovelIds(@Param("novelIds") List<String> novelIds);
 }

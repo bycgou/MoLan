@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 小说信息响应DTO
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class NovelResponse {
-    
+
     /** 小说ID */
     private String novelId;
     /** 小说名称 */
@@ -39,4 +40,23 @@ public class NovelResponse {
     private LocalDateTime createTime;
     /** 更新时间 */
     private LocalDateTime updateTime;
+    /** 创建模式：wizard-向导模式，classic-经典模式 */
+    private String creationMode;
+    /** 卷数 */
+    private Integer arcCount;
+    /** 卷结构摘要（仅向导模式） */
+    private List<VolumeSummary> volumes;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VolumeSummary {
+        private String arcId;
+        private String arcName;
+        private Integer startChapter;
+        private Integer endChapter;
+        private Integer chapterCount;
+        /** 卷纲摘要（截断到100字） */
+        private String arcOutline;
+    }
 }

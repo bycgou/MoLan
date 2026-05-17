@@ -29,6 +29,22 @@ public class AsyncConfig {
     }
 
     /**
+     * 章节后处理专用线程池（人物提取、伏笔提取、时间线提取等 LLM 调用）
+     * 低并发避免批量生成时压垮 LLM API
+     */
+    @Bean("postProcessExecutor")
+    public Executor postProcessExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(3);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("post-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * 默认异步执行器 — 自动传播 SecurityContext 到子线程
      * 解决 @Async 方法中 getCurrentUserId() 返回 null 的问题
      */

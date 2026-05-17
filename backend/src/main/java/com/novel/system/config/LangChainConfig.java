@@ -303,22 +303,18 @@ public class LangChainConfig {
         String baseUrl = buildBaseUrl(config);
         String apiKey = config.getApiKey();
 
-        // 优先使用用户配置的 modelName，回退到旧逻辑
+        // 优先使用 embeddingModel 字段，否则使用 modelName
         String embeddingModelName;
-        if (config.getModelName() != null && !config.getModelName().isEmpty()) {
-            // 用户在配置中指定了模型名称（推荐方式）
-            embeddingModelName = config.getModelName();
-        } else if (config.getEmbeddingModel() != null && !config.getEmbeddingModel().isEmpty()) {
-            // 兼容旧的 embeddingModel 字段
+        if (config.getEmbeddingModel() != null && !config.getEmbeddingModel().isEmpty()) {
             embeddingModelName = config.getEmbeddingModel();
-        } else if (baseUrl.contains("dashscope") || baseUrl.contains("aliyuncs.com")) {
-            embeddingModelName = "text-embedding-v2";
+        } else if (config.getModelName() != null && !config.getModelName().isEmpty()) {
+            embeddingModelName = config.getModelName();
         } else {
-            embeddingModelName = "text-embedding-ada-002";
+            throw new RuntimeException("未配置 embedding 模型名称，请在模型配置中设置 modelName 或 embeddingModel");
         }
 
         log.info("创建EmbeddingModel: model={}, baseUrl={}", embeddingModelName, baseUrl);
-        
+
         return OpenAiEmbeddingModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey != null ? apiKey : "***")

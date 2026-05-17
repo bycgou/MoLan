@@ -36,6 +36,8 @@ public class NovelBase {
     private Integer chapterCount = 0;
     /** 状态：0-草稿，1-连载中，2-已完结 */
     private Integer status = 0;
+    /** 创建模式：wizard-向导模式，classic-经典模式 */
+    private String creationMode;
     /** 是否已删除（软删除） */
     private Boolean isDeleted = false;
     /** 创建时间 */

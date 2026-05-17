@@ -54,4 +54,11 @@ public interface ChapterGenerationService {
      * @return 章节响应
      */
     ChapterGenerationResponse saveManualChapter(ChapterGenerationRequest request, String content, com.novel.system.ai.agent.SummaryAgentResponse summaryResponse);
+
+    /**
+     * 等待最近一次后处理完成（供批量生成使用，避免并发 LLM 请求堆积）
+     */
+    default void waitForPostProcessing() {
+        // 默认空实现，不影响单章 API 调用
+    }
 }
