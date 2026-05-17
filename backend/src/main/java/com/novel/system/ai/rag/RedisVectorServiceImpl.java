@@ -3,6 +3,7 @@ package com.novel.system.ai.rag;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.config.RedisVectorConfig;
 import com.novel.system.ai.rag.RedisVectorService;
+import com.novel.system.ai.rag.EmbeddingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisCallback;
@@ -102,6 +103,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     @Override
     public void saveVector(String key, float[] vector, Map<String, Object> metadata) {
+        EmbeddingService.validateVector(vector);
         try {
             Map<String, Object> doc = new HashMap<>(metadata);
             
@@ -125,6 +127,8 @@ public class RedisVectorServiceImpl implements RedisVectorService {
 
             log.info("向量保存成功: key={}, 向量维度={}, novelId={}", key, vector.length, novelId);
             
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             log.error("保存向量失败: {}", e.getMessage());
             throw new RuntimeException("保存向量失败", e);
