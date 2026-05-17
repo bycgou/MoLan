@@ -1,11 +1,9 @@
 package com.novel.system.service.llm;
 
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.data.embedding.Embedding;
+import com.novel.system.ai.rag.EmbeddingService;
 import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mysql.LlmConfig;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +26,7 @@ public class LlmServiceImpl implements LlmService {
     private final LlmConfigService llmConfigService;
     private final LangChainConfig langChainConfig;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final EmbeddingService embeddingService;
     
     private static final int MAX_RETRIES = 3;
     private static final long RETRY_DELAY_MS = 1000;
@@ -118,41 +117,7 @@ public class LlmServiceImpl implements LlmService {
     
     @Override
     public float[] getEmbedding(String text) {
-        LlmConfig config = null;
-        try {
-            // 1. 优先查找专用向量化模型
-            config = llmConfigService.getAnyActiveConfig("embedding");
-            if (config != null) {
-                log.info("使用专用 embedding 配置: {}", config.getConfigName());
-            } else {
-                // 2. 回退到用户配置
-                String userId = getCurrentUserId();
-                if (userId != null) {
-                    config = llmConfigService.getActiveConfig(userId, "all");
-                }
-                if (config == null) {
-                    config = getLlmConfig(null);
-                }
-                if (config != null) {
-                    log.warn("未找到专用 embedding 配置，回退到聊天模型配置: {}（建议添加 usageType=embedding 的专用配置）", config.getConfigName());
-                }
-            }
-            if (config == null) {
-                log.warn("未找到模型配置，返回空向量");
-                return new float[0];
-            }
-
-            EmbeddingModel embeddingModel = langChainConfig.createEmbeddingModel(config);
-            String truncatedText = text.substring(0, Math.min(text.length(), 8000));
-            Embedding embedding = embeddingModel.embed(truncatedText).content();
-
-            return embedding.vector();
-
-        } catch (Exception e) {
-            String info = config != null ? "baseUrl=" + config.getBaseUrl() + ", modelName=" + config.getModelName() : "config=null";
-            log.error("获取嵌入向量失败（{}）: {}", info, e.getMessage(), e);
-            return new float[0];
-        }
+        return embeddingService.embed(text);
     }
     
     @Override
@@ -309,6 +274,30 @@ public class LlmServiceImpl implements LlmService {
         }
         if (config == null) {
             throw new RuntimeException("未找到可用的模型配置");
+        }
+        return langChainConfig.createChatModel(config);
+    }
+
+    @Override
+    public ChatModel getModelForUsage(String usageType, String userId,
+                                       com.novel.system.config.LangChainConfig.TaskType taskType) {
+        LlmConfig config = null;
+        if (userId != null && !userId.isEmpty()) {
+            config = llmConfigService.getActiveConfig(userId, usageType);
+            if (config == null) {
+                config = llmConfigService.getActiveConfig(userId, "all");
+            }
+        }
+        if (config == null) {
+            config = llmConfigService.getAnyActiveConfig(usageType);
+        }
+        if (config == null) {
+            throw new RuntimeException("未找到可用的模型配置，请先在模型配置页面添加模型");
+        }
+
+        log.info("模型选择 -> 用户: {}, 用途: [{}], 选择模型: {}", userId, usageType, config.getModelName());
+        if (taskType != null) {
+            return langChainConfig.createChatModel(config, taskType);
         }
         return langChainConfig.createChatModel(config);
     }
