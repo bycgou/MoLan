@@ -31,8 +31,8 @@ public class EmbeddingService {
     public float[] embed(String text) {
         EmbeddingModel model = getEmbeddingModel();
         if (model == null) {
-            log.warn("未找到Embedding模型，返回空向量");
-            return new float[1536];
+            throw new IllegalStateException(
+                "未配置Embedding模型，请在模型管理中添加 usageType=embedding 的配置");
         }
 
         // 截断超长文本（DashScope text-embedding-v2 上限 2048 tokens ≈ 2000中文字符）
@@ -40,8 +40,13 @@ public class EmbeddingService {
         long start = System.currentTimeMillis();
         Embedding embedding = model.embed(truncated).content();
         long elapsed = System.currentTimeMillis() - start;
-        log.info("Embedding完成: 文本长度={}, 向量维度={}, 耗时={}ms", truncated.length(), embedding.vector().length, elapsed);
-        return embedding.vector();
+
+        float[] vector = embedding.vector();
+        validateVector(vector);
+
+        log.info("Embedding完成: 文本长度={}, 向量维度={}, 耗时={}ms",
+                 truncated.length(), vector.length, elapsed);
+        return vector;
     }
     
     /**
@@ -50,28 +55,56 @@ public class EmbeddingService {
     public List<float[]> embedAll(List<String> texts) {
         EmbeddingModel model = getEmbeddingModel();
         if (model == null) {
-            log.warn("未找到Embedding模型，返回空向量列表");
-            List<float[]> result = new ArrayList<>();
-            for (int i = 0; i < texts.size(); i++) {
-                result.add(new float[1536]);
-            }
-            return result;
+            throw new IllegalStateException(
+                "未配置Embedding模型，请在模型管理中添加 usageType=embedding 的配置");
         }
-        
+
         List<TextSegment> segments = new ArrayList<>();
         for (String text : texts) {
             String truncated = text.length() > 2000 ? text.substring(0, 2000) : text;
             segments.add(TextSegment.from(truncated));
         }
-        
+
         List<Embedding> embeddings = model.embedAll(segments).content();
         List<float[]> result = new ArrayList<>();
         for (Embedding e : embeddings) {
-            result.add(e.vector());
+            float[] vector = e.vector();
+            validateVector(vector);
+            result.add(vector);
         }
         return result;
     }
     
+    /** 向量维度常量 */
+    public static final int EXPECTED_DIMENSION = 1536;
+
+    /**
+     * 校验向量有效性：非null、非空、非全零、维度正确
+     * @throws IllegalArgumentException 向量无效时
+     */
+    public static void validateVector(float[] vector) {
+        if (vector == null) {
+            throw new IllegalArgumentException("向量为null");
+        }
+        if (vector.length == 0) {
+            throw new IllegalArgumentException("向量为空数组");
+        }
+        if (vector.length != EXPECTED_DIMENSION) {
+            throw new IllegalArgumentException(
+                "向量维度不匹配: 期望=" + EXPECTED_DIMENSION + ", 实际=" + vector.length);
+        }
+        boolean allZero = true;
+        for (float v : vector) {
+            if (v != 0.0f) {
+                allZero = false;
+                break;
+            }
+        }
+        if (allZero) {
+            throw new IllegalArgumentException("向量全为零，Embedding模型可能未正确配置");
+        }
+    }
+
     /**
      * 计算两个向量的余弦相似度
      */
