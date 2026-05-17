@@ -12,6 +12,11 @@ public interface RedisVectorService {
      * 创建向量索引
      */
     void createIndex();
+
+    /**
+     * 确保索引存在（启动时调用，幂等操作）
+     */
+    void ensureIndex();
     
     /**
      * 删除向量索引

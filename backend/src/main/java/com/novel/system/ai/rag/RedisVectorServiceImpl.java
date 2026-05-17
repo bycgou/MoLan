@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -33,7 +34,12 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     private static final String METADATA_PREFIX = "novel:meta:";
     private static final String INDEX_PREFIX = "novel:idx:";
     private static final int SCAN_BATCH_SIZE = 100;
-    
+
+    @PostConstruct
+    public void init() {
+        ensureIndex();
+    }
+
     @Override
     public void createIndex() {
         try {
@@ -42,11 +48,15 @@ public class RedisVectorServiceImpl implements RedisVectorService {
                 "$.novelId AS novelId TAG " +
                 "$.chapterNum AS chapterNum NUMERIC " +
                 "$.content AS content TEXT " +
-                "$.keywords AS keywords TAG SEPARATOR ','",
+                "$.keywords AS keywords TAG SEPARATOR ',' " +
+                "$.priority AS priority NUMERIC " +
+                "$.embedding AS embedding VECTOR FLAT 6 " +
+                "TYPE FLOAT32 DIM %d DISTANCE_METRIC COSINE",
                 vectorConfig.getIndexName(),
-                METADATA_PREFIX
+                METADATA_PREFIX,
+                vectorConfig.getDimension()
             );
-            log.info("创建索引命令: {}", createIndexCmd);
+            log.info("创建Redis向量索引: {}", createIndexCmd);
 
             redisTemplate.execute((RedisCallback<Void>) connection -> {
                 connection.execute(createIndexCmd);
@@ -60,6 +70,24 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             } else {
                 log.warn("Redis向量索引创建失败（可能Redis Stack未安装）: {}", e.getMessage());
             }
+        }
+    }
+
+    @Override
+    public void ensureIndex() {
+        try {
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                try {
+                    connection.execute("FT.INFO " + vectorConfig.getIndexName());
+                    log.debug("Redis向量索引已存在: {}", vectorConfig.getIndexName());
+                } catch (Exception e) {
+                    log.info("Redis向量索引不存在，开始创建...");
+                    createIndex();
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            log.warn("检查/创建Redis向量索引失败: {}", e.getMessage());
         }
     }
     
