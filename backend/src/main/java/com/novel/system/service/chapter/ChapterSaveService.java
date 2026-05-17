@@ -138,18 +138,16 @@ public class ChapterSaveService {
             String textToEmbed = chapterContent.length() > 2000
                     ? chapterContent.substring(0, 2000) : chapterContent;
             float[] vector = embeddingService.embed(textToEmbed);
-            if (vector.length > 0) {
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("novelId", novelId);
-                metadata.put("chapterNum", chapterNum);
-                metadata.put("chapterTitle", chapterTitle);
-                metadata.put("wordCount", wordCount);
-                String vectorKey = novelId + ":ch" + chapterNum;
-                redisVectorService.saveVector(vectorKey, vector, metadata);
-                log.info("章节向量化完成: 小说ID={}, 章节号={}, 向量维度={}", novelId, chapterNum, vector.length);
-            }
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("novelId", novelId);
+            metadata.put("chapterNum", chapterNum);
+            metadata.put("chapterTitle", chapterTitle);
+            metadata.put("wordCount", wordCount);
+            String vectorKey = novelId + ":ch" + chapterNum;
+            redisVectorService.saveVector(vectorKey, vector, metadata);
+            log.info("章节向量化完成: 小说ID={}, 章节号={}, 向量维度={}", novelId, chapterNum, vector.length);
         } catch (Exception e) {
-            log.warn("章节向量化失败（不影响保存）: {}", e.getMessage());
+            log.error("章节向量化失败，跳过Redis向量保存（不影响章节内容保存）: {}", e.getMessage());
         }
 
         // 保存摘要（MongoDB）
