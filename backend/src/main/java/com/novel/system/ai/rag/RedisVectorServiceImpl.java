@@ -137,38 +137,53 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     @Override
     public List<VectorSearchResult> search(float[] queryVector, int topK, String filter) {
+        EmbeddingService.validateVector(queryVector);
+
         try {
+            String filterExpr = buildFilterExpr(filter);
+            String knnQuery = String.format("(%s)=>[KNN %d @embedding $vec AS score]",
+                                            filterExpr, topK);
+
+            byte[] vecBytes = floatArrayToBytes(queryVector);
+
             List<VectorSearchResult> results = new ArrayList<>();
-            
-            // 根据过滤条件优化搜索策略
-            String targetNovelId = extractNovelId(filter);
-            
-            if (targetNovelId != null) {
-                // 已知novelId，使用索引缓存
-                String idxKey = INDEX_PREFIX + targetNovelId;
-                Set<String> keys = redisTemplate.opsForSet().members(idxKey);
-                
-                if (keys != null) {
-                    for (String key : keys) {
-                        processVectorKey(key, queryVector, filter, results);
-                    }
+
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                var args = new ArrayList<byte[]>();
+                args.add(vectorConfig.getIndexName().getBytes());
+                args.add(knnQuery.getBytes());
+                args.add("PARAMS".getBytes());
+                args.add("2".getBytes());
+                args.add("vec".getBytes());
+                args.add(vecBytes);
+                args.add("SORTBY".getBytes());
+                args.add("score".getBytes());
+                args.add("ASC".getBytes());
+                args.add("RETURN".getBytes());
+                args.add("5".getBytes());
+                args.add("novelId".getBytes());
+                args.add("chapterNum".getBytes());
+                args.add("content".getBytes());
+                args.add("keywords".getBytes());
+                args.add("score".getBytes());
+                args.add("DIALECT".getBytes());
+                args.add("2".getBytes());
+
+                var rawArgs = args.toArray(new byte[0][]);
+                Object result = connection.execute("FT.SEARCH", rawArgs);
+
+                if (result instanceof List<?> resultList) {
+                    parseSearchResults(resultList, results);
                 }
-            } else {
-                // 修复：未知novelId时，禁止全库扫描进行内存相似度计算，这会导致OOM
-                log.warn("未提供novelId过滤条件，为防止OOM，已拒绝全表扫描降级。如果配置了RediSearch请使用FT.SEARCH。");
-                // 暂时仅返回空结果，避免生产环境崩溃
-                return Collections.emptyList();
-            }
-            
-            // 按相似度排序并返回前topK个结果
-            results.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
-            List<VectorSearchResult> topResults = results.stream().limit(topK).collect(Collectors.toList());
-            log.info("向量搜索完成: novelId={}, 候选数={}, 返回数={}", targetNovelId, results.size(), topResults.size());
-            return topResults;
-            
+                return null;
+            });
+
+            log.info("FT.SEARCH完成: filter={}, topK={}, 返回数={}", filter, topK, results.size());
+            return results;
+
         } catch (Exception e) {
-            log.error("向量搜索失败: {}", e.getMessage());
-            return Collections.emptyList();
+            log.error("FT.SEARCH向量搜索失败，回退到Java侧计算: {}", e.getMessage());
+            return fallbackSearch(queryVector, topK, filter);
         }
     }
     
@@ -240,23 +255,122 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         double dotProduct = 0.0;
         double norm1 = 0.0;
         double norm2 = 0.0;
-        
+
         for (int i = 0; i < vector1.length; i++) {
             dotProduct += vector1[i] * vector2.get(i);
             norm1 += vector1[i] * vector1[i];
             norm2 += vector2.get(i) * vector2.get(i);
         }
-        
+
         norm1 = Math.sqrt(norm1);
         norm2 = Math.sqrt(norm2);
-        
+
         if (norm1 == 0 || norm2 == 0) {
             return 0.0;
         }
-        
+
         return dotProduct / (norm1 * norm2);
     }
-    
+
+    // ---- FT.SEARCH helper methods ----
+
+    private String buildFilterExpr(String filter) {
+        if (filter == null || filter.isEmpty()) {
+            return "*";
+        }
+        if (filter.startsWith("@novelId:{")) {
+            String novelId = filter.substring(10, filter.length() - 1);
+            return "@novelId:{" + escapeTag(novelId) + "}";
+        }
+        return filter;
+    }
+
+    private String escapeTag(String value) {
+        return value.replace("\\", "\\\\")
+                    .replace(",", "\\,")
+                    .replace(".", "\\.")
+                    .replace("<", "\\<")
+                    .replace(">", "\\>")
+                    .replace("{", "\\{")
+                    .replace("}", "\\}")
+                    .replace("[", "\\[")
+                    .replace("]", "\\]")
+                    .replace("\"", "\\\"")
+                    .replace("'", "\\'")
+                    .replace(":", "\\:");
+    }
+
+    private byte[] floatArrayToBytes(float[] floats) {
+        byte[] bytes = new byte[floats.length * 4];
+        for (int i = 0; i < floats.length; i++) {
+            int bits = Float.floatToIntBits(floats[i]);
+            bytes[i * 4] = (byte) (bits & 0xFF);
+            bytes[i * 4 + 1] = (byte) ((bits >> 8) & 0xFF);
+            bytes[i * 4 + 2] = (byte) ((bits >> 16) & 0xFF);
+            bytes[i * 4 + 3] = (byte) ((bits >> 24) & 0xFF);
+        }
+        return bytes;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void parseSearchResults(List<?> rawResults, List<VectorSearchResult> results) {
+        if (rawResults.size() < 2) return;
+
+        for (int i = 1; i < rawResults.size(); i += 2) {
+            if (i + 1 >= rawResults.size()) break;
+
+            String redisKey = new String((byte[]) rawResults.get(i));
+            List<?> fields = (List<?>) rawResults.get(i + 1);
+
+            String shortKey = redisKey.startsWith(METADATA_PREFIX)
+                ? redisKey.substring(METADATA_PREFIX.length())
+                : redisKey;
+
+            Map<String, Object> metadata = new HashMap<>();
+            double score = 0.0;
+
+            for (int j = 0; j < fields.size(); j += 2) {
+                if (j + 1 >= fields.size()) break;
+                String fieldName = new String((byte[]) fields.get(j));
+                Object rawValue = fields.get(j + 1);
+
+                if ("score".equals(fieldName)) {
+                    score = Double.parseDouble(new String((byte[]) rawValue));
+                } else if ("chapterNum".equals(fieldName)) {
+                    metadata.put("chapterNum", Integer.parseInt(new String((byte[]) rawValue)));
+                } else if ("novelId".equals(fieldName)) {
+                    metadata.put("novelId", new String((byte[]) rawValue));
+                } else if ("content".equals(fieldName)) {
+                    metadata.put("content", new String((byte[]) rawValue));
+                } else if ("keywords".equals(fieldName)) {
+                    metadata.put("keywords", new String((byte[]) rawValue));
+                }
+            }
+
+            double similarity = 1.0 - score;
+            results.add(new VectorSearchResult(shortKey, similarity, metadata));
+        }
+    }
+
+    private List<VectorSearchResult> fallbackSearch(float[] queryVector, int topK, String filter) {
+        log.warn("回退到Java侧暴力计算向量相似度");
+        List<VectorSearchResult> results = new ArrayList<>();
+
+        String targetNovelId = extractNovelId(filter);
+        if (targetNovelId != null) {
+            String idxKey = INDEX_PREFIX + targetNovelId;
+            Set<String> keys = redisTemplate.opsForSet().members(idxKey);
+            if (keys != null) {
+                for (String key : keys) {
+                    processVectorKey(key, queryVector, filter, results);
+                }
+            }
+        }
+
+        results.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
+        return results.stream().limit(topK).collect(Collectors.toList());
+    }
+
     @Override
     public void deleteVector(String key) {
         try {
