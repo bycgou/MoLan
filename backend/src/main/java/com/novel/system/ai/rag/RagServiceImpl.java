@@ -320,7 +320,8 @@ public class RagServiceImpl implements RagService {
                 log.info("向量保存成功: {}", key);
                 
             } catch (Exception e) {
-                log.error("保存向量失败: {}", e.getMessage());
+                log.error("向量化失败，跳过Redis向量保存（摘要仍会保存到MongoDB）: {}", e.getMessage());
+                summary.setEmbedding(null);
             }
         }
         
