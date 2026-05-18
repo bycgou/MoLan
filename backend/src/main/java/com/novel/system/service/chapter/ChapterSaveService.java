@@ -6,8 +6,6 @@ import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.ai.rag.RagService;
-import com.novel.system.ai.rag.EmbeddingService;
-import com.novel.system.ai.rag.RedisVectorService;
 import com.novel.system.repository.mongo.NovelGraphRepository;
 import com.novel.system.entity.mongo.NovelGraph;
 import com.novel.system.service.story.StoryStateService;
@@ -39,8 +37,6 @@ public class ChapterSaveService {
     private final NovelChapterMapper novelChapterMapper;
     private final RagService ragService;
     private final NovelGraphRepository novelGraphRepository;
-    private final EmbeddingService embeddingService;
-    private final RedisVectorService redisVectorService;
     private final StoryStateService storyStateService;
     @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
@@ -133,24 +129,7 @@ public class ChapterSaveService {
     @Async
     public void saveToMongoAsync(String novelId, int chapterNum, String chapterTitle,
                                     String chapterContent, int wordCount, ChapterSummary summary) {
-        try {
-            // 向量化章节内容（异步增强RAG检索）
-            String textToEmbed = chapterContent.length() > 2000
-                    ? chapterContent.substring(0, 2000) : chapterContent;
-            float[] vector = embeddingService.embed(textToEmbed);
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("novelId", novelId);
-            metadata.put("chapterNum", chapterNum);
-            metadata.put("chapterTitle", chapterTitle);
-            metadata.put("wordCount", wordCount);
-            String vectorKey = novelId + ":ch" + chapterNum;
-            redisVectorService.saveVector(vectorKey, vector, metadata);
-            log.info("章节向量化完成: 小说ID={}, 章节号={}, 向量维度={}", novelId, chapterNum, vector.length);
-        } catch (Exception e) {
-            log.error("章节向量化失败，跳过Redis向量保存（不影响章节内容保存）: {}", e.getMessage());
-        }
-
-        // 保存摘要（MongoDB）
+        // 保存摘要（MongoDB + Redis向量）
         try {
             ragService.saveSummary(summary);
         } catch (Exception e) {
