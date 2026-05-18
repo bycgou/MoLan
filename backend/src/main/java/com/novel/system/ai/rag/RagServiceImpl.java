@@ -142,30 +142,27 @@ public class RagServiceImpl implements RagService {
     @Override
     public List<ChapterSummary> bm25Search(String novelId, String queryText, int topK) {
         try {
-            // 使用MongoDB全文索引
+            // 使用MongoDB全文索引（对中文使用整个查询文本，由MongoDB的zh locale处理分词）
             TextCriteria criteria = TextCriteria.forDefaultLanguage()
-                .matchingAny(queryText.split("\\s+"));
-            
+                .matching(queryText);
+
             Query query = TextQuery.queryText(criteria)
                 .sortByScore()
                 .addCriteria(Criteria.where("novelId").is(novelId))
                 .limit(topK);
-            
+
             return mongoTemplate.find(query, ChapterSummary.class);
-            
+
         } catch (Exception e) {
             log.warn("BM25搜索失败，回退到关键词搜索: {}", e.getMessage());
-            
-            // 回退到简单的关键词搜索
-            String[] keywords = queryText.split("\\s+");
-            List<String> keywordList = Arrays.asList(keywords);
-            
+
+            // 回退到基于摘要keywords字段的匹配
             Query query = new Query();
             query.addCriteria(Criteria.where("novelId").is(novelId));
-            query.addCriteria(Criteria.where("keywords").in(keywordList));
+            query.addCriteria(Criteria.where("content").regex(queryText.substring(0, Math.min(queryText.length(), 50))));
             query.with(Sort.by(Sort.Direction.DESC, "chapterNum"));
             query.limit(topK);
-            
+
             return mongoTemplate.find(query, ChapterSummary.class);
         }
     }
@@ -269,36 +266,53 @@ public class RagServiceImpl implements RagService {
     }
 
     /**
-     * 计算相关性分数（简化版BM25）
+     * 计算相关性分数（支持中文的字符级匹配）
      */
     private double calculateRelevanceScore(String query, ChapterSummary summary) {
         if (summary.getContent() == null) {
             return 0.0;
         }
-        
+
         String content = summary.getContent().toLowerCase();
-        String[] queryTerms = query.toLowerCase().split("\\s+");
-        
+        String queryLower = query.toLowerCase();
+
         double score = 0.0;
+
+        // 按空格分词（英文场景），同时保留整个查询用于中文匹配
+        String[] queryTerms = queryLower.split("\\s+");
+
         for (String term : queryTerms) {
+            if (term.isEmpty()) continue;
             if (content.contains(term)) {
                 score += 1.0;
             }
-            
-            // 关键词匹配加分
-            if (summary.getKeywords() != null) {
-                for (String keyword : summary.getKeywords()) {
-                    if (keyword.toLowerCase().contains(term)) {
-                        score += 0.5;
-                    }
+        }
+
+        // 中文场景：用整个查询文本做子串匹配（中文无空格分隔）
+        if (queryTerms.length <= 1 && queryLower.length() > 2) {
+            // 按标点和常见分隔符切分，得到句子片段
+            String[] segments = queryLower.split("[，。！？、；：\\s]+");
+            for (String seg : segments) {
+                if (seg.length() >= 2 && content.contains(seg)) {
+                    score += 1.0;
                 }
             }
         }
-        
+
+        // 关键词匹配加分
+        if (summary.getKeywords() != null) {
+            for (String keyword : summary.getKeywords()) {
+                String kw = keyword.toLowerCase();
+                if (queryLower.contains(kw) || content.contains(kw)) {
+                    score += 0.5;
+                }
+            }
+        }
+
         // 优先级加权
         int priority = summary.getPriority() != null ? summary.getPriority() : 3;
         score *= (4 - priority) * 0.25 + 0.5;
-        
+
         return score;
     }
     

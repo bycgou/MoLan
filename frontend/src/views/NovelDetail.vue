@@ -1,5 +1,101 @@
 <template>
   <div class="novel-detail" v-loading="loading">
+
+    <!-- 向导模式：卷纲结构 + 批量生成 -->
+    <el-card v-if="isWizardMode && novel" class="wizard-panel" shadow="hover">
+      <template #header>
+        <div class="wizard-header">
+          <span>📚 卷纲结构</span>
+          <div>
+            <el-button
+              type="primary"
+              :loading="batchPolling"
+              :disabled="batchPolling"
+              @click="startBatchGeneration"
+            >
+              {{ batchPolling ? '生成中...' : '继续批量生成' }}
+            </el-button>
+            <el-button
+              v-if="batchPolling"
+              type="danger"
+              plain
+              @click="cancelBatchGeneration"
+            >取消生成</el-button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 批量生成进度 -->
+      <div v-if="batchProgress" class="batch-progress">
+        <el-progress
+          :percentage="Math.round((batchProgress.completedChapters / Math.max(batchProgress.totalChapters, 1)) * 100)"
+          :status="batchProgress.status === 'COMPLETED' ? 'success' : batchProgress.status === 'FAILED' ? 'exception' : batchProgress.status === 'CANCELLED' ? 'warning' : ''"
+          :stroke-width="20"
+          striped
+          striped-flow
+        />
+        <div class="batch-progress-info">
+          <span>已完成: {{ batchProgress.completedChapters }}/{{ batchProgress.totalChapters }}</span>
+          <span v-if="batchProgress.failedChapters > 0" style="color: #f56c6c;">失败: {{ batchProgress.failedChapters }}</span>
+          <span v-if="batchProgress.currentPhase">{{ batchProgress.currentPhase }}</span>
+        </div>
+        <el-alert
+          v-if="batchProgress.status === 'COMPLETED'"
+          title="批量生成已完成"
+          type="success"
+          :closable="false"
+          show-icon
+          style="margin-top: 8px;"
+        />
+        <el-alert
+          v-if="batchProgress.status === 'FAILED'"
+          :title="'生成失败: ' + (batchProgress.errorMessage || '未知错误')"
+          type="error"
+          :closable="false"
+          show-icon
+          style="margin-top: 8px;"
+        />
+        <el-alert
+          v-if="batchProgress.status === 'CANCELLED'"
+          title="生成已取消"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 8px;"
+        />
+      </div>
+
+      <!-- 卷结构列表 -->
+      <div v-if="novel.volumes?.length" class="arc-list">
+        <div v-for="vol in novel.volumes" :key="vol.arcId" class="arc-item" @click="toggleArc(vol.arcId)">
+          <div class="arc-item-header">
+            <el-tag type="primary" size="small">{{ vol.arcName }}</el-tag>
+            <span class="arc-chapters">第{{ vol.startChapter }}-{{ vol.endChapter }}章（{{ vol.chapterCount }}章）</span>
+            <span class="arc-expand-icon">{{ expandedArcs.has(vol.arcId) ? '▾' : '▸' }}</span>
+          </div>
+          <div v-if="vol.arcOutline" class="arc-outline">{{ vol.arcOutline }}</div>
+          <el-progress
+            :percentage="getArcProgress(vol)"
+            :stroke-width="8"
+            :status="getArcProgress(vol) === 100 ? 'success' : ''"
+            style="margin-top: 4px;"
+          />
+          <!-- 展开的章纲列表 -->
+          <div v-if="expandedArcs.has(vol.arcId)" class="arc-chapter-list">
+            <div v-for="ch in getArcChapters(vol)" :key="ch.chapterId" class="arc-chapter-item">
+              <span class="arc-chapter-num">第{{ ch.chapterNum }}章</span>
+              <span class="arc-chapter-title">{{ ch.chapterTitle || '未生成标题' }}</span>
+              <el-tag size="small" :type="ch.status === 2 ? 'success' : ch.status === 3 ? 'danger' : 'info'">
+                {{ ch.status === 2 ? '已生成' : ch.status === 1 ? '生成中' : ch.status === 3 ? '失败' : '待生成' }}
+              </el-tag>
+            </div>
+            <el-empty v-if="getArcChapters(vol).length === 0" description="暂无章节" :image-size="40" />
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="暂无卷纲数据" :image-size="60" />
+    </el-card>
+
     <el-row :gutter="20">
       <!-- 左侧：面板 -->
       <el-col :span="8">
@@ -280,7 +376,7 @@ import * as echarts from 'echarts'
 import '@wangeditor/editor/dist/css/style.css'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import type { IDomEditor, IToolbarConfig, IEditorConfig } from '@wangeditor/editor'
-import { novelApi, chapterApi, characterApi, llmConfigApi, rhythmApi, hookApi } from '@/api'
+import { novelApi, chapterApi, characterApi, llmConfigApi, rhythmApi, hookApi, wizardApi } from '@/api'
 import type { NovelVO, ChapterListItem, CharacterVO, LlmConfigVO, RhythmStatusVO } from '@/types'
 
 // Sub-components
@@ -302,6 +398,14 @@ const characters = ref<CharacterVO[]>([])
 const llmConfigs = ref<LlmConfigVO[]>([])
 const rhythmStatus = ref<RhythmStatusVO | null>(null)
 const recommendedStrand = ref('')
+const expandedArcs = ref<Set<string>>(new Set())
+
+// ---- 向导模式批量生成 ----
+const isWizardMode = computed(() => novel.value?.creationMode === 'wizard')
+const batchTaskId = ref('')
+const batchProgress = ref<import('@/types').BatchGenerationProgress | null>(null)
+const batchPolling = ref(false)
+let batchTimer: number | null = null
 
 // ---- 对话框 ----
 const generateDialogVisible = ref(false)
@@ -447,6 +551,85 @@ async function loadRhythmStatus() {
     const recRes = await rhythmApi.getRecommendedStrand(novelId)
     if (recRes.code === 200) recommendedStrand.value = recRes.data
   } catch (e) { console.warn('节奏系统加载失败', e) }
+}
+
+// ---- 向导模式批量生成 ----
+function getArcProgress(vol: import('@/types').VolumeSummary): number {
+  if (!chapters.value.length || vol.chapterCount === 0) return 0
+  const completed = chapters.value.filter(
+    c => c.chapterNum >= vol.startChapter && c.chapterNum <= vol.endChapter && c.status === 2
+  ).length
+  return Math.round((completed / vol.chapterCount) * 100)
+}
+
+function toggleArc(arcId: string) {
+  if (expandedArcs.value.has(arcId)) {
+    expandedArcs.value.delete(arcId)
+  } else {
+    expandedArcs.value.add(arcId)
+  }
+}
+
+function getArcChapters(vol: import('@/types').VolumeSummary) {
+  return chapters.value.filter(
+    c => c.chapterNum >= vol.startChapter && c.chapterNum <= vol.endChapter
+  ).sort((a, b) => a.chapterNum - b.chapterNum)
+}
+
+async function startBatchGeneration() {
+  try {
+    const res = await wizardApi.batchGenerate(novelId)
+    if (res.code === 200) {
+      batchTaskId.value = res.data as string
+      batchPolling.value = true
+      ElMessage.info('批量生成已开始，请耐心等待...')
+      startBatchPolling()
+    } else {
+      ElMessage.error(res.message || '启动批量生成失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('启动批量生成失败: ' + (e.message || '未知错误'))
+  }
+}
+
+function startBatchPolling() {
+  stopBatchPolling()
+  batchTimer = window.setInterval(async () => {
+    if (!batchTaskId.value) return
+    try {
+      const res = await wizardApi.getBatchStatus(novelId, batchTaskId.value)
+      if (res.code === 200) {
+        batchProgress.value = res.data as import('@/types').BatchGenerationProgress
+        if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(batchProgress.value.status)) {
+          stopBatchPolling()
+          if (batchProgress.value.status === 'COMPLETED') {
+            ElMessage.success('批量生成完成！')
+            loadChapters()
+            loadNovel()
+            loadCharacters()
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }, 3000)
+}
+
+function stopBatchPolling() {
+  batchPolling.value = false
+  if (batchTimer) {
+    clearInterval(batchTimer)
+    batchTimer = null
+  }
+}
+
+async function cancelBatchGeneration() {
+  if (!batchTaskId.value) return
+  try {
+    await wizardApi.batchCancel(novelId, batchTaskId.value)
+    ElMessage.info('已请求取消生成')
+    stopBatchPolling()
+    batchProgress.value = null
+  } catch { ElMessage.error('取消失败') }
 }
 
 // ---- 操作 ----
@@ -931,7 +1114,7 @@ async function initGraph() {
         type: 'graph',
         layout: 'force',
         data: graphData.nodes.map((n) => ({ ...n, symbolSize: 40 })),
-        links: graphData.edges.map((e) => ({ source: e.source, target: e.target, label: { show: true, formatter: e.label || '' } })),
+        links: graphData.edges.map((e) => ({ source: e.source, target: e.target, label: { show: true, formatter: e.relation || e.label || '' } })),
         roam: true,
         label: { show: true, position: 'right' },
         force: { repulsion: 200 },
@@ -958,6 +1141,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopPollingStatus()
+  stopBatchPolling()
   if (graphChartInstance) {
     graphChartInstance.dispose()
     graphChartInstance = null
@@ -1039,5 +1223,104 @@ onBeforeUnmount(() => {
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+.wizard-panel {
+  margin-bottom: 20px;
+}
+
+.wizard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.batch-progress {
+  margin-bottom: 16px;
+}
+
+.batch-progress-info {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #606266;
+  margin-top: 6px;
+}
+
+.arc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arc-item {
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  border-left: 3px solid #409eff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.arc-item:hover {
+  background: #ecf5ff;
+}
+
+.arc-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.arc-chapters {
+  font-size: 13px;
+  color: #909399;
+}
+
+.arc-outline {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.arc-expand-icon {
+  margin-left: auto;
+  font-size: 14px;
+  color: #909399;
+}
+
+.arc-chapter-list {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e4e7ed;
+}
+
+.arc-chapter-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.arc-chapter-num {
+  font-weight: 500;
+  color: #409eff;
+  white-space: nowrap;
+}
+
+.arc-chapter-title {
+  flex: 1;
+  color: #606266;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

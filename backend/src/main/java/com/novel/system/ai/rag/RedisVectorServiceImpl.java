@@ -104,7 +104,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     @Override
     public void saveVector(String key, float[] vector, Map<String, Object> metadata) {
-        EmbeddingService.validateVector(vector);
+        EmbeddingService.validateVector(vector, vectorConfig.getDimension());
         try {
             Map<String, Object> doc = new HashMap<>(metadata);
             
@@ -141,7 +141,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     @Override
     public List<VectorSearchResult> search(float[] queryVector, int topK, String filter) {
-        EmbeddingService.validateVector(queryVector);
+        EmbeddingService.validateVector(queryVector, vectorConfig.getDimension());
 
         try {
             String filterExpr = buildFilterExpr(filter);
@@ -221,9 +221,9 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             // 过滤检查
             if (!passesFilter(doc, filter)) return;
             
-            List<Double> embeddingList = (List<Double>) doc.get("embedding");
-            if (embeddingList != null && embeddingList.size() == queryVector.length) {
-                double similarity = calculateCosineSimilarity(queryVector, embeddingList);
+            List<?> rawEmbedding = (List<?>) doc.get("embedding");
+            if (rawEmbedding != null && rawEmbedding.size() == queryVector.length) {
+                double similarity = calculateCosineSimilarity(queryVector, rawEmbedding);
                 
                 VectorSearchResult result = new VectorSearchResult(
                     key.substring(METADATA_PREFIX.length()),
@@ -255,15 +255,16 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         return null;
     }
     
-    private double calculateCosineSimilarity(float[] vector1, List<Double> vector2) {
+    private double calculateCosineSimilarity(float[] vector1, List<?> vector2) {
         double dotProduct = 0.0;
         double norm1 = 0.0;
         double norm2 = 0.0;
 
         for (int i = 0; i < vector1.length; i++) {
-            dotProduct += vector1[i] * vector2.get(i);
+            double v2 = ((Number) vector2.get(i)).doubleValue();
+            dotProduct += vector1[i] * v2;
             norm1 += vector1[i] * vector1[i];
-            norm2 += vector2.get(i) * vector2.get(i);
+            norm2 += v2 * v2;
         }
 
         norm1 = Math.sqrt(norm1);
@@ -383,7 +384,9 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             Set<String> keys = redisTemplate.opsForSet().members(idxKey);
             if (keys != null) {
                 for (String key : keys) {
-                    processVectorKey(key, queryVector, filter, results);
+                    // Set 中存的是短 key（如 xxx:ch1），需要补全前缀
+                    String fullKey = key.startsWith(METADATA_PREFIX) ? key : METADATA_PREFIX + key;
+                    processVectorKey(fullKey, queryVector, filter, results);
                 }
             }
         }
@@ -410,7 +413,10 @@ public class RedisVectorServiceImpl implements RedisVectorService {
                 }
             } catch (Exception ignored) {}
             
-            redisTemplate.delete(fullKey);
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                connection.execute("JSON.DEL", fullKey.getBytes(StandardCharsets.UTF_8));
+                return null;
+            });
             log.debug("向量删除成功: {}", key);
         } catch (Exception e) {
             log.error("删除向量失败: {}", e.getMessage());

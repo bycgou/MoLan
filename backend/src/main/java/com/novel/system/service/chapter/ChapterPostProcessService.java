@@ -7,14 +7,13 @@ import com.novel.system.config.LangChainConfig;
 import com.novel.system.entity.mongo.CharacterState;
 import com.novel.system.entity.mongo.NovelGraph;
 import com.novel.system.entity.mysql.ClueBook;
-import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.repository.mongo.NovelGraphRepository;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.event.ContentExtractorService;
-import com.novel.system.service.llm.LlmConfigService;
+import com.novel.system.service.llm.LlmService;
 import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,8 +41,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ChapterPostProcessService {
 
-    private final LangChainConfig langChainConfig;
-    private final LlmConfigService llmConfigService;
+    private final LlmService llmService;
     private final CharacterStateService characterStateService;
     private final ClueBookService clueBookService;
     private final NovelBaseMapper novelBaseMapper;
@@ -81,21 +79,15 @@ public class ChapterPostProcessService {
         long start = System.currentTimeMillis();
 
         try {
-            // 优先使用用户配置的模型
+            // 通过 LlmService 统一模型选择逻辑
             String userId = getCurrentUserId();
-            LlmConfig llmConfig = null;
-            if (userId != null) {
-                llmConfig = llmConfigService.getActiveConfig(userId, "all");
-            }
-            if (llmConfig == null) {
-                llmConfig = llmConfigService.getAnyActiveConfig("all");
-            }
-            if (llmConfig == null) {
-                log.warn("无活跃LLM配置，跳过后处理");
+            ChatModel model;
+            try {
+                model = llmService.getModelForUsage("all", userId, LangChainConfig.TaskType.STRUCTURED);
+            } catch (RuntimeException e) {
+                log.warn("无活跃LLM配置，跳过后处理: {}", e.getMessage());
                 return;
             }
-
-            ChatModel model = langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED);
 
             // 获取已有数据（用于去重）
             List<CharacterState> existingChars = characterStateService.getCharactersByNovelId(novelId);
@@ -373,12 +365,14 @@ public class ChapterPostProcessService {
         } catch (Exception e) {
             log.warn("解析人物JSON失败，回退到LLM提取: {}", e.getMessage());
             // JSON 解析失败时回退到 LLM 提取
-            LlmConfig llmConfig = llmConfigService.getAnyActiveConfig("all");
-            if (llmConfig != null) {
-                ChatModel model = langChainConfig.createChatModel(llmConfig, LangChainConfig.TaskType.STRUCTURED);
+            try {
+                String userId = getCurrentUserId();
+                ChatModel model = llmService.getModelForUsage("all", userId, LangChainConfig.TaskType.STRUCTURED);
                 extractCharacters(model, novelId, chapterNum,
                         characterJson.length() > 4000 ? characterJson.substring(0, 4000) : characterJson,
                         existingNames);
+            } catch (RuntimeException ex) {
+                log.warn("回退LLM提取也失败: {}", ex.getMessage());
             }
         }
     }

@@ -4,6 +4,7 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import com.novel.system.config.LangChainConfig;
+import com.novel.system.config.RedisVectorConfig;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.service.llm.LlmConfigService;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class EmbeddingService {
     
     private final LangChainConfig langChainConfig;
     private final LlmConfigService llmConfigService;
+    private final RedisVectorConfig vectorConfig;
     
     /**
      * 将单个文本转为向量
@@ -42,7 +44,7 @@ public class EmbeddingService {
         long elapsed = System.currentTimeMillis() - start;
 
         float[] vector = embedding.vector();
-        validateVector(vector);
+        validateVector(vector, vectorConfig.getDimension());
 
         log.info("Embedding完成: 文本长度={}, 向量维度={}, 耗时={}ms",
                  truncated.length(), vector.length, elapsed);
@@ -69,29 +71,31 @@ public class EmbeddingService {
         List<float[]> result = new ArrayList<>();
         for (Embedding e : embeddings) {
             float[] vector = e.vector();
-            validateVector(vector);
+            validateVector(vector, vectorConfig.getDimension());
             result.add(vector);
         }
         return result;
     }
     
-    /** 向量维度常量 */
-    public static final int EXPECTED_DIMENSION = 1536;
+    /** 向量维度默认值（实际维度从 RedisVectorConfig 读取） */
+    public static final int DEFAULT_DIMENSION = 1536;
 
     /**
      * 校验向量有效性：非null、非空、非全零、维度正确
+     * @param vector 待校验向量
+     * @param expectedDimension 期望维度（从 RedisVectorConfig 获取）
      * @throws IllegalArgumentException 向量无效时
      */
-    public static void validateVector(float[] vector) {
+    public static void validateVector(float[] vector, int expectedDimension) {
         if (vector == null) {
             throw new IllegalArgumentException("向量为null");
         }
         if (vector.length == 0) {
             throw new IllegalArgumentException("向量为空数组");
         }
-        if (vector.length != EXPECTED_DIMENSION) {
+        if (vector.length != expectedDimension) {
             throw new IllegalArgumentException(
-                "向量维度不匹配: 期望=" + EXPECTED_DIMENSION + ", 实际=" + vector.length);
+                "向量维度不匹配: 期望=" + expectedDimension + ", 实际=" + vector.length);
         }
         boolean allZero = true;
         for (float v : vector) {

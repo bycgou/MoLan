@@ -73,6 +73,16 @@ public interface LlmService {
     dev.langchain4j.model.chat.ChatModel getModelForAgent(String llmConfigId);
 
     /**
+     * 根据用途和用户获取ChatModel实例（统一模型选择逻辑）
+     * @param usageType 用途(outline/writing/summary/audit/all)
+     * @param userId 用户ID，null则全局兜底
+     * @param taskType 任务类型，null则使用默认温度
+     * @return ChatModel实例
+     */
+    dev.langchain4j.model.chat.ChatModel getModelForUsage(String usageType, String userId,
+                                                           com.novel.system.config.LangChainConfig.TaskType taskType);
+
+    /**
      * 使用自定义 maxTokens 生成文本（用于需要更大输出的场景，如文风分析）
      * @param systemInstruction 系统指令
      * @param userMessage 用户消息

@@ -541,6 +541,7 @@ const handleSaveNovel = async () => {
 
 // Step 4: 开始生成章纲
 const startChapterOutlineGeneration = () => {
+  goToStep(3)
   currentArcIndex.value = 0
   generateCurrentArcOutlines()
 }

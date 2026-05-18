@@ -38,6 +38,15 @@ export interface UserVO {
 // 小说相关
 // ============================================================
 
+export interface VolumeSummary {
+  arcId: string
+  arcName: string
+  startChapter: number
+  endChapter: number
+  chapterCount: number
+  arcOutline: string
+}
+
 export interface NovelVO {
   novelId: string
   novelName: string
@@ -52,6 +61,9 @@ export interface NovelVO {
   wordCount: number
   createTime: string
   updateTime: string
+  creationMode?: string // 'wizard' | 'classic'
+  arcCount?: number
+  volumes?: VolumeSummary[]
 }
 
 export interface CreateNovelRequest {
@@ -92,6 +104,7 @@ export interface GraphEdge {
   target: string
   type: string
   label?: string
+  relation?: string
 }
 
 export interface TimelineVO {

@@ -13,13 +13,31 @@
         <el-card class="novel-card" shadow="hover">
           <div class="novel-header">
             <h3 class="novel-title">{{ novel.novelName }}</h3>
-            <el-tag :type="getStatusType(novel.status)">
-              {{ getStatusText(novel.status) }}
-            </el-tag>
+            <div class="novel-tags">
+              <el-tag v-if="novel.creationMode === 'wizard'" type="warning" size="small" effect="dark">
+                向导模式
+              </el-tag>
+              <el-tag :type="getStatusType(novel.status)">
+                {{ getStatusText(novel.status) }}
+              </el-tag>
+            </div>
           </div>
           <div class="novel-info">
             <p><strong>类型：</strong>{{ novel.genre || '未设置' }}</p>
-            <p><strong>章节：</strong>{{ novel.chapterCount || 0 }} 章</p>
+            <template v-if="novel.creationMode === 'wizard'">
+              <p><strong>章节：</strong>{{ novel.chapterCount || 0 }} 章</p>
+              <div v-if="novel.volumes && novel.volumes.length > 0" class="volume-list">
+                <p class="volume-title"><strong>卷结构：</strong></p>
+                <div v-for="vol in novel.volumes" :key="vol.arcId" class="volume-item">
+                  <span class="volume-name">{{ vol.arcName }}</span>
+                  <span class="volume-range">（第{{ vol.startChapter }}-{{ vol.endChapter }}章）</span>
+                  <p v-if="vol.arcOutline" class="volume-outline">{{ vol.arcOutline }}</p>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <p><strong>章节：</strong>{{ novel.chapterCount || 0 }} 章</p>
+            </template>
             <p><strong>字数：</strong>{{ formatWordCount(novel.wordCount || 0) }}</p>
             <p><strong>更新：</strong>{{ formatDate(novel.updateTime) }}</p>
           </div>
@@ -165,6 +183,12 @@ onMounted(() => {
   margin-bottom: 15px;
 }
 
+.novel-tags {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .novel-title {
   margin: 0;
   font-size: 18px;
@@ -184,5 +208,45 @@ onMounted(() => {
 .novel-actions {
   display: flex;
   gap: 10px;
+}
+
+.volume-list {
+  margin-top: 4px;
+}
+
+.volume-title {
+  margin: 8px 0 4px;
+}
+
+.volume-item {
+  padding: 4px 0;
+  border-bottom: 1px dashed #ebeef5;
+}
+
+.volume-item:last-child {
+  border-bottom: none;
+}
+
+.volume-name {
+  font-weight: 500;
+  color: #303133;
+  font-size: 13px;
+}
+
+.volume-range {
+  font-size: 12px;
+  color: #909399;
+}
+
+.volume-outline {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 </style>
