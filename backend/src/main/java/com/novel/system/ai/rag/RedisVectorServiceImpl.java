@@ -213,7 +213,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     private void processVectorKey(String key, float[] queryVector, String filter, 
                                   List<VectorSearchResult> results) {
         try {
-            String jsonDoc = redisTemplate.opsForValue().get(key);
+            String jsonDoc = jsonGet(key);
             if (jsonDoc == null) return;
             
             Map<String, Object> doc = objectMapper.readValue(jsonDoc, Map.class);
@@ -274,6 +274,21 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         }
 
         return dotProduct / (norm1 * norm2);
+    }
+
+    private String jsonGet(String key) {
+        return redisTemplate.execute((RedisCallback<String>) connection -> {
+            byte[] result = (byte[]) connection.execute(
+                "JSON.GET",
+                key.getBytes(StandardCharsets.UTF_8),
+                "$".getBytes(StandardCharsets.UTF_8));
+            if (result == null) return null;
+            String arrayJson = new String(result, StandardCharsets.UTF_8);
+            if (arrayJson.startsWith("[") && arrayJson.endsWith("]")) {
+                return arrayJson.substring(1, arrayJson.length() - 1);
+            }
+            return arrayJson;
+        });
     }
 
     // ---- FT.SEARCH helper methods ----
@@ -385,7 +400,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             
             // 获取novelId用于清理索引
             try {
-                String jsonDoc = redisTemplate.opsForValue().get(fullKey);
+                String jsonDoc = jsonGet(fullKey);
                 if (jsonDoc != null) {
                     doc = objectMapper.readValue(jsonDoc, Map.class);
                     String novelId = (String) doc.get("novelId");
