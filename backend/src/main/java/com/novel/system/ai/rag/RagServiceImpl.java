@@ -53,7 +53,7 @@ public class RagServiceImpl implements RagService {
         
         // 2. 混合检索（向量 + BM25 + RRF）
         try {
-            String queryText = "第" + currentChapterNum + "章相关剧情";
+            String queryText = buildQueryFromRecentSummaries(novelId, currentChapterNum);
             List<ChapterSummary> hybridResults = hybridSearch(novelId, queryText, 5);
             
             for (ChapterSummary summary : hybridResults) {
@@ -252,6 +252,22 @@ public class RagServiceImpl implements RagService {
         }
     }
     
+    private String buildQueryFromRecentSummaries(String novelId, int currentChapterNum) {
+        List<ChapterSummary> recent = getRecentSummaries(novelId, currentChapterNum, 3);
+        StringBuilder sb = new StringBuilder();
+        for (ChapterSummary s : recent) {
+            if (s.getContent() != null && !s.getContent().isEmpty()) {
+                String snippet = s.getContent().length() > 200
+                    ? s.getContent().substring(0, 200)
+                    : s.getContent();
+                sb.append(snippet).append(" ");
+            }
+        }
+        return sb.length() > 0
+            ? sb.toString().trim()
+            : "第" + currentChapterNum + "章相关剧情";
+    }
+
     /**
      * 计算相关性分数（简化版BM25）
      */
@@ -418,7 +434,7 @@ public class RagServiceImpl implements RagService {
         
         // 5. 混合检索相关剧情
         try {
-            String queryText = "第" + chapterNum + "章相关重要剧情";
+            String queryText = buildQueryFromRecentSummaries(novelId, chapterNum);
             List<ChapterSummary> relevantSummaries = hybridSearch(novelId, queryText, 5);
             
             if (!relevantSummaries.isEmpty()) {
