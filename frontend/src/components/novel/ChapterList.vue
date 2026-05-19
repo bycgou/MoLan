@@ -41,6 +41,7 @@
         <div class="chapter-actions">
           <el-button size="small" @click="$emit('view-chapter', chapter.chapterNum)">查看</el-button>
           <el-button size="small" @click="$emit('edit-chapter', chapter.chapterNum)">编辑</el-button>
+          <el-button size="small" type="warning" plain @click="$emit('rewrite-chapter', chapter.chapterNum)">重写</el-button>
           <el-button size="small" @click="$emit('analyze-hook', chapter.chapterNum)">钩子</el-button>
           <el-button size="small" type="danger" plain @click="$emit('delete-chapter', chapter.chapterNum)">删除</el-button>
         </div>
@@ -69,6 +70,7 @@ defineEmits<{
   'show-timeline': []
   'view-chapter': [chapterNum: number]
   'edit-chapter': [chapterNum: number]
+  'rewrite-chapter': [chapterNum: number]
   'analyze-hook': [chapterNum: number]
   'delete-chapter': [chapterNum: number]
 }>()
