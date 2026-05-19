@@ -15,6 +15,7 @@ import com.novel.system.ai.chain.ValidationResult;
 import com.novel.system.service.chapter.ChapterSaveService;
 import com.novel.system.service.chapter.ContextBuilderService;
 import com.novel.system.service.chapter.ChapterPostProcessService;
+import com.novel.system.service.chapter.ChapterVersionService;
 import com.novel.system.service.story.StoryStateService;
 import com.novel.system.service.style.StyleCardService;
 import com.novel.system.ai.chain.ChapterGenerationChain;
@@ -66,6 +67,7 @@ public class StreamingChapterController {
     private final NovelChapterMapper novelChapterMapper;
     private final ContextBuilderService contextBuilderService;
     private final ChapterPostProcessService chapterPostProcessService;
+    private final ChapterVersionService chapterVersionService;
     private final NovelStyleBindingMapper novelStyleBindingMapper;
     private final StyleCardService styleCardService;
     private final StoryStateService storyStateService;
@@ -85,6 +87,7 @@ public class StreamingChapterController {
         private String contextPrompt;
         private String llmConfigId;
         private String styleCardId;
+        private String userInstruction;
     }
     
     /**
@@ -112,6 +115,19 @@ public class StreamingChapterController {
         CompletableFuture.runAsync(() -> {
             try {
                 redisTemplate.delete(cancelKey); // 清除旧的取消标记
+
+                // 新增：重写场景 — 保存版本快照
+                try {
+                    NovelChapter existingChapter = novelChapterMapper.selectByNovelIdAndChapterNum(
+                            request.getNovelId(), request.getChapterNum());
+                    if (existingChapter != null && existingChapter.getContent() != null
+                            && existingChapter.getWordCount() != null && existingChapter.getWordCount() > 0) {
+                        chapterVersionService.saveSnapshot(existingChapter);
+                        log.info("已保存章节版本快照: novelId={}, chapterNum={}", request.getNovelId(), request.getChapterNum());
+                    }
+                } catch (Exception e) {
+                    log.warn("保存版本快照失败，继续生成: {}", e.getMessage());
+                }
 
                 // 获取 LlmConfig
                 LlmConfig llmConfig = llmConfigService.getConfigById(request.getLlmConfigId());
@@ -171,6 +187,13 @@ public class StreamingChapterController {
 
                 if (!styleInjection.isEmpty()) {
                     userPromptBuilder.append(styleInjection).append("\n\n");
+                }
+
+                // 用户附加指令（重写场景）
+                if (request.getUserInstruction() != null && !request.getUserInstruction().isBlank()) {
+                    userPromptBuilder.append("===用户附加指令===\n")
+                            .append(request.getUserInstruction().trim())
+                            .append("\n\n");
                 }
 
                 userPromptBuilder.append(String.format(
