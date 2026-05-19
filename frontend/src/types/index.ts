@@ -133,6 +133,7 @@ export interface ChapterVO {
   wordCount: number
   strandType: string // quest / fire / constellation
   plotFingerprint: string
+  chapterOutline?: string
   summary: string
   status: number
   createTime: string
@@ -143,6 +144,7 @@ export interface ChapterListItem {
   chapterId: string
   chapterNum: number
   chapterTitle: string
+  chapterOutline?: string
   wordCount: number
   strandType: string
   status: number
