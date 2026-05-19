@@ -132,11 +132,21 @@
           @show-timeline="showTimelineDialog"
           @view-chapter="(num) => router.push(`/novel/${novelId}/chapter/${num}`)"
           @edit-chapter="(num) => router.push(`/novel/${novelId}/chapter/${num}/edit`)"
+          @rewrite-chapter="showRewriteDialog"
           @analyze-hook="analyzeHook"
           @delete-chapter="deleteChapter"
         />
       </el-col>
     </el-row>
+
+    <!-- AI 重写对话框 -->
+    <RewriteChapterDialog
+      v-model:visible="rewriteDialogVisible"
+      :novel-id="novelId"
+      :chapter-num="rewriteChapterNum"
+      :chapter-outline="rewriteChapterOutline"
+      @rewritten="onRewriteComplete"
+    />
 
     <!-- 生成章节对话框 -->
     <GenerateChapterDialog
@@ -388,6 +398,7 @@ import RhythmPanel from '@/components/novel/RhythmPanel.vue'
 import CharacterPanel from '@/components/novel/CharacterPanel.vue'
 import ChapterList from '@/components/novel/ChapterList.vue'
 import GenerateChapterDialog, { type GenerateForm } from '@/components/novel/GenerateChapterDialog.vue'
+import RewriteChapterDialog from '@/components/novel/RewriteChapterDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -418,6 +429,9 @@ const hookDialogVisible = ref(false)
 const recycleBinVisible = ref(false)
 const graphDialogVisible = ref(false)
 const timelineDialogVisible = ref(false)
+const rewriteDialogVisible = ref(false)
+const rewriteChapterNum = ref(0)
+const rewriteChapterOutline = ref('')
 
 // ---- 加载状态 ----
 const generating = ref(false)
@@ -649,6 +663,20 @@ function showManualDialog() {
   manualForm.content = ''
   manualEditorVisible.value = true
   manualDialogVisible.value = true
+}
+
+function showRewriteDialog(chapterNum: number) {
+  const ch = chapters.value.find(c => c.chapterNum === chapterNum)
+  rewriteChapterNum.value = chapterNum
+  rewriteChapterOutline.value = ch?.chapterOutline || ''
+  rewriteDialogVisible.value = true
+}
+
+function onRewriteComplete() {
+  loadChapters()
+  loadNovel()
+  loadCharacters()
+  loadRhythmStatus()
 }
 
 async function handleGenerateOutline(form: GenerateForm) {

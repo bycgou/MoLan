@@ -8,6 +8,9 @@
             <span class="chapter-title">第{{ chapterNum }}章 {{ chapter?.chapterTitle }}</span>
           </div>
           <div class="header-right">
+            <el-button type="warning" @click="rewriteDialogVisible = true" plain>
+              <el-icon><MagicStick /></el-icon> AI重写
+            </el-button>
             <el-button type="info" @click="showVersions" plain>
               <el-icon><RefreshLeft /></el-icon>
               历史版本
@@ -37,6 +40,14 @@
       
       <el-empty v-else description="暂无内容" />
     </el-card>
+    <!-- AI 重写对话框 -->
+    <RewriteChapterDialog
+      v-model:visible="rewriteDialogVisible"
+      :novel-id="novelId"
+      :chapter-num="chapterNum"
+      :chapter-outline="chapter?.chapterOutline || ''"
+      @rewritten="loadChapter"
+    />
     <!-- 历史版本对话框 -->
     <el-dialog v-model="versionDialogVisible" title="历史版本记录" width="800px">
       <el-table :data="versionList" style="width: 100%" v-loading="loadingVersions">
@@ -66,7 +77,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, RefreshLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, RefreshLeft, MagicStick } from '@element-plus/icons-vue'
+import RewriteChapterDialog from '@/components/novel/RewriteChapterDialog.vue'
 import { chapterApi, novelApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -77,6 +89,7 @@ const novelId = route.params.novelId as string
 const chapterNum = ref(parseInt(route.params.chapterNum as string))
 
 const loading = ref(false)
+const rewriteDialogVisible = ref(false)
 const chapter = ref<any>(null)
 const totalChapters = ref(0)
 
