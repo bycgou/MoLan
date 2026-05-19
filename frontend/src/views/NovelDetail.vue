@@ -83,11 +83,14 @@
           <!-- 展开的章纲列表 -->
           <div v-if="expandedArcs.has(vol.arcId)" class="arc-chapter-list">
             <div v-for="ch in getArcChapters(vol)" :key="ch.chapterId" class="arc-chapter-item">
-              <span class="arc-chapter-num">第{{ ch.chapterNum }}章</span>
-              <span class="arc-chapter-title">{{ ch.chapterTitle || '未生成标题' }}</span>
-              <el-tag size="small" :type="ch.status === 2 ? 'success' : ch.status === 3 ? 'danger' : 'info'">
-                {{ ch.status === 2 ? '已生成' : ch.status === 1 ? '生成中' : ch.status === 3 ? '失败' : '待生成' }}
-              </el-tag>
+              <div class="arc-chapter-main">
+                <span class="arc-chapter-num">第{{ ch.chapterNum }}章</span>
+                <span class="arc-chapter-title">{{ ch.chapterTitle || '未生成标题' }}</span>
+                <el-tag size="small" :type="ch.status === 2 ? 'success' : ch.status === 3 ? 'danger' : 'info'">
+                  {{ ch.status === 2 ? '已生成' : ch.status === 1 ? '生成中' : ch.status === 3 ? '失败' : '待生成' }}
+                </el-tag>
+              </div>
+              <div v-if="ch.chapterOutline" class="arc-chapter-outline">{{ ch.chapterOutline }}</div>
             </div>
             <el-empty v-if="getArcChapters(vol).length === 0" description="暂无章节" :image-size="40" />
           </div>
@@ -1304,10 +1307,29 @@ onBeforeUnmount(() => {
 
 .arc-chapter-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   padding: 6px 0;
   font-size: 13px;
+}
+
+.arc-chapter-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.arc-chapter-outline {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  padding-left: 48px;
 }
 
 .arc-chapter-num {
