@@ -273,6 +273,7 @@ export interface CreateLlmConfigRequest {
   apiKey: string
   apiBaseUrl: string
   modelName: string
+  authType?: string
   temperature?: number
   maxTokens?: number
   topP?: number
@@ -286,6 +287,7 @@ export interface UpdateLlmConfigRequest {
   apiKey?: string
   apiBaseUrl?: string
   modelName?: string
+  authType?: string
   temperature?: number
   maxTokens?: number
   topP?: number
