@@ -376,7 +376,7 @@ function ConfigFormDialog({
           </div>
 
           {/* Provider + Model name */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="provider">供应商 *</Label>
               <Input
@@ -409,7 +409,7 @@ function ConfigFormDialog({
           </div>
 
           {/* Auth type + Usage type */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="authType">认证方式</Label>
               <select
@@ -455,7 +455,7 @@ function ConfigFormDialog({
           </div>
 
           {/* Numeric params */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="maxTokens">最大 Token</Label>
               <Input
@@ -635,7 +635,7 @@ export default function LlmConfigPage() {
   )
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-4 md:p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">

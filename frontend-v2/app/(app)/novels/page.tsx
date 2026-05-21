@@ -9,6 +9,7 @@ import {
   Wand2,
   Pencil,
   Download,
+  List,
 } from "lucide-react"
 import useSWR from "swr"
 import { Sidebar } from "@/components/layout/Sidebar"
@@ -19,6 +20,13 @@ import { NovelCard } from "@/components/novel/NovelCard"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { novelApi } from "@/lib/api/novel"
 import { useAuth } from "@/hooks/useAuth"
 import { cn } from "@/lib/utils"
@@ -100,13 +108,13 @@ export default function NovelsPage() {
   if (isLoading) {
     return (
       <div className="flex h-full">
-        <div className="w-[220px] border-r border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 space-y-3">
+        <div className="hidden md:block w-[220px] border-r border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 space-y-3">
           <Skeleton className="h-5 w-24" />
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />
         </div>
-        <div className="flex-1 p-6 space-y-4">
+        <div className="flex-1 p-4 md:p-6 space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-32 w-full" />
         </div>
@@ -135,56 +143,135 @@ export default function NovelsPage() {
     )
   }
 
+  const [sheetOpen, setSheetOpen] = useState(false)
+
+  const sidebarContent = (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-stone-900 dark:text-stone-50">
+          小说列表
+        </h2>
+        <Link
+          href="/create"
+          className={cn(
+            buttonVariants({ size: "sm" }),
+            "h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+          )}
+        >
+          新建
+        </Link>
+      </div>
+
+      <div className="flex flex-col gap-2 overflow-y-auto flex-1">
+        {novels.map((novel) => (
+          <div
+            key={novel.novelId}
+            onClick={() => {
+              setSelectedId(novel.novelId)
+              setSheetOpen(false)
+            }}
+          >
+            <NovelCard
+              novel={novel}
+              isActive={novel.novelId === selectedId}
+              onDelete={() => handleDelete(novel.novelId)}
+              onExport={() => handleExport(novel.novelId)}
+            />
+          </div>
+        ))}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex h-full">
-      {/* Left sidebar: novel list */}
-      <div className="w-[220px] border-r border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 flex flex-col shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-stone-900 dark:text-stone-50">
-            小说列表
-          </h2>
-          <Link
-            href="/create"
-            className={cn(
-              buttonVariants({ size: "sm" }),
-              "h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
-            )}
-          >
-            新建
-          </Link>
-        </div>
-
-        <div className="flex flex-col gap-2 overflow-y-auto flex-1">
-          {novels.map((novel) => (
-            <div
-              key={novel.novelId}
-              onClick={() => setSelectedId(novel.novelId)}
-            >
-              <NovelCard
-                novel={novel}
-                isActive={novel.novelId === selectedId}
-                onDelete={() => handleDelete(novel.novelId)}
-                onExport={() => handleExport(novel.novelId)}
-              />
-            </div>
-          ))}
-        </div>
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex w-[220px] border-r border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 flex-col shrink-0">
+        {sidebarContent}
       </div>
+
+      {/* Mobile sidebar sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="left" showCloseButton={true}>
+          <SheetHeader>
+            <SheetTitle>小说列表</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col gap-2 overflow-y-auto flex-1 px-4 pb-4">
+            <Link
+              href="/create"
+              onClick={() => setSheetOpen(false)}
+              className={cn(
+                buttonVariants({ size: "sm" }),
+                "h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white w-fit"
+              )}
+            >
+              新建小说
+            </Link>
+            {novels.map((novel) => (
+              <div
+                key={novel.novelId}
+                onClick={() => {
+                  setSelectedId(novel.novelId)
+                  setSheetOpen(false)
+                }}
+              >
+                <NovelCard
+                  novel={novel}
+                  isActive={novel.novelId === selectedId}
+                  onDelete={() => handleDelete(novel.novelId)}
+                  onExport={() => handleExport(novel.novelId)}
+                />
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Right content: selected novel detail */}
       <div className="flex-1 overflow-y-auto">
+        {/* Mobile toggle button */}
+        {!selected && (
+          <div className="md:hidden p-4">
+            <SheetTrigger
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "w-full"
+              )}
+            >
+              <List className="w-4 h-4 mr-2" />
+              查看小说列表
+            </SheetTrigger>
+          </div>
+        )}
+
         {selected ? (
-          <NovelDetailPanel
-            novel={selected}
-            onEdit={() => {}}
-            onExport={() => handleExport(selected.novelId)}
-          />
+          <div>
+            {/* Mobile back button */}
+            <div className="md:hidden p-4 pb-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedId(null)}
+                className="text-stone-500 hover:text-stone-700 dark:hover:text-stone-300 -ml-2"
+              >
+                <List className="w-4 h-4 mr-1" />
+                返回列表
+              </Button>
+            </div>
+            <NovelDetailPanel
+              novel={selected}
+              onEdit={() => {}}
+              onExport={() => handleExport(selected.novelId)}
+            />
+          </div>
         ) : (
-          <EmptyState
-            icon={<BookOpen className="w-6 h-6 text-stone-400" />}
-            title="选择一部小说"
-            description="从左侧列表中选择一部小说查看详情"
-          />
+          <div className="hidden md:flex h-full items-center justify-center">
+            <EmptyState
+              icon={<BookOpen className="w-6 h-6 text-stone-400" />}
+              title="选择一部小说"
+              description="从左侧列表中选择一部小说查看详情"
+            />
+          </div>
         )}
       </div>
 
@@ -254,7 +341,7 @@ function NovelDetailPanel({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <StatsCard label="章节" value={novel.chapterCount} />
         <StatsCard
           label="字数"

@@ -165,7 +165,7 @@ export default function CreateNovelPage() {
   }
 
   return (
-    <div className="max-w-[720px] mx-auto p-6">
+    <div className="max-w-[720px] mx-auto p-4 md:p-6">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link

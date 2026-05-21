@@ -35,7 +35,7 @@ export default function HomePage() {
     data?.data?.reduce((sum, n) => sum + (n.chapterCount || 0), 0) || 0
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-12">
+    <div className="mx-auto max-w-4xl px-4 sm:px-6 py-8 md:py-12">
       <div className="mb-12 text-center">
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 dark:bg-amber-900">
           <PenLine className="h-8 w-8 text-amber-700 dark:text-amber-400" />
@@ -46,7 +46,7 @@ export default function HomePage() {
         <p className="text-sm text-stone-500">百万字AI长篇小说创作系统</p>
       </div>
 
-      <div className="mb-12 grid grid-cols-3 gap-4">
+      <div className="mb-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
@@ -73,7 +73,7 @@ export default function HomePage() {
         </Card>
       </div>
 
-      <div className="mb-12 grid grid-cols-3 gap-4">
+      <div className="mb-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {features.map((f) => (
           <Card
             key={f.title}

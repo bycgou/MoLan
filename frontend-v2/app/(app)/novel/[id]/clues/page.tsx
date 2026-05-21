@@ -109,7 +109,7 @@ export default function CluesPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -117,7 +117,7 @@ export default function CluesPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
