@@ -1,0 +1,94 @@
+package com.novel.system.ai.graph;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.ai.chain.ChapterGenerationChain;
+import com.novel.system.entity.mysql.NovelArc;
+import com.novel.system.entity.mysql.NovelBase;
+import com.novel.system.mapper.NovelArcMapper;
+import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.service.chapter.ContextBuilderService;
+import com.novel.system.util.JsonExtractor;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 章纲生成节点 — 生成章纲 + 构建六层记忆上下文（存入 state）
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class OutlineNode implements NovelGraphNode {
+
+    private final ChapterGenerationChain chain;
+    private final ContextBuilderService contextBuilderService;
+    private final NovelBaseMapper novelBaseMapper;
+    private final NovelArcMapper novelArcMapper;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public String nodeName() { return "outline"; }
+
+    @Override
+    public NovelAgentState apply(NovelAgentState state) throws Exception {
+        log.info("[{}] 生成章纲, novelId={}, chapter={}",
+                nodeName(), state.getNovelId(), state.getChapterNum());
+
+        NovelBase novel = novelBaseMapper.selectById(state.getNovelId());
+        NovelArc arc = novelArcMapper.findByChapterNum(state.getNovelId(), state.getChapterNum());
+
+        String arcName = arc != null ? arc.getArcName() : null;
+        String arcOutline = arc != null ? arc.getArcOutline() : null;
+
+        // 构建上下文（只构建一次，存入 state）
+        String outlineContext = contextBuilderService.buildOutlineContext(
+                state.getNovelId(), state.getChapterNum(), novel, arcName, arcOutline);
+
+        // 调用 OutlineAgent
+        String outlineJson = chain.executeOutlineChain(
+                state.getNovelId(), state.getChapterNum(),
+                outlineContext, state.getLlmConfigId());
+
+        NovelAgentState.ChapterPlan plan = parseOutline(outlineJson);
+
+        NovelAgentState updated = state.toBuilder()
+                .outlineContext(outlineContext)
+                .chapterPlan(plan)
+                .currentPhase(NovelAgentState.GenerationPhase.OUTLINE.name())
+                .build();
+
+        return StateHelper.appendTrace(updated, nodeName());
+    }
+
+    private NovelAgentState.ChapterPlan parseOutline(String json) {
+        try {
+            String cleaned = JsonExtractor.extractJson(json);
+            JsonNode node = objectMapper.readTree(cleaned);
+
+            NovelAgentState.ChapterPlan.ChapterPlanBuilder builder = NovelAgentState.ChapterPlan.builder();
+            if (node.has("title")) builder.title(node.get("title").asText());
+            if (node.has("summary")) builder.summary(node.get("summary").asText());
+            if (node.has("hook")) builder.hook(node.get("hook").asText());
+            if (node.has("key_points") && node.get("key_points").isArray()) {
+                List<String> points = new ArrayList<>();
+                node.get("key_points").forEach(p -> points.add(p.asText()));
+                builder.keyPoints(points);
+            }
+            if (node.has("ideas") && node.get("ideas").isArray()) {
+                List<String> ideas = new ArrayList<>();
+                node.get("ideas").forEach(i -> ideas.add(i.asText()));
+                builder.implementationIdeas(ideas);
+            }
+            return builder.build();
+        } catch (Exception e) {
+            log.error("解析章纲失败: {}", e.getMessage());
+            return NovelAgentState.ChapterPlan.builder()
+                    .summary(json.substring(0, Math.min(200, json.length())))
+                    .build();
+        }
+    }
+}
