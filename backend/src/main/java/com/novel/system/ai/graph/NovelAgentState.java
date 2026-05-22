@@ -1,15 +1,14 @@
 package com.novel.system.ai.graph;
 
-import com.novel.system.entity.mongo.ArcOrchestration;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
 
-@Data
+@Getter
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
@@ -69,7 +68,7 @@ public class NovelAgentState {
 
     // ==================== 内嵌数据结构 ====================
 
-    @Data
+    @Getter
     @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
@@ -85,7 +84,7 @@ public class NovelAgentState {
         private String climaxPoint;
     }
 
-    @Data
+    @Getter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
@@ -96,7 +95,7 @@ public class NovelAgentState {
         private boolean fromOrchestration;
     }
 
-    @Data
+    @Getter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
@@ -110,7 +109,7 @@ public class NovelAgentState {
         private List<String> interactions;
     }
 
-    @Data
+    @Getter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
@@ -121,18 +120,19 @@ public class NovelAgentState {
         private List<String> suggestions;
     }
 
-    @Data
+    @Getter
     @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class DraftContent {
         private String content;
         private int wordCount;
-        private Severity severity;
+        @Builder.Default
+        private Severity severity = Severity.LOW;
         private List<String> revisionNotes;
     }
 
-    @Data
+    @Getter
     @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
@@ -162,7 +162,7 @@ public class NovelAgentState {
         private List<String> suggestions;
     }
 
-    @Data
+    @Getter
     @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
