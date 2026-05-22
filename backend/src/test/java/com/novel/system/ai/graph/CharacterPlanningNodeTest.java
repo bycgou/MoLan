@@ -16,7 +16,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CharacterPlanningNodeTest {
 
-    @Mock private ChatModel plannerModel;
+    @Mock private ChatModelProvider chatModelProvider;
+    @Mock private ChatModel chatModel;
     @Mock private CharacterStateService characterStateService;
 
     private CharacterPlanningNode node;
@@ -24,13 +25,14 @@ class CharacterPlanningNodeTest {
 
     @BeforeEach
     void setUp() {
-        node = new CharacterPlanningNode(plannerModel, characterStateService, objectMapper);
+        when(chatModelProvider.getStructuredModel(any())).thenReturn(chatModel);
+        node = new CharacterPlanningNode(chatModelProvider, characterStateService, objectMapper);
     }
 
     @Test
     void validatesBehaviorWithFourParams() throws Exception {
         when(characterStateService.formatForPrompt("n1")).thenReturn("角色状态");
-        when(plannerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("[{\"characterName\":\"张三\",\"characterId\":\"c1\"," +
                         "\"role\":\"PROTAGONIST\",\"goal\":\"寻宝\",\"emotionalState\":\"兴奋\"," +
                         "\"keyAction\":\"拔剑\",\"interactions\":[\"与李四对话\"]}]");
@@ -51,7 +53,7 @@ class CharacterPlanningNodeTest {
     @Test
     void marksRejectedBehaviorWithPrefix() throws Exception {
         when(characterStateService.formatForPrompt("n1")).thenReturn("角色状态");
-        when(plannerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("[{\"characterName\":\"张三\",\"characterId\":\"c1\"," +
                         "\"role\":\"PROTAGONIST\",\"goal\":\"寻宝\",\"emotionalState\":\"兴奋\"," +
                         "\"keyAction\":\"飞天\",\"interactions\":[]}]");

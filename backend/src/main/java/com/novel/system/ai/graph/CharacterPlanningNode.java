@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.util.JsonExtractor;
-import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -20,7 +19,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CharacterPlanningNode implements NovelGraphNode {
 
-    private final ChatModel plannerModel;
+    private final ChatModelProvider chatModelProvider;
     private final CharacterStateService characterStateService;
     private final ObjectMapper objectMapper;
 
@@ -51,7 +50,7 @@ public class CharacterPlanningNode implements NovelGraphNode {
                 """,
                 state.getChapterNum(), plan.getSummary(), charStates);
 
-        String response = plannerModel.chat(prompt);
+        String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         List<NovelAgentState.CharacterAction> actions = parseCharacterActions(response);
 
         // 程序化校验

@@ -15,13 +15,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CluePlanningNodeTest {
 
-    @Mock private ChatModel plannerModel;
+    @Mock private ChatModelProvider chatModelProvider;
+    @Mock private ChatModel chatModel;
     @Mock private ClueBookService clueBookService;
     @Mock private ArcOrchestrationService arcOrchestrationService;
 
@@ -30,7 +32,8 @@ class CluePlanningNodeTest {
 
     @BeforeEach
     void setUp() {
-        node = new CluePlanningNode(plannerModel, clueBookService,
+        when(chatModelProvider.getStructuredModel(any())).thenReturn(chatModel);
+        node = new CluePlanningNode(chatModelProvider, clueBookService,
                 arcOrchestrationService, objectMapper);
     }
 
@@ -46,7 +49,7 @@ class CluePlanningNodeTest {
         when(clueBookService.getUnrecycledClues("n1")).thenReturn(List.of());
 
         // LLM 返回补充的伏笔操作
-        when(plannerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("[{\"clueId\":\"旧伏笔\",\"action\":\"ADVANCE\",\"description\":\"推进旧伏笔\"}]");
 
         NovelAgentState input = NovelAgentState.builder()

@@ -3,7 +3,6 @@ package com.novel.system.ai.graph;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.util.JsonExtractor;
-import dev.langchain4j.model.chat.ChatModel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class QualityScoringNode implements NovelGraphNode {
 
-    private final ChatModel editorModel;
+    private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -62,7 +61,7 @@ public class QualityScoringNode implements NovelGraphNode {
                 plan.getClimaxPoint(), plan.getEmotionalArc(),
                 cluePlanText, truncate(draft.getContent(), 6000));
 
-        String response = editorModel.chat(prompt);
+        String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         QualityResult quality = parseQuality(response);
 
         // 全部使用 builder，不混用 setter

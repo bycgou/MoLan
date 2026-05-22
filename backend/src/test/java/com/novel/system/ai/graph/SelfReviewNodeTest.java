@@ -11,24 +11,27 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SelfReviewNodeTest {
 
-    @Mock private ChatModel reviewerModel;
+    @Mock private ChatModelProvider chatModelProvider;
+    @Mock private ChatModel chatModel;
     private SelfReviewNode node;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        node = new SelfReviewNode(reviewerModel, objectMapper);
+        when(chatModelProvider.getStructuredModel(any())).thenReturn(chatModel);
+        node = new SelfReviewNode(chatModelProvider, objectMapper);
     }
 
     @Test
     void parsesSeverityHigh() throws Exception {
-        when(reviewerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("{\"severity\":\"HIGH\",\"overallScore\":4,\"passed\":false," +
                         "\"notes\":[\"逻辑矛盾\",\"角色OOC\"]}");
 
@@ -46,7 +49,7 @@ class SelfReviewNodeTest {
 
     @Test
     void parsesSeverityLow() throws Exception {
-        when(reviewerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("{\"severity\":\"LOW\",\"overallScore\":8,\"passed\":true,\"notes\":[]}");
 
         NovelAgentState input = NovelAgentState.builder()
@@ -61,7 +64,7 @@ class SelfReviewNodeTest {
 
     @Test
     void handlesInvalidSeverityGracefully() throws Exception {
-        when(reviewerModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("{\"severity\":\"INVALID\",\"overallScore\":7,\"passed\":true,\"notes\":[]}");
 
         NovelAgentState input = NovelAgentState.builder()

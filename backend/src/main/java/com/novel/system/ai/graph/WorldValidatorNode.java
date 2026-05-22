@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.util.JsonExtractor;
-import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,7 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class WorldValidatorNode implements NovelGraphNode {
 
-    private final ChatModel validatorModel;
+    private final ChatModelProvider chatModelProvider;
     private final NovelBaseMapper novelBaseMapper;
     private final ObjectMapper objectMapper;
 
@@ -60,7 +59,7 @@ public class WorldValidatorNode implements NovelGraphNode {
                 formatClueActions(plan.getClueActions()),
                 novel.getWorldSetting(), novel.getTotalOutline());
 
-        String response = validatorModel.chat(prompt);
+        String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         NovelAgentState.PreWriteValidation validation = parseValidation(response);
 
         NovelAgentState updated = state.toBuilder()

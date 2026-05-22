@@ -11,24 +11,27 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class QualityScoringNodeTest {
 
-    @Mock private ChatModel editorModel;
+    @Mock private ChatModelProvider chatModelProvider;
+    @Mock private ChatModel chatModel;
     private QualityScoringNode node;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        node = new QualityScoringNode(editorModel, objectMapper);
+        when(chatModelProvider.getStructuredModel(any())).thenReturn(chatModel);
+        node = new QualityScoringNode(chatModelProvider, objectMapper);
     }
 
     @Test
     void parsesQualityAndClueLanding() throws Exception {
-        when(editorModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("{\"totalScore\":82,\"qualityPassed\":true," +
                         "\"overallAssessment\":\"优秀\",\"clueLandingPassed\":true," +
                         "\"clueLandingIssues\":[],\"suggestions\":[\"节奏可以更快\"]}");
@@ -59,7 +62,7 @@ class QualityScoringNodeTest {
 
     @Test
     void setsAllPassedFalse_whenClueLandingFails() throws Exception {
-        when(editorModel.chat(anyString()))
+        when(chatModel.chat(anyString()))
                 .thenReturn("{\"totalScore\":70,\"qualityPassed\":true," +
                         "\"overallAssessment\":\"\",\"clueLandingPassed\":false," +
                         "\"clueLandingIssues\":[\"密信未体现\"],\"suggestions\":[]}");

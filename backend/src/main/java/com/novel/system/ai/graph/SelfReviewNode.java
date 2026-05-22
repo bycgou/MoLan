@@ -3,7 +3,6 @@ package com.novel.system.ai.graph;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.util.JsonExtractor;
-import dev.langchain4j.model.chat.ChatModel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +20,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SelfReviewNode implements NovelGraphNode {
 
-    private final ChatModel reviewerModel;
+    private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -54,7 +53,7 @@ public class SelfReviewNode implements NovelGraphNode {
                 plan.getSummary(), plan.getEmotionalArc(), plan.getClimaxPoint(),
                 truncate(draft.getContent(), 6000));
 
-        String response = reviewerModel.chat(prompt);
+        String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         SelfReviewResult result = parseResult(response);
 
         NovelAgentState updated = state.toBuilder()

@@ -7,7 +7,6 @@ import com.novel.system.entity.mysql.ClueBook;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import com.novel.system.util.JsonExtractor;
-import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,7 +23,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CluePlanningNode implements NovelGraphNode {
 
-    private final ChatModel plannerModel;
+    private final ChatModelProvider chatModelProvider;
     private final ClueBookService clueBookService;
     private final ArcOrchestrationService arcOrchestrationService;
     private final ObjectMapper objectMapper;
@@ -95,7 +94,7 @@ public class CluePlanningNode implements NovelGraphNode {
                 """,
                 state.getChapterNum(), plan.getSummary(), cluesText, hardText);
 
-        String response = plannerModel.chat(prompt);
+        String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         List<NovelAgentState.ClueAction> supplement = parseClueActions(response);
 
         List<NovelAgentState.ClueAction> allActions = new ArrayList<>(hardConstraints);
