@@ -96,7 +96,7 @@ public class NovelAgentState {
     }
 
     @Getter
-    @Builder
+    @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class CharacterAction {
