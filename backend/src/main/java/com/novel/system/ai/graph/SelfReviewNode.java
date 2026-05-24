@@ -51,7 +51,7 @@ public class SelfReviewNode implements NovelGraphNode {
                 severity: LOW=轻微可忽略, MEDIUM=建议修改, HIGH=必须重写
                 """,
                 plan.getSummary(), plan.getEmotionalArc(), plan.getClimaxPoint(),
-                truncate(draft.getContent(), 6000));
+                StateHelper.truncate(draft.getContent(), 6000));
 
         String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         SelfReviewResult result = parseResult(response);
@@ -86,10 +86,6 @@ public class SelfReviewNode implements NovelGraphNode {
             return new SelfReviewResult(NovelAgentState.Severity.HIGH,
                     List.of("自审结果解析失败，建议重写: " + e.getMessage()));
         }
-    }
-
-    private String truncate(String text, int maxLen) {
-        return text != null && text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
     @Data

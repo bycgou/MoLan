@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 质量评分节点 — 含伏笔落地 LLM 检查
@@ -35,7 +34,7 @@ public class QualityScoringNode implements NovelGraphNode {
         NovelAgentState.DraftContent draft = state.getDraftContent();
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
-        String cluePlanText = formatCluePlan(plan.getClueActions());
+        String cluePlanText = StateHelper.formatClueActions(plan.getClueActions());
 
         String prompt = String.format("""
                 你是网文平台资深编辑。对以下章节评分并检查伏笔落地。
@@ -59,7 +58,7 @@ public class QualityScoringNode implements NovelGraphNode {
                  "clueLandingPassed":true,"clueLandingIssues":["问题"],"suggestions":["建议"]}
                 """,
                 plan.getClimaxPoint(), plan.getEmotionalArc(),
-                cluePlanText, truncate(draft.getContent(), 6000));
+                cluePlanText, StateHelper.truncate(draft.getContent(), 6000));
 
         String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         QualityResult quality = parseQuality(response);
@@ -91,15 +90,6 @@ public class QualityScoringNode implements NovelGraphNode {
         return updated;
     }
 
-    private String formatCluePlan(List<NovelAgentState.ClueAction> actions) {
-        if (actions == null || actions.isEmpty()) return "无伏笔计划";
-        return actions.stream()
-                .map(a -> String.format("[%s] %s: %s%s",
-                        a.getAction(), a.getClueId(), a.getDescription(),
-                        a.isFromOrchestration() ? " (卷级编排)" : ""))
-                .collect(Collectors.joining("\n"));
-    }
-
     private List<String> mergeSuggestions(List<String> existing, List<String> newS) {
         List<String> merged = existing != null ? new ArrayList<>(existing) : new ArrayList<>();
         if (newS != null) merged.addAll(newS);
@@ -127,10 +117,6 @@ public class QualityScoringNode implements NovelGraphNode {
             return new QualityResult(0, false, "评分解析失败: " + e.getMessage(), false,
                     List.of("评分解析失败，建议重写"), List.of());
         }
-    }
-
-    private String truncate(String text, int maxLen) {
-        return text != null && text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
     @Data

@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 写前校验节点 — 校验策划方案与世界观一致性
@@ -60,8 +59,8 @@ public class WorldValidatorNode implements NovelGraphNode {
                 violations为空时passed才为true
                 """,
                 plan.getTitle(), plan.getSummary(),
-                formatCharacterActions(plan.getCharacterActions()),
-                formatClueActions(plan.getClueActions()),
+                StateHelper.formatCharacterActions(plan.getCharacterActions()),
+                StateHelper.formatClueActions(plan.getClueActions()),
                 novel.getWorldSetting(), novel.getTotalOutline());
 
         String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
@@ -101,18 +100,4 @@ public class WorldValidatorNode implements NovelGraphNode {
         }
     }
 
-    private String formatCharacterActions(List<NovelAgentState.CharacterAction> actions) {
-        if (actions == null || actions.isEmpty()) return "无";
-        return actions.stream()
-                .map(a -> String.format("%s(%s): %s, 情绪:%s",
-                        a.getCharacterName(), a.getRole(), a.getGoal(), a.getEmotionalState()))
-                .collect(Collectors.joining("\n"));
-    }
-
-    private String formatClueActions(List<NovelAgentState.ClueAction> actions) {
-        if (actions == null || actions.isEmpty()) return "无";
-        return actions.stream()
-                .map(a -> String.format("[%s] %s: %s", a.getAction(), a.getClueId(), a.getDescription()))
-                .collect(Collectors.joining("\n"));
-    }
 }
