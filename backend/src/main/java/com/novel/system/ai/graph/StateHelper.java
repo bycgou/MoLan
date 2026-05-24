@@ -32,4 +32,35 @@ public final class StateHelper {
         }
         return builder.build();
     }
+
+    /**
+     * 截断文本到指定长度，超出部分用"..."替代
+     */
+    public static String truncate(String text, int maxLen) {
+        if (text == null) return null;
+        return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
+    }
+
+    /**
+     * 格式化伏笔操作列表为可读文本
+     */
+    public static String formatClueActions(List<NovelAgentState.ClueAction> actions) {
+        if (actions == null || actions.isEmpty()) return "无";
+        return actions.stream()
+                .map(a -> String.format("[%s] %s: %s%s",
+                        a.getAction(), a.getClueId(), a.getDescription(),
+                        a.isFromOrchestration() ? " (卷级编排)" : ""))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    /**
+     * 格式化角色动线列表为可读文本
+     */
+    public static String formatCharacterActions(List<NovelAgentState.CharacterAction> actions) {
+        if (actions == null || actions.isEmpty()) return "无";
+        return actions.stream()
+                .map(a -> String.format("%s(%s): %s, 情绪:%s",
+                        a.getCharacterName(), a.getRole(), a.getGoal(), a.getEmotionalState()))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
 }
