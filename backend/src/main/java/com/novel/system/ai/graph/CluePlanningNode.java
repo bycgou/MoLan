@@ -71,9 +71,7 @@ public class CluePlanningNode implements NovelGraphNode {
                 .collect(Collectors.joining("\n"));
 
         // 3. LLM 补充
-        String hardText = hardConstraints.stream()
-                .map(c -> String.format("[%s] %s: %s", c.getAction(), c.getClueId(), c.getDescription()))
-                .collect(Collectors.joining("\n"));
+        String hardText = StateHelper.formatClueActions(hardConstraints);
 
         String prompt = String.format("""
                 你是伏笔管理专家。规划第%d章的伏笔操作。
@@ -105,7 +103,7 @@ public class CluePlanningNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.CLUE_PLAN.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private List<NovelAgentState.ClueAction> parseClueActions(String json) {
