@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 校验服务实现 - 基于LLM的真实校验
@@ -193,7 +195,20 @@ public class ValidationServiceImpl implements ValidationService {
                 try { return validateRhythm(request); } finally { SecurityContextHolder.clearContext(); }
             });
             
-            CompletableFuture.allOf(oocFuture, logicFuture, clueFuture, settingFuture, rhythmFuture).join();
+            try {
+                CompletableFuture.allOf(oocFuture, logicFuture, clueFuture, settingFuture, rhythmFuture)
+                        .get(120, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                log.error("校验超时（120秒），返回失败结果");
+                result.setPassed(false);
+                result.setSummary("校验超时");
+                return result;
+            } catch (Exception e) {
+                log.error("校验异常: {}", e.getMessage());
+                result.setPassed(false);
+                result.setSummary("校验异常: " + e.getMessage());
+                return result;
+            }
             
             OOCResult oocResult = oocFuture.get();
             LogicResult logicResult = logicFuture.get();
