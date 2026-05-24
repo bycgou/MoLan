@@ -1,42 +1,65 @@
 package com.novel.system.service.chapter;
 
 import com.novel.system.ai.graph.*;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-/**
- * 多Agent编排服务 — 协调所有节点的执行流程
- *
- * 流程：策划(含写前校验) → 创作(含自审) → 审校(保存之前) → 保存
- * 支持重试：写前校验失败重规划(最多2次)，自审HIGH重写(最多2次)，
- *          审校失败重写/replan(总迭代最多4次)
- */
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class MultiAgentNovelService {
 
+    private final GraphRunner runner;
     private final ArcOrchestrationNode arcCheck;
     private final OutlineNode outline;
     private final CluePlanningNode cluePlan;
     private final CharacterPlanningNode charPlan;
     private final WorldValidatorNode worldValidate;
-    private final IdeaSelectionNode ideaSelect;
-    private final WritingNode writing;
-    private final SelfReviewNode selfReview;
-    private final ValidationNode validation;
-    private final QualityScoringNode qualityScoring;
-    private final SummaryNode summary;
-    private final PostProcessNode postProcess;
 
-    private static final int MAX_PLAN_RETRIES = 2;
-    private static final int MAX_WRITE_RETRIES = 2;
-    private static final int MAX_TOTAL_ITERATIONS = 4;
+    public MultiAgentNovelService(
+            ArcOrchestrationNode arcCheck,
+            OutlineNode outline,
+            CluePlanningNode cluePlan,
+            CharacterPlanningNode charPlan,
+            WorldValidatorNode worldValidate,
+            IdeaSelectionNode ideaSelect,
+            WritingNode writing,
+            SelfReviewNode selfReview,
+            ValidationNode validation,
+            QualityScoringNode qualityScoring,
+            AuditRouterNode auditRouter,
+            SummaryNode summary,
+            PostProcessNode postProcess,
+            AuthorAgent authorAgent) {
+
+        this.arcCheck = arcCheck;
+        this.outline = outline;
+        this.cluePlan = cluePlan;
+        this.charPlan = charPlan;
+        this.worldValidate = worldValidate;
+
+        this.runner = new GraphRunner();
+        this.runner.register(arcCheck);
+        this.runner.register(outline);
+        this.runner.register(cluePlan);
+        this.runner.register(charPlan);
+        this.runner.register(worldValidate);
+        this.runner.register(ideaSelect);
+        this.runner.register(writing);
+        this.runner.register(selfReview);
+        this.runner.register(validation);
+        this.runner.register(qualityScoring);
+        this.runner.register(auditRouter);
+        this.runner.register(summary);
+        this.runner.register(postProcess);
+        this.runner.setAuthorAgent(authorAgent);
+    }
 
     public AgentExecutionResult writeChapter(String novelId, int chapterNum,
                                               String userIntent, String styleCardId,
-                                              String llmConfigId) {
+                                              String llmConfigId) throws Exception {
         long startTime = System.currentTimeMillis();
 
         NovelAgentState state = NovelAgentState.builder()
@@ -47,96 +70,64 @@ public class MultiAgentNovelService {
                 .llmConfigId(llmConfigId)
                 .build();
 
-        try {
-            // ============ Phase 1: 策划 ============
-            state = arcCheck.apply(state);
-            state = outline.apply(state);
-            state = cluePlan.apply(state);
-            state = charPlan.apply(state);
-            state = worldValidate.apply(state);
+        // Phase 1: Planning (with parallel cluePlan + charPlan)
+        state = runPhase1(state);
 
-            // 写前校验路由
-            while (state.getPreWriteValidation() != null
-                    && !state.getPreWriteValidation().isPassed()
-                    && state.getPlanRetryCount() < MAX_PLAN_RETRIES) {
-                log.info("[路由] 写前校验未通过，重规划 {}/{}",
-                        state.getPlanRetryCount() + 1, MAX_PLAN_RETRIES);
-                state = StateHelper.incrementIteration(state, "plan");
-                state = outline.apply(state);
-                state = cluePlan.apply(state);
-                state = charPlan.apply(state);
-                state = worldValidate.apply(state);
-            }
-
-            // ============ Phase 2: 创作 ============
-            state = ideaSelect.apply(state);
-            state = writing.apply(state);
-            state = selfReview.apply(state);
-
-            // 自审路由
-            while (state.getDraftContent() != null
-                    && state.getDraftContent().getSeverity() == NovelAgentState.Severity.HIGH
-                    && state.getWriteRetryCount() < MAX_WRITE_RETRIES) {
-                log.info("[路由] 自审严重问题，重写 {}/{}",
-                        state.getWriteRetryCount() + 1, MAX_WRITE_RETRIES);
-                state = StateHelper.incrementIteration(state, "write");
-                state = writing.apply(state);
-                state = selfReview.apply(state);
-            }
-
-            // ============ Phase 3: 审校（保存之前！） ============
-            state = validation.apply(state);
-            state = qualityScoring.apply(state);
-
-            // 审校路由（循环直到通过或达到上限）
-            while (state.getAuditResult() != null && !state.getAuditResult().isAllPassed()) {
-                if (state.getIterationCount() >= MAX_TOTAL_ITERATIONS) {
-                    log.warn("[路由] 总迭代次数达上限({})，强制通过", state.getIterationCount());
-                    break;
-                }
-
-                NovelAgentState.AuditResult audit = state.getAuditResult();
-
-                if (!audit.isOocPassed() || !audit.isSettingPassed()) {
-                    log.info("[路由] OOC/设定校验未通过，重新规划");
-                    state = StateHelper.incrementIteration(state, "plan");
-                    state = outline.apply(state);
-                    state = cluePlan.apply(state);
-                    state = charPlan.apply(state);
-                    state = worldValidate.apply(state);
-                    state = writing.apply(state);
-                    state = selfReview.apply(state);
-                } else {
-                    log.info("[路由] 审校未通过（质量{}），重写", audit.getQualityScore());
-                    state = StateHelper.incrementIteration(state, "write");
-                    state = writing.apply(state);
-                    state = selfReview.apply(state);
-                }
-
-                state = validation.apply(state);
-                state = qualityScoring.apply(state);
-            }
-
-            // ============ Phase 4: 保存 ============
-            state = summary.apply(state);
-            state = postProcess.apply(state);
-
-        } catch (Exception e) {
-            log.error("章节生成异常: {}", e.getMessage(), e);
-            state = StateHelper.appendError(state, "章节生成异常: " + e.getMessage());
-        }
+        // Phase 2+: idea_select → post_process (index 5 in NODE_ORDER)
+        // audit_router 的 REPLAN 路由仍能正常工作，因为 Phase 1 节点仍在 runner 中注册
+        NovelAgentState finalState = runner.executeFrom(state, 5);
 
         long elapsed = System.currentTimeMillis() - startTime;
 
-        NovelAgentState.FinalResult result = state.getFinalResult();
+        NovelAgentState.FinalResult result = finalState.getFinalResult();
         return AgentExecutionResult.builder()
                 .content(result != null ? result.getFinalContent() : "")
                 .wordCount(result != null ? result.getWordCount() : 0)
                 .qualityScore(result != null ? result.getQualityScore() : 0)
                 .chapterId(result != null ? result.getChapterId() : null)
-                .executionTrace(state.getExecutionTrace())
-                .errors(state.getErrors())
+                .executionTrace(finalState.getExecutionTrace())
+                .errors(finalState.getErrors())
                 .elapsedMs(elapsed)
                 .build();
+    }
+
+    /**
+     * Phase 1: arcCheck -> outline -> [cluePlan || charPlan] -> worldValidate
+     * cluePlan 和 charPlan 互不依赖，并行执行以节省 ~30s
+     */
+    private NovelAgentState runPhase1(NovelAgentState state) throws Exception {
+        state = arcCheck.apply(state);
+        state = outline.apply(state);
+
+        // cluePlan 和 charPlan 互不依赖，并行执行
+        final NovelAgentState afterOutline = state;
+        CompletableFuture<NovelAgentState> clueFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    try { return cluePlan.apply(afterOutline); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                });
+        CompletableFuture<NovelAgentState> charFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    try { return charPlan.apply(afterOutline); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                });
+
+        try {
+            NovelAgentState clueState = clueFuture.get(60, TimeUnit.SECONDS);
+            NovelAgentState charState = charFuture.get(60, TimeUnit.SECONDS);
+            // 合并两个结果：取 clueState 的 clueActions + charState 的 characterActions
+            state = clueState.toBuilder()
+                    .chapterPlan(clueState.getChapterPlan().toBuilder()
+                            .characterActions(charState.getChapterPlan().getCharacterActions())
+                            .build())
+                    .build();
+        } catch (Exception e) {
+            log.error("并行策划失败，回退到串行: {}", e.getMessage());
+            state = cluePlan.apply(afterOutline);
+            state = charPlan.apply(state);
+        }
+
+        state = worldValidate.apply(state);
+        return state;
     }
 }
