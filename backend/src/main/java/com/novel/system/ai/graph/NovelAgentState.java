@@ -20,6 +20,7 @@ public class NovelAgentState {
     private String userIntent;
     private String styleCardId;
     private String llmConfigId;
+    private String rhythmTag;
 
     // ==================== 上下文（构建一次，复用多次）====================
     private String outlineContext;
@@ -47,6 +48,9 @@ public class NovelAgentState {
     private int planRetryCount = 0;
     @Builder.Default
     private int writeRetryCount = 0;
+    @Builder.Default
+    private int rewriteCount = 0;
+    private String auditDecision;
     private String currentPhase;
     @Builder.Default
     private List<String> executionTrace = new ArrayList<>();

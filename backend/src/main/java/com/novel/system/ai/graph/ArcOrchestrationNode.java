@@ -24,11 +24,17 @@ public class ArcOrchestrationNode implements NovelGraphNode {
     public String nodeName() { return "arc_check"; }
 
     @Override
+    public boolean shouldSkip(NovelAgentState state) {
+        return state.getOutlineContext() != null && !state.getOutlineContext().isEmpty();
+    }
+
+    @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
         log.info("[{}] 检查卷级编排, novelId={}, chapter={}",
                 nodeName(), state.getNovelId(), state.getChapterNum());
 
         NovelAgentState result = state;
+        String rhythmTag = null;
         try {
             ArcOrchestration.ChapterPlan chapterPlan = arcOrchestrationService
                     .getChapterPlan(state.getNovelId(), state.getChapterNum());
@@ -40,6 +46,7 @@ public class ArcOrchestrationNode implements NovelGraphNode {
             } else {
                 log.info("卷级编排检查通过, rhythmTag={}, perspective={}",
                         chapterPlan.getRhythmTag(), chapterPlan.getPerspective());
+                rhythmTag = chapterPlan.getRhythmTag();
             }
         } catch (Exception e) {
             log.error("卷级编排检查失败（不影响后续流程）: {}", e.getMessage());
@@ -47,6 +54,7 @@ public class ArcOrchestrationNode implements NovelGraphNode {
         }
 
         result = result.toBuilder()
+                .rhythmTag(rhythmTag)
                 .currentPhase(NovelAgentState.GenerationPhase.ARC_CHECK.name())
                 .build();
         return StateHelper.appendTrace(result, nodeName());
