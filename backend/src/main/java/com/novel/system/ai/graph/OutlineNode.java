@@ -34,6 +34,11 @@ public class OutlineNode implements NovelGraphNode {
     public String nodeName() { return "outline"; }
 
     @Override
+    public boolean shouldSkip(NovelAgentState state) {
+        return state.getChapterPlan() != null;
+    }
+
+    @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
         log.info("[{}] 生成章纲, novelId={}, chapter={}",
                 nodeName(), state.getNovelId(), state.getChapterNum());
@@ -61,7 +66,7 @@ public class OutlineNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.OUTLINE.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private NovelAgentState.ChapterPlan parseOutline(String json) {
@@ -86,8 +91,9 @@ public class OutlineNode implements NovelGraphNode {
             return builder.build();
         } catch (Exception e) {
             log.error("解析章纲失败: {}", e.getMessage());
+            String fallback = json != null ? json.substring(0, Math.min(200, json.length())) : "章纲生成异常";
             return NovelAgentState.ChapterPlan.builder()
-                    .summary(json.substring(0, Math.min(200, json.length())))
+                    .summary(fallback)
                     .build();
         }
     }

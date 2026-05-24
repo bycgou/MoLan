@@ -29,6 +29,11 @@ public class WorldValidatorNode implements NovelGraphNode {
     public String nodeName() { return "world_validate"; }
 
     @Override
+    public boolean shouldSkip(NovelAgentState state) {
+        return state.getPreWriteValidation() != null && state.getPreWriteValidation().isPassed();
+    }
+
+    @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
         log.info("[{}] 写前校验", nodeName());
 
@@ -67,7 +72,7 @@ public class WorldValidatorNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.PRE_WRITE_VALID.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private NovelAgentState.PreWriteValidation parseValidation(String json) {
@@ -88,8 +93,11 @@ public class WorldValidatorNode implements NovelGraphNode {
                     .violations(violations).warnings(warnings).suggestions(suggestions)
                     .build();
         } catch (Exception e) {
-            log.error("解析校验结果失败: {}", e.getMessage());
-            return NovelAgentState.PreWriteValidation.builder().passed(true).build();
+            log.error("解析校验结果失败，标记为未通过: {}", e.getMessage());
+            return NovelAgentState.PreWriteValidation.builder()
+                    .passed(false)
+                    .violations(List.of("校验结果解析失败: " + e.getMessage()))
+                    .build();
         }
     }
 

@@ -64,7 +64,7 @@ public class SelfReviewNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.SELF_REVIEW.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private SelfReviewResult parseResult(String json) {
@@ -82,7 +82,9 @@ public class SelfReviewNode implements NovelGraphNode {
             }
             return new SelfReviewResult(severity, notes);
         } catch (Exception e) {
-            return new SelfReviewResult(NovelAgentState.Severity.LOW, List.of());
+            log.error("解析自审结果失败，标记为HIGH: {}", e.getMessage());
+            return new SelfReviewResult(NovelAgentState.Severity.HIGH,
+                    List.of("自审结果解析失败，建议重写: " + e.getMessage()));
         }
     }
 

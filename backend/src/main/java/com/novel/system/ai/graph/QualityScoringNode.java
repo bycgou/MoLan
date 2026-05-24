@@ -88,7 +88,7 @@ public class QualityScoringNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.QUALITY_CHECK.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private String formatCluePlan(List<NovelAgentState.ClueAction> actions) {
@@ -123,7 +123,9 @@ public class QualityScoringNode implements NovelGraphNode {
                     node.path("clueLandingPassed").asBoolean(true),
                     clueIssues, suggestions);
         } catch (Exception e) {
-            return new QualityResult(70, true, "", true, List.of(), List.of());
+            log.error("解析质量评分失败，标记为未通过: {}", e.getMessage());
+            return new QualityResult(0, false, "评分解析失败: " + e.getMessage(), false,
+                    List.of("评分解析失败，建议重写"), List.of());
         }
     }
 
