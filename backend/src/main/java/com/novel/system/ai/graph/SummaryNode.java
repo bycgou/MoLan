@@ -23,6 +23,11 @@ public class SummaryNode implements NovelGraphNode {
     public String nodeName() { return "summary"; }
 
     @Override
+    public boolean shouldSkip(NovelAgentState state) {
+        return state.getFinalResult() != null && state.getFinalResult().getSummary() != null;
+    }
+
+    @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
         log.info("[{}] 生成摘要", nodeName());
 
@@ -35,10 +40,15 @@ public class SummaryNode implements NovelGraphNode {
 
         String fingerprint = parseFingerprint(summaryJson);
 
+        double qualityScore = 0;
+        if (state.getAuditResult() != null) {
+            qualityScore = state.getAuditResult().getQualityScore();
+        }
+
         NovelAgentState.FinalResult finalResult = NovelAgentState.FinalResult.builder()
                 .finalContent(draft.getContent())
                 .wordCount(draft.getWordCount())
-                .qualityScore(state.getAuditResult().getQualityScore())
+                .qualityScore(qualityScore)
                 .summary(fingerprint)
                 .build();
 
@@ -56,6 +66,7 @@ public class SummaryNode implements NovelGraphNode {
             JsonNode node = objectMapper.readTree(cleaned);
             return node.path("fingerprint").asText("");
         } catch (Exception e) {
+            if (json == null) return "摘要生成异常";
             return json.substring(0, Math.min(200, json.length()));
         }
     }
