@@ -2,7 +2,8 @@
 
 **日期:** 2026-05-25
 **状态:** 待审批
-**方案:** 自顶向下（架构统一先行），集中冲刺 4-6 周
+**方案:** 改进自研 GraphRunner（声明式图定义 + 条件路由 + 并行支持），集中冲刺 4-6 周
+**代码验证:** 已对照后端代码逐一验证，修正了初始分析中的夸大/过时描述
 
 ---
 
@@ -15,289 +16,277 @@
 
 此外，TypeScript 端（`moyun-ts/packages/core/src/ai/`）还有第三套并行实现。
 
-**核心问题：**
-1. 两套架构共享底层组件但编排逻辑完全不同，维护成本翻倍
-2. `GraphRunner` 是硬编码线性链表（`NODE_ORDER`），非真正图，扩展困难
-3. `NovelAgentState` 是 God Object（50+ 字段），隐式依赖无法追踪
-4. 自修正循环缺乏硬性终止保护（REPLAN 可能无限循环）
-5. 错误处理不统一（部分 try-catch 继续，部分直接抛异常）
-6. 可观测性缺失（无耗时/token/决策原因追踪）
-7. RAG Push/Pull 模式共存，可能导致重复上下文注入
+**核心问题（已代码验证）：**
+
+| # | 问题 | 验证结论 | 关键证据 |
+|---|------|---------|---------|
+| 1 | 两套并行架构 | ✅ 确认 | StreamingChapterController 和 MultiAgentNovelService 共享底层组件但编排完全独立 |
+| 2 | GraphRunner 硬编码线性链表 | ✅ 确认 | NODE_ORDER 硬编码 13 个节点名，currentIndex++ 线性推进，resolveNextNode 只处理 2 个节点的回退，不支持并行（runPhase1 绕过 GraphRunner 手动编排） |
+| 3 | NovelAgentState 字段膨胀 | ⚠️ 部分确认 | 直接字段 ~25 个（非 50+），但含内嵌类字段总数接近 50；定性合理 |
+| 4 | 自修正循环终止保护不完善 | ⚠️ 部分确认 | 有 MAX_ITERATIONS=20 兜底和 AuditRouterNode 的 MAX_REWRITES=2/MAX_PLAN_RETRIES=3，但 AuthorAgent REDIRECT 路径无精细保护，仅靠全局计数器 |
+| 5 | 错误处理不统一 | ✅ 确认 | 三种模式混用：GraphRunner try-catch 继续、StreamingChapterController completeWithError 终止、节点内部静默降级 |
+| 6 | 可观测性缺失 | ✅ 确认 | executionTrace 只是 List<String>，无耗时/token/决策原因；LLM 调用追踪完全缺失；无 Prometheus 指标 |
+| 7 | RAG Push/Pull 共存 | ⚠️ 过时/夸大 | Push 模式已基本废弃（ContextBuilderService 未注入 RAG 层），仅剩 TokenBudgetService 中 ragContext 死代码和 RagTool 无差别注入 |
 
 ---
 
 ## 2. 设计方案
 
-### 2.1 统一图架构
+### 2.1 改进自研 GraphRunner
 
-**目标：** 合并 StreamingChapterController 和 MultiAgentNovelService 为统一的图执行入口。
+**目标：** 将 GraphRunner 从硬编码线性链表升级为声明式图引擎，支持条件边、并行执行、模式过滤，同时保持 SSE 流式兼容。
 
-**方案：** 引入 LangGraph4j 框架替代自研 GraphRunner，通过模式参数区分"快速流式"和"完整多 Agent"两种执行模式。
+**选择自研而非 LangGraph4j 的理由：**
 
-**框架选择：**
-- GroupId: `org.bsc.langgraph4j`
-- ArtifactId: `langgraph4j-core`
-- GitHub: https://github.com/bsorrentino/langgraph4j
+| 维度 | 改进自研 | LangGraph4j |
+|------|---------|-------------|
+| SSE 流式兼容 | ✅ 零成本（当前已有 SseEmitter 集成） | ⚠️ 需验证，可能需要额外适配层 |
+| 并行支持 | ✅ CompletableFuture 已有先例 | ⚠️ fan-out/fan-in 不成熟 |
+| 侵入性 | 低（增量改进现有代码） | 中（需适配 AgentState、重写节点函数签名） |
+| API 稳定性 | ✅ 自控 | ⚠️ 小众框架，API 可能变化 |
+| 代码量 | ~500 行增量 | ~500 行 + 外部依赖 + 适配层 |
 
-**架构图：**
-
-```
-                    ┌─────────────────────────┐
-                    │    UnifiedGraphService    │
-                    │  ┌─────────────────────┐  │
-                    │  │   StateGraph         │  │
-                    │  │   (LangGraph4j)      │  │
-                    │  └─────────────────────┘  │
-                    └──────────┬────────────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    │                     │
-              ┌─────┴─────┐        ┌──────┴──────┐
-              │ FAST 模式  │        │ FULL 模式   │
-              │ (流式写作) │        │ (多Agent)   │
-              └───────────┘        └─────────────┘
-```
-
-**两种模式的节点差异：**
-
-| 节点 | FAST 模式 | FULL 模式 |
-|------|----------|----------|
-| `arc_check` | 执行 | 执行 |
-| `outline` | 执行 | 执行 |
-| `clue_planning` | 跳过 | 执行 |
-| `character_planning` | 跳过 | 执行 |
-| `world_validate` | 跳过 | 执行 |
-| `idea_select` | 跳过 | 执行 |
-| `writing` | 执行 | 执行 |
-| `self_review` | 执行 | 执行 |
-| `validation` | 跳过 | 执行 |
-| `quality_scoring` | 跳过 | 执行 |
-| `audit_router` | 跳过 | 执行 |
-| `author_review_*` | 跳过 | 执行 |
-| `summary` | 执行 | 执行 |
-| `post_process` | 执行 | 执行 |
-
-**变更范围：**
-- 新增 `UnifiedGraphService`，构建 LangGraph4j `StateGraph`
-- `StreamingChapterController` 改为调用 `UnifiedGraphService.execute(state, Mode.FAST)`
-- `MultiAgentNovelService` 改为调用 `UnifiedGraphService.execute(state, Mode.FULL)`
-- 删除自研 `GraphRunner`
-
-**LangGraph4j 图定义：**
+**改进后的 GraphRunner API：**
 
 ```java
-var graph = new StateGraph<>(NovelAgentState::new)
-    // Phase 1: 规划
-    .addNode("arc_check", arcCheckNode::apply)
-    .addNode("outline", outlineNode::apply)
-    .addNode("clue_planning", cluePlanningNode::apply)
-    .addNode("character_planning", characterPlanningNode::apply)
-    .addNode("world_validate", worldValidatorNode::apply)
+public class GraphRunner {
+    private final GraphDefinition definition;
+    private final Map<String, NovelGraphNode> nodes;
+    private final AuthorAgent authorAgent;
 
-    // Phase 2: 写作
-    .addNode("idea_select", ideaSelectionNode::apply)
-    .addNode("writing", writingNode::apply)
-    .addNode("self_review", selfReviewNode::apply)
+    // 替代当前的 NODE_ORDER + resolveNextNode()
+    public NovelAgentState execute(NovelAgentState state, Mode mode) {
+        String currentNode = definition.getEntryNode(mode);
+        while (currentNode != null && !currentNode.equals(END)) {
+            // 1. 循环保护检查
+            if (!retryGuard(currentNode, state)) {
+                currentNode = definition.getNextNode(currentNode, state, mode);
+                continue;
+            }
 
-    // Phase 3: 审计（仅 FULL 模式）
-    .addNode("validation", validationNode::apply)
-    .addNode("quality_scoring", qualityScoringNode::apply)
-    .addNode("audit_router", auditRouterNode::apply)
+            // 2. AuthorAgent 拦截（仅 FULL 模式 + 检查点节点）
+            if (mode == FULL && definition.isCheckpoint(currentNode)) {
+                AuthorDirective directive = authorAgent.beforeNode(currentNode, state);
+                switch (directive.getAction()) {
+                    case REDIRECT -> { currentNode = directive.getTargetNode(); continue; }
+                    case REJECT -> { state = authorAgent.afterNode(currentNode, state, directive); currentNode = definition.getNextNode(currentNode, state, mode); continue; }
+                    case REVISE -> { state = authorAgent.afterNode(currentNode, state, directive); }
+                    default -> {}
+                }
+            }
 
-    // Phase 4: 收尾
-    .addNode("summary", summaryNode::apply)
-    .addNode("post_process", postProcessNode::apply)
+            // 3. 执行节点（带错误策略）
+            state = executeWithErrorStrategy(currentNode, state);
 
-    // AuthorAgent 检查点节点（仅 FULL 模式）
-    .addNode("author_review_outline", authorReviewOutlineNode::apply)
-    .addNode("author_review_writing", authorReviewWritingNode::apply)
-    .addNode("author_review_audit", authorReviewAuditNode::apply)
+            // 4. AuthorAgent 后处理
+            if (mode == FULL && definition.isCheckpoint(currentNode)) {
+                state = authorAgent.afterNode(currentNode, state, state.getAuthorDirective());
+            }
 
-    // 起始边
-    .addEdge(StateGraph.START, "arc_check")
-    .addEdge("arc_check", "outline")
+            // 5. 路由决策
+            currentNode = definition.getNextNode(currentNode, state, mode);
+        }
+        return state;
+    }
+}
+```
 
-    // outline 后条件路由
-    .addConditionalEdges("outline",
-        state -> state.isFastMode() ? "writing" : "author_review_outline",
-        Map.of("writing", "writing", "author_review_outline", "author_review_outline"))
+**声明式图定义（替代 NODE_ORDER）：**
 
-    // AuthorAgent outline 检查点
-    .addConditionalEdges("author_review_outline",
-        state -> switch (state.getAuthorDirective().getAction()) {
-            case APPROVE, REVISE -> "clue_planning";
-            case REJECT -> "outline";
-            case REDIRECT -> state.getAuthorDirective().getTargetNode();
-        },
-        Map.of("clue_planning", "clue_planning", "outline", "outline"))
+```java
+public class GraphDefinition {
+    // 边定义
+    private final List<Edge> edges;
+    // 条件边定义
+    private final List<ConditionalEdge> conditionalEdges;
+    // 并行分组
+    private final Map<String, List<String>> fanOutGroups;
 
-    // 规划链（clue_planning 和 character_planning 并行执行）
-    // LangGraph4j 通过 fan-out/fan-in 模式支持：从同一节点出发的多条边自动并行
-    // world_validate 需要等待两条边都完成后才执行
-    .addEdge("author_review_outline", "clue_planning")
-    .addEdge("author_review_outline", "character_planning")
-    .addEdge("clue_planning", "world_validate")
-    .addEdge("character_planning", "world_validate")
-    .addEdge("world_validate", "idea_select")
-    .addEdge("idea_select", "writing")
+    public record Edge(String from, String to, Set<Mode> modes) {}
+    public record ConditionalEdge(String from, String to, Predicate<NovelAgentState> condition, Set<Mode> modes) {}
+}
+```
 
-    // writing 后条件路由
-    .addConditionalEdges("writing",
-        state -> state.isFastMode() ? "self_review" : "author_review_writing",
-        Map.of("self_review", "self_review", "author_review_writing", "author_review_writing"))
+**图定义构建：**
 
-    // AuthorAgent writing 检查点
-    .addConditionalEdges("author_review_writing",
-        state -> switch (state.getAuthorDirective().getAction()) {
-            case APPROVE, REVISE -> "self_review";
-            case REJECT -> "writing";
-            case REDIRECT -> state.getAuthorDirective().getTargetNode();
-        },
-        Map.of("self_review", "self_review", "writing", "writing"))
+```java
+GraphDefinition.builder()
+    // 线性链
+    .edge("arc_check", "outline")
+    .edge("outline", "clue_planning", Mode.FULL)
+    .edge("outline", "writing", Mode.FAST)            // FAST 模式捷径
 
-    // self_review 条件路由
-    .addConditionalEdges("self_review",
-        state -> {
-            if (state.getSeverity() == HIGH && state.getWriteRetryCount() < 2) return "writing";
-            if (state.isFastMode()) return "summary";
-            return "validation";
-        },
-        Map.of("writing", "writing", "summary", "summary", "validation", "validation"))
+    // 并行分组：clue_planning 和 character_planning 同时执行，汇合到 world_validate
+    .fanOut("outline", List.of("clue_planning", "character_planning"), Mode.FULL)
+    .fanIn(List.of("clue_planning", "character_planning"), "world_validate", Mode.FULL)
 
-    // 审计链
-    .addEdge("validation", "quality_scoring")
-    .addEdge("quality_scoring", "audit_router")
+    .edge("world_validate", "idea_select", Mode.FULL)
+    .edge("idea_select", "writing", Mode.FULL)
+    .edge("writing", "self_review")
+
+    // 条件边（替代 resolveNextNode if-else）
+    .conditionalEdge("self_review", "writing",
+        s -> s.getSeverity() == HIGH && s.getWriteRetryCount() < 2)
+    .conditionalEdge("self_review", "summary", s -> s.isFastMode())
+    .conditionalEdge("self_review", "validation", s -> !s.isFastMode())
+
+    .edge("validation", "quality_scoring", Mode.FULL)
+    .edge("quality_scoring", "audit_router", Mode.FULL)
 
     // audit_router 条件路由
-    .addConditionalEdges("audit_router",
-        state -> "author_review_audit",
-        Map.of("author_review_audit", "author_review_audit"))
+    .conditionalEdge("audit_router", "summary", s -> s.getAuditDecision() == PASS, Mode.FULL)
+    .conditionalEdge("audit_router", "outline", s -> s.getAuditDecision() == REPLAN, Mode.FULL)
+    .conditionalEdge("audit_router", "writing", s -> s.getAuditDecision() == REWRITE, Mode.FULL)
 
-    // AuthorAgent audit 检查点
-    .addConditionalEdges("author_review_audit",
-        state -> switch (state.getAuditDecision()) {
-            case PASS -> "summary";
-            case REPLAN -> "outline";
-            case REWRITE -> "writing";
-            default -> "summary";
-        },
-        Map.of("summary", "summary", "outline", "outline", "writing", "writing"))
+    .edge("summary", "post_process")
+    .edge("post_process", END)
 
-    // 收尾
-    .addEdge("summary", "post_process")
-    .addEdge("post_process", StateGraph.END);
+    // AuthorAgent 检查点
+    .checkpoint("outline")
+    .checkpoint("writing")
+    .checkpoint("audit_router")
+
+    // 重试保护策略
+    .retryPolicy("outline", new RetryPolicy(2, "outline", s -> s.clearChapterPlan()))
+    .retryPolicy("writing", new RetryPolicy(3, "writing", s -> s.clearDraft()))
+    .retryPolicy("audit_router", new RetryPolicy(2, "outline", s -> s.clearAudit()))
+
+    .build();
 ```
 
-**AuthorAgent 集成方式：**
-
-将 AuthorAgent 包装为独立节点（`author_review_outline`、`author_review_writing`、`author_review_audit`），插入到关键路径中。每个节点内部调用 LLM 判断 APPROVE/REVISE/REJECT/REDIRECT，通过条件边路由到下一个节点。
-
----
-
-### 2.2 NovelAgentState 拆分
-
-**目标：** 将 God Object 拆分为阶段子状态，适配 LangGraph4j 的 `AgentState`。
-
-**拆分结构：**
-
-```
-NovelAgentState (extends AgentState)
-├── RequestInput          — 只读，请求参数
-├── PlanningState         — 规划阶段输出
-│   ├── chapterPlan       — ChapterPlan
-│   ├── clueActions       — List<ClueAction>
-│   ├── characterActions  — List<CharacterAction>
-│   └── preWriteValidation — PreWriteValidation
-├── WritingState          — 写作阶段输出
-│   ├── selectedIdea      — String
-│   ├── implementationIdeas — List<String>
-│   └── draftContent      — DraftContent
-├── AuditState            — 审计阶段输出
-│   ├── auditResult       — AuditResult
-│   └── auditDecision     — PASS / REWRITE / REPLAN / MANUAL_REVIEW
-├── FinalState            — 最终输出
-│   ├── finalContent      — String
-│   ├── wordCount         — int
-│   ├── qualityScore      — int
-│   ├── chapterId         — String
-│   └── summary           — String
-└── FlowControl           — 流程控制
-    ├── iterationCount    — int
-    ├── planRetryCount    — int
-    ├── writeRetryCount   — int
-    ├── rewriteCount      — int
-    ├── currentPhase      — GenerationPhase
-    ├── executionTrace    — List<NodeExecutionRecord>
-    ├── errors            — List<StructuredError>
-    └── authorDirective   — AuthorDirective
-```
-
-**适配 LangGraph4j：**
+**并行执行实现（改进现有 CompletableFuture 模式）：**
 
 ```java
-public class NovelAgentState extends AgentState {
-    public NovelAgentState(Map<String, Object> initData) {
-        super(initData);
-    }
+// 在 GraphRunner 中处理 fan-out/fan-in
+if (definition.isFanOut(currentNode)) {
+    List<String> parallelNodes = definition.getFanOutTargets(currentNode, mode);
+    List<CompletableFuture<NovelAgentState>> futures = parallelNodes.stream()
+        .map(node -> CompletableFuture.supplyAsync(() -> executeWithErrorStrategy(node, state), executor))
+        .toList();
 
-    // 强类型访问器
-    public RequestInput getRequestInput() {
-        return (RequestInput) value("requestInput").orElse(null);
-    }
+    // 等待所有并行节点完成，合并状态
+    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    state = mergeParallelStates(state, futures.stream().map(CompletableFuture::join).toList());
 
-    public ChapterPlan getChapterPlan() {
-        return (ChapterPlan) value("chapterPlan").orElse(null);
-    }
-
-    // ... 其他字段的访问器
+    // 跳转到 fan-in 目标
+    currentNode = definition.getFanInTarget(parallelNodes, mode);
+    continue;
 }
 ```
 
-**节点函数返回值：** 返回 `Map<String, Object>` 作为部分状态更新，LangGraph4j 自动合并到主状态。
-
-**关键设计决策：**
-- 子状态是逻辑分组，底层仍存储在同一个 `Map<String, Object>` 中
-- 节点通过强类型访问器读取字段，通过返回 `Map` 写入字段
-- 向后兼容：保留所有现有 getter，标记 `@Deprecated` 的直接访问方法逐步迁移
+**变更范围：**
+- 重写 `GraphRunner`：用 `GraphDefinition` 替代 `NODE_ORDER` + `resolveNextNode()`
+- 重写 `MultiAgentNovelService`：Phase 1 手动编排纳入 GraphDefinition 的 fan-out/fan-in
+- `StreamingChapterController` 改为调用 `GraphRunner.execute(state, Mode.FAST)`
+- 保留 `NovelGraphNode` 接口不变（`apply(NovelAgentState)` 签名不变）
 
 ---
 
-### 2.3 安全机制
+### 2.2 NovelAgentState 改进
 
-#### 2.3.1 循环保护
+**目标：** 逻辑分组 + 接口约束，减少隐式依赖。
+
+**注意：** 不做激进拆分（底层仍用 Builder 模式），只做逻辑分组和访问约束。
+
+**改进方案：**
 
 ```java
-public class RetryGuard {
-    private final int maxRetries;
-    private final String retryCountKey;
+@Builder(toBuilder = true)
+public class NovelAgentState {
+    // === 请求输入（只读）===
+    @Getter private final String novelId;
+    @Getter private final int chapterNum;
+    @Getter private final String userIntent;
+    @Getter private final String styleCardId;
+    @Getter private final String llmConfigId;
+    @Getter private final Mode mode;          // 新增：FAST / FULL
 
-    public boolean shouldProceed(NovelAgentState state) {
-        int count = (int) state.value(retryCountKey).orElse(0);
-        if (count >= maxRetries) {
-            log.warn("Node exceeded max retries ({}/{}), forcing fallback", count, maxRetries);
-            return false;
-        }
-        return true;
-    }
+    // === 规划阶段 ===
+    @Getter private final ChapterPlan chapterPlan;
+    @Getter private final PreWriteValidation preWriteValidation;
 
-    public NovelAgentState increment(NovelAgentState state) {
-        int count = (int) state.value(retryCountKey).orElse(0);
-        return state.withUpdated(retryCountKey, count + 1);
-    }
+    // === 写作阶段 ===
+    @Getter private final String selectedIdea;
+    @Getter private final List<String> implementationIdeas;
+    @Getter private final DraftContent draftContent;
+
+    // === 审计阶段 ===
+    @Getter private final AuditResult auditResult;
+    @Getter private final AuditDecision auditDecision;
+
+    // === 最终输出 ===
+    @Getter private final FinalResult finalResult;
+
+    // === 流程控制 ===
+    @Getter private final int iterationCount;
+    @Getter private final int planRetryCount;
+    @Getter private final int writeRetryCount;
+    @Getter private final int rewriteCount;
+    @Getter private final GenerationPhase currentPhase;
+    @Getter private final List<NodeExecutionRecord> executionTrace;  // 升级
+    @Getter private final List<StructuredError> errors;              // 升级
+    @Getter private final AuthorDirective authorDirective;
+
+    // === 可观测性（新增）===
+    @Getter private final List<LlmCallRecord> llmCalls;
 }
 ```
 
-**各路径的重试上限：**
+**关键改进：**
+- 新增 `mode` 字段（FAST/FULL），节点通过 `state.getMode()` 判断是否执行
+- `executionTrace` 从 `List<String>` 升级为 `List<NodeExecutionRecord>`
+- `errors` 从 `List<String>` 升级为 `List<StructuredError>`
+- 新增 `llmCalls` 字段追踪 LLM 调用
+- 保留 `toBuilder()` 模式不变，节点函数签名不变
 
-| 循环路径 | 触发条件 | maxRetries | 超限后行为 |
-|---------|---------|------------|-----------|
-| `audit_router -> outline` (REPLAN) | `auditDecision == REPLAN` | 2 | 强制 PASS，降级输出 |
-| `audit_router -> writing` (REWRITE) | `auditDecision == REWRITE` | 2 | 强制 PASS，降级输出 |
-| `self_review -> writing` (HIGH severity) | `severity == HIGH` | 2 | 跳过重写，继续到 validation |
-| `author_review -> outline` (REJECT) | `directive == REJECT` | 1 | 跳过 AuthorAgent，直接执行 |
-| `author_review -> writing` (REJECT) | `directive == REJECT` | 1 | 跳过 AuthorAgent，直接执行 |
+**接口约束（后续渐进式迁移）：** 通过代码审查和文档约定各节点的读写字段范围，不做运行时强制。
+
+---
+
+### 2.3 安全机制（最高优先级）
+
+#### 2.3.1 循环保护增强
+
+**当前状态：** 有 `MAX_ITERATIONS=20` 全局兜底和 `MAX_REWRITES=2/MAX_PLAN_RETRIES=3` 节点级限制，但 AuthorAgent REDIRECT 路径无精细保护。
+
+**改进：** 在 GraphRunner 的路由决策中增加每路径重试计数：
+
+```java
+// 在 NovelAgentState 中新增
+private final Map<String, Integer> nodeRetryCounts;  // 节点级重试计数
+
+// 在 GraphRunner 路由逻辑中
+public String resolveNextNode(String currentNode, NovelAgentState state, Mode mode) {
+    String next = definition.getNextNode(currentNode, state, mode);
+
+    // 检查目标节点的重试次数
+    if (next != null && state.getNodeRetryCount(next) >= definition.getMaxRetries(next)) {
+        log.warn("Node {} exceeded max retries ({}), forcing fallback",
+            next, definition.getMaxRetries(next));
+        return definition.getFallbackNode(next);  // 跳过，使用降级路径
+    }
+
+    return next;
+}
+```
+
+**各路径的重试上限（已有 + 新增）：**
+
+| 循环路径 | 触发条件 | maxRetries | 超限后行为 | 当前状态 |
+|---------|---------|------------|-----------|---------|
+| `audit_router -> outline` (REPLAN) | `auditDecision == REPLAN` | 3 | 强制 PASS，降级输出 | ✅ 已有 MAX_PLAN_RETRIES=3 |
+| `audit_router -> writing` (REWRITE) | `auditDecision == REWRITE` | 2 | 强制 PASS，降级输出 | ✅ 已有 MAX_REWRITES=2 |
+| `self_review -> writing` (HIGH severity) | `severity == HIGH` | 2 | 跳过重写，继续执行 | ✅ 已有 |
+| `author_review -> outline` (REJECT) | `directive == REJECT` | 1 | 跳过 AuthorAgent，直接执行 | ⚠️ 新增 |
+| `author_review -> writing` (REJECT) | `directive == REJECT` | 1 | 跳过 AuthorAgent，直接执行 | ⚠️ 新增 |
+| `author_review -> *` (REDIRECT) | `directive == REDIRECT` | 1 | 忽略 REDIRECT，继续原路径 | ⚠️ 新增 |
+| 全局迭代上限 | `iterationCount` | 20 | 强制终止，返回错误 | ✅ 已有 |
 
 #### 2.3.2 统一错误处理
+
+**当前状态：** 三种模式混用——GraphRunner try-catch 继续、StreamingChapterController completeWithError 终止、节点内部静默降级。
+
+**改进：** 定义统一的错误策略枚举，在 GraphRunner 中统一处理：
 
 ```java
 public enum ErrorStrategy {
@@ -356,30 +345,32 @@ public record NodeExecutionRecord(
     boolean skipped,
     ErrorStrategy errorStrategy,
     StructuredError error,           // null if success
-    AuthorDirective directive,       // AuthorAgent 决策
-    Map<String, Object> metadata     // 节点特定数据
+    AuthorDirective directive,       // AuthorAgent 决策（仅 FULL 模式检查点）
+    Map<String, Object> metadata     // 节点特定数据（如 auditDecision, qualityScore）
 ) {}
 ```
 
-**自动收集包装器：**
+**在 GraphRunner 中自动收集：**
 
 ```java
-public NodeFunction withTracing(String nodeName, NodeFunction delegate) {
-    return state -> {
-        var start = Instant.now();
-        try {
-            var result = delegate.apply(state);
-            var end = Instant.now();
-            return mergeTrace(result, new NodeExecutionRecord(
-                nodeName, state.getMode(), start, end,
-                Duration.between(start, end).toMillis(),
-                false, null, null, null, Map.of()
-            ));
-        } catch (Exception e) {
-            var end = Instant.now();
-            return handleError(state, nodeName, e, start, end);
-        }
-    };
+private NovelAgentState executeWithErrorStrategy(String nodeName, NovelAgentState state) {
+    var start = Instant.now();
+    try {
+        NovelGraphNode node = nodes.get(nodeName);
+        NovelAgentState result = node.apply(state);
+        var end = Instant.now();
+
+        // 追加执行记录到 executionTrace
+        return StateHelper.appendTrace(result, new NodeExecutionRecord(
+            nodeName, state.getMode(), start, end,
+            Duration.between(start, end).toMillis(),
+            false, null, null, null, Map.of()
+        ));
+    } catch (Exception e) {
+        var end = Instant.now();
+        ErrorStrategy strategy = definition.getErrorStrategy(nodeName);
+        return handleNodeError(state, nodeName, e, strategy, start, end);
+    }
 }
 ```
 
@@ -387,15 +378,41 @@ public NodeFunction withTracing(String nodeName, NodeFunction delegate) {
 
 ```java
 public record LlmCallRecord(
+    String nodeName,         // 调用来源节点
     String usageType,        // outline / writing / summary / audit
     String modelName,
     int inputTokens,
     int outputTokens,
     int totalTokens,
     long durationMs,
-    boolean cached,          // prompt cache hit
     Instant timestamp
 ) {}
+```
+
+**实现方式：** 在 `ChatModelProvider` 中包装 `ChatModel`，拦截 `chat()` 调用提取 token 使用量：
+
+```java
+public class TracingChatModel implements ChatModel {
+    private final ChatModel delegate;
+    private final Consumer<LlmCallRecord> recorder;
+    private final String nodeName;
+
+    @Override
+    public ChatResponse chat(ChatRequest request) {
+        var start = Instant.now();
+        ChatResponse response = delegate.chat(request);
+        var end = Instant.now();
+
+        TokenUsage usage = response.tokenUsage();
+        recorder.accept(new LlmCallRecord(
+            nodeName, null, delegate.modelName(),
+            usage.inputTokenCount(), usage.outputTokenCount(), usage.totalTokenCount(),
+            Duration.between(start, end).toMillis(), start
+        ));
+
+        return response;
+    }
+}
 ```
 
 存储到 `NovelAgentState.llmCalls` 字段。
@@ -442,27 +459,16 @@ public record RoutingDecision(
 
 ---
 
-### 2.5 RAG 清理
+### 2.5 RAG 清理（低优先级）
 
-**目标：** 统一 Push/Pull 模式，消除重复上下文注入。
+**当前状态：** Push 模式已基本废弃（ContextBuilderService 未注入 RAG 层），仅剩 TokenBudgetService 中 ragContext 死代码和 RagTool 无差别注入。
 
-**方案：按模式分离**
+**改进：** 清理死代码 + 按模式过滤 RagTool：
 
-| 模式 | RAG 行为 | 说明 |
-|------|---------|------|
-| FAST | Push 模式 | `ContextBuilderService` 自动注入 RAG 结果，Agent 无 Tool 访问 |
-| FULL | Pull 模式 | Agent 通过 `RagTool` 主动检索，`ContextBuilderService` 不注入 RAG 层 |
-
-**实现变更：**
-1. `ContextBuilderService.buildWritingContext()` 增加 `mode` 参数
-   - FAST：调用 `ragService.retrieveContext()` 注入第 6 层
-   - FULL：跳过 RAG 层，只注入 Layer 1-5
+1. 删除 `TokenBudgetService` 中 ragContext 相关死代码
 2. `NovelToolProvider.getAllTools()` 增加 `mode` 参数
-   - FAST：不返回 `RagTool`
+   - FAST：不返回 `RagTool`（写作者不需要主动检索）
    - FULL：返回 `RagTool`
-3. `TokenBudgetService` 调整预算分配
-   - FAST：RAG 占 12% token 预算
-   - FULL：RAG 预算为 0（由 Agent 自行决定何时调用）
 
 ---
 
@@ -484,19 +490,28 @@ moyun:
       max-interventions: 3   # 单次章节生成最大干预次数
 ```
 
-在 `AuthorReviewNode` 中检查配置，如果 `enabled=false` 则直接返回 APPROVE。
+在 GraphRunner 的 AuthorAgent 拦截逻辑中检查配置，如果 `enabled=false` 则跳过 `beforeNode/afterNode` 调用。
 
 ---
 
 ## 3. 实施阶段
 
-| 阶段 | 周期 | 内容 | 产出 |
-|------|------|------|------|
-| **阶段 1** | 第 1-2 周 | 引入 LangGraph4j，构建 UnifiedGraphService，合并两套入口 | 可运行的统一图执行引擎 |
-| **阶段 2** | 第 2-3 周 | 拆分 NovelAgentState 为子状态，适配 AgentState | 强类型子状态 + 向后兼容 |
-| **阶段 3** | 第 3-4 周 | 安全机制：RetryGuard + ErrorStrategy + StructuredError | 所有循环路径有硬性终止 |
-| **阶段 4** | 第 4-5 周 | 可观测性：NodeExecutionRecord + LlmCallRecord + Prometheus | 结构化追踪 + 指标导出 |
-| **阶段 5** | 第 5-6 周 | RAG 清理 + AuthorAgent 配置化 + 文档 + 回归测试 | 无重复上下文 + 配置化开关 |
+| 阶段 | 周期 | 优先级 | 内容 | 产出 |
+|------|------|--------|------|------|
+| **阶段 1** | 第 1 周 | P0 | 安全机制：AuthorAgent REDIRECT/REJECT 路径重试保护 + 结构化错误 | 所有循环路径有硬性终止 |
+| **阶段 2** | 第 2-3 周 | P1 | 可观测性：NodeExecutionRecord + TracingChatModel + Prometheus 指标 | 结构化追踪 + 指标导出 |
+| **阶段 3** | 第 3-4 周 | P1 | 改进 GraphRunner：声明式 GraphDefinition + 条件边 + fan-out/fan-in + 模式过滤 | 可扩展的图引擎 |
+| **阶段 4** | 第 4-5 周 | P2 | 统一入口：StreamingChapterController 调用 GraphRunner(FAST) + AuthorAgent 配置化 | 两套架构合并 |
+| **阶段 5** | 第 5-6 周 | P3 | RAG 清理 + NovelAgentState 字段整理 + 文档 + 回归测试 | 代码清洁度提升 |
+
+**阶段依赖关系：**
+```
+阶段 1 (安全) ──────────────────────────────────────> 可独立部署
+阶段 2 (可观测) ────────────────────────────────────> 可独立部署
+阶段 3 (图引擎) ──依赖阶段 1 的 RetryGuard──> 阶段 4 (统一入口)
+阶段 4 (统一入口) ──依赖阶段 3 的 GraphDefinition──> 可部署
+阶段 5 (清理) ──依赖阶段 3、4──> 最终交付
+```
 
 ---
 
@@ -504,10 +519,11 @@ moyun:
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|---------|
-| LangGraph4j API 不稳定 | 阶段 1 受阻 | 锁定版本，封装适配层，必要时回退自研 |
-| 状态拆分导致回归 | 阶段 2 受阻 | 保留向后兼容 getter，逐步迁移 |
-| 并行节点状态合并 | 阶段 1 受阻 | 自定义 LangGraph4j reducer 处理 fork-join |
+| GraphDefinition 条件边表达力不足 | 阶段 3 受阻 | 条件边用 `Predicate<NovelAgentState>` 声明，足够表达当前所有路由逻辑 |
+| 并行节点状态合并（fan-out/fan-in） | 阶段 3 受阻 | 参考现有 CompletableFuture 合并逻辑，提取为通用 merge 函数 |
+| TracingChatModel 拦截 LangChain4j token usage | 阶段 2 受阻 | LangChain4j 的 ChatResponse 已包含 TokenUsage，直接提取即可 |
 | TypeScript 端同步 | 后续 | 阶段 5 后单独规划 TS 端迁移 |
+| StreamingChapterController 改造回归 | 阶段 4 受阻 | FAST 模式节点集是当前流程的子集，行为应完全一致 |
 
 ---
 
@@ -517,3 +533,4 @@ moyun:
 - 前端 UI 变更——不涉及
 - 数据库 schema 变更——LlmConfig 等实体不变
 - 新增 Agent 能力——本次只重构编排层，不新增功能节点
+- NovelAgentState 激进拆分——保留 Builder 模式，只做逻辑分组和字段整理
