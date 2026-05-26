@@ -6,7 +6,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Builder(toBuilder = true)
@@ -41,6 +43,9 @@ public class NovelAgentState {
     // ==================== Phase 4 输出 ====================
     private FinalResult finalResult;
 
+    // ==================== Author Agent ====================
+    private AuthorDirective authorDirective;
+
     // ==================== 流程控制 ====================
     @Builder.Default
     private int iterationCount = 0;
@@ -53,9 +58,21 @@ public class NovelAgentState {
     private String auditDecision;
     private String currentPhase;
     @Builder.Default
-    private List<String> executionTrace = new ArrayList<>();
+    private List<NodeExecutionRecord> executionTrace = new ArrayList<>();
     @Builder.Default
-    private List<String> errors = new ArrayList<>();
+    private List<StructuredError> errors = new ArrayList<>();
+
+    // === 新增：执行模式 ===
+    @Builder.Default
+    private Mode mode = Mode.FULL;
+
+    // === 新增：节点级重试计数 ===
+    @Builder.Default
+    private Map<String, Integer> nodeRetryCounts = new HashMap<>();
+
+    // === 新增：LLM 调用追踪 ===
+    @Builder.Default
+    private List<LlmCallRecord> llmCalls = new ArrayList<>();
 
     // ==================== 枚举 ====================
 

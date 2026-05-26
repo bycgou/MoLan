@@ -1,7 +1,9 @@
 package com.novel.system.ai.graph;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 状态操作工具类 — 不可变模式
@@ -10,16 +12,47 @@ public final class StateHelper {
 
     private StateHelper() {}
 
+    @Deprecated
     public static NovelAgentState appendTrace(NovelAgentState state, String trace) {
-        List<String> newTrace = new ArrayList<>(state.getExecutionTrace());
-        newTrace.add(trace);
+        var newTrace = new ArrayList<>(state.getExecutionTrace());
+        newTrace.add(NodeExecutionRecord.success("__legacy__", state.getMode(),
+                Instant.now(), Instant.now(), null, Map.of("message", trace)));
         return state.toBuilder().executionTrace(newTrace).build();
     }
 
+    public static NovelAgentState appendTrace(NovelAgentState state, NodeExecutionRecord record) {
+        var newTrace = new ArrayList<>(state.getExecutionTrace());
+        newTrace.add(record);
+        return state.toBuilder().executionTrace(newTrace).build();
+    }
+
+    @Deprecated
     public static NovelAgentState appendError(NovelAgentState state, String error) {
-        List<String> newErrors = new ArrayList<>(state.getErrors());
+        var newErrors = new ArrayList<>(state.getErrors());
+        newErrors.add(new StructuredError("__legacy__", null, error, null, Instant.now(), false));
+        return state.toBuilder().errors(newErrors).build();
+    }
+
+    public static NovelAgentState appendError(NovelAgentState state, StructuredError error) {
+        var newErrors = new ArrayList<>(state.getErrors());
         newErrors.add(error);
         return state.toBuilder().errors(newErrors).build();
+    }
+
+    public static NovelAgentState appendLlmCall(NovelAgentState state, LlmCallRecord record) {
+        var newCalls = new ArrayList<>(state.getLlmCalls());
+        newCalls.add(record);
+        return state.toBuilder().llmCalls(newCalls).build();
+    }
+
+    public static int getNodeRetryCount(NovelAgentState state, String nodeName) {
+        return state.getNodeRetryCounts().getOrDefault(nodeName, 0);
+    }
+
+    public static NovelAgentState incrementNodeRetry(NovelAgentState state, String nodeName) {
+        var newCounts = new java.util.HashMap<>(state.getNodeRetryCounts());
+        newCounts.merge(nodeName, 1, Integer::sum);
+        return state.toBuilder().nodeRetryCounts(newCounts).build();
     }
 
     public static NovelAgentState incrementIteration(NovelAgentState state, String type) {

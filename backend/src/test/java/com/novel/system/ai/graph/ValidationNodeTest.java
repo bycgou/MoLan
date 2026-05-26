@@ -1,6 +1,9 @@
 package com.novel.system.ai.graph;
 
 import com.novel.system.ai.chain.*;
+import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.service.character.CharacterStateService;
+import com.novel.system.service.clue.ClueBookService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,11 +18,14 @@ import static org.mockito.Mockito.when;
 class ValidationNodeTest {
 
     @Mock private ValidationService validationService;
+    @Mock private NovelBaseMapper novelBaseMapper;
+    @Mock private CharacterStateService characterStateService;
+    @Mock private ClueBookService clueBookService;
     private ValidationNode node;
 
     @BeforeEach
     void setUp() {
-        node = new ValidationNode(validationService);
+        node = new ValidationNode(validationService, novelBaseMapper, characterStateService, clueBookService);
     }
 
     @Test

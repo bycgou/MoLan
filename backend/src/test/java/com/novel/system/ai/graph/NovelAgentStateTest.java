@@ -33,6 +33,11 @@ class NovelAgentStateTest {
         assertNotNull(state.getExecutionTrace());
         assertNotNull(state.getErrors());
         assertTrue(state.getExecutionTrace().isEmpty());
+        assertEquals(Mode.FULL, state.getMode());
+        assertNotNull(state.getNodeRetryCounts());
+        assertTrue(state.getNodeRetryCounts().isEmpty());
+        assertNotNull(state.getLlmCalls());
+        assertTrue(state.getLlmCalls().isEmpty());
     }
 
     @Test

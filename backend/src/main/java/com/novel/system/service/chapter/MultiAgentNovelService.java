@@ -4,6 +4,7 @@ import com.novel.system.ai.graph.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -85,8 +86,13 @@ public class MultiAgentNovelService {
                 .wordCount(result != null ? result.getWordCount() : 0)
                 .qualityScore(result != null ? result.getQualityScore() : 0)
                 .chapterId(result != null ? result.getChapterId() : null)
-                .executionTrace(finalState.getExecutionTrace())
-                .errors(finalState.getErrors())
+                .executionTrace(finalState.getExecutionTrace().stream()
+                        .map(r -> r.nodeName() + (r.metadata() != null && r.metadata().containsKey("message")
+                                ? "(" + r.metadata().get("message") + ")" : ""))
+                        .collect(Collectors.toList()))
+                .errors(finalState.getErrors().stream()
+                        .map(e -> e.nodeName() != null ? e.nodeName() + ": " + e.message() : e.message())
+                        .collect(Collectors.toList()))
                 .elapsedMs(elapsed)
                 .build();
     }

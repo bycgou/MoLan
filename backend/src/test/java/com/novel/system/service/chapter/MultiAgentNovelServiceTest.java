@@ -27,17 +27,34 @@ class MultiAgentNovelServiceTest {
     @Mock private SelfReviewNode selfReview;
     @Mock private ValidationNode validation;
     @Mock private QualityScoringNode qualityScoring;
+    @Mock private AuditRouterNode auditRouter;
     @Mock private SummaryNode summary;
     @Mock private PostProcessNode postProcess;
+    @Mock private AuthorAgent authorAgent;
 
     private MultiAgentNovelService service;
 
     @BeforeEach
     void setUp() {
+        // Stub nodeName() for all mocks — ConcurrentHashMap rejects null keys
+        when(arcCheck.nodeName()).thenReturn("arc_check");
+        when(outline.nodeName()).thenReturn("outline");
+        when(cluePlan.nodeName()).thenReturn("clue_planning");
+        when(charPlan.nodeName()).thenReturn("character_planning");
+        when(worldValidate.nodeName()).thenReturn("world_validate");
+        when(ideaSelect.nodeName()).thenReturn("idea_select");
+        when(writing.nodeName()).thenReturn("writing");
+        when(selfReview.nodeName()).thenReturn("self_review");
+        when(validation.nodeName()).thenReturn("validation");
+        when(qualityScoring.nodeName()).thenReturn("quality_scoring");
+        when(auditRouter.nodeName()).thenReturn("audit_router");
+        when(summary.nodeName()).thenReturn("summary");
+        when(postProcess.nodeName()).thenReturn("post_process");
+
         service = new MultiAgentNovelService(
                 arcCheck, outline, cluePlan, charPlan, worldValidate,
                 ideaSelect, writing, selfReview, validation,
-                qualityScoring, summary, postProcess);
+                qualityScoring, auditRouter, summary, postProcess, authorAgent);
     }
 
     @Test
@@ -79,6 +96,10 @@ class MultiAgentNovelServiceTest {
                     .build();
         });
         when(qualityScoring.apply(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(auditRouter.apply(any())).thenAnswer(inv -> {
+            NovelAgentState s = inv.getArgument(0);
+            return s.toBuilder().auditDecision("PASS").build();
+        });
         when(summary.apply(any())).thenAnswer(inv -> {
             NovelAgentState s = inv.getArgument(0);
             return s.toBuilder()
