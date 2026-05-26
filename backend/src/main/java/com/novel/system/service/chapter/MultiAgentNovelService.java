@@ -28,7 +28,8 @@ public class MultiAgentNovelService {
             AuditRouterNode auditRouter,
             SummaryNode summary,
             PostProcessNode postProcess,
-            AuthorAgent authorAgent) {
+            AuthorAgent authorAgent,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) StateCheckpointService checkpointService) {
 
         GraphDefinition definition = GraphDefinition.builder()
                 .edge("arc_check", "outline")
@@ -76,7 +77,11 @@ public class MultiAgentNovelService {
         runner.register(auditRouter);
         runner.register(summary);
         runner.register(postProcess);
-        runner.setAuthorAgent(authorAgent);
+
+        // NodeExecutor 统一管理 AuthorAgent 拦截 + 检查点
+        NodeExecutor nodeExecutor = new NodeExecutor(authorAgent, checkpointService, definition);
+        runner.setNodeExecutor(nodeExecutor);
+        runner.setCheckpointService(checkpointService);
     }
 
     public AgentExecutionResult writeChapter(String novelId, int chapterNum,
