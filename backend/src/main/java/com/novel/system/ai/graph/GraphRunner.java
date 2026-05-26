@@ -13,12 +13,11 @@ public class GraphRunner {
 
     private final GraphDefinition definition;
     private final java.util.Map<String, NovelGraphNode> nodes = new ConcurrentHashMap<>();
-    private AuthorAgent authorAgent;
     private final ExecutorService parallelExecutor = Executors.newCachedThreadPool();
+    private NodeExecutor nodeExecutor;
+    private StateCheckpointService checkpointService;
 
     private static final int MAX_ITERATIONS = 20;
-    private static final int MAX_AUTHOR_REJECT_RETRIES = 1;
-    private static final int MAX_AUTHOR_REDIRECT_RETRIES = 1;
 
     public GraphRunner(GraphDefinition definition) {
         this.definition = definition;
@@ -28,8 +27,18 @@ public class GraphRunner {
         nodes.put(node.nodeName(), node);
     }
 
+    public void setNodeExecutor(NodeExecutor nodeExecutor) {
+        this.nodeExecutor = nodeExecutor;
+    }
+
+    public void setCheckpointService(StateCheckpointService checkpointService) {
+        this.checkpointService = checkpointService;
+    }
+
+    // 保留 setAuthorAgent 用于测试兼容，但实际 AuthorAgent 由 NodeExecutor 管理
     public void setAuthorAgent(AuthorAgent authorAgent) {
-        this.authorAgent = authorAgent;
+        // 创建一个简单的 NodeExecutor 用于向后兼容
+        this.nodeExecutor = new NodeExecutor(authorAgent, null, definition);
     }
 
     public NovelAgentState execute(NovelAgentState initialState) {
@@ -38,7 +47,29 @@ public class GraphRunner {
 
     public NovelAgentState execute(NovelAgentState initialState, Mode mode) {
         NovelAgentState state = initialState.toBuilder().mode(mode).build();
-        String currentNode = "arc_check"; // entry node
+
+        // 断点恢复检查
+        if (mode == Mode.FULL && checkpointService != null) {
+            java.util.Optional<StateSnapshot> checkpoint = checkpointService
+                    .loadLatestCheckpoint(state.getNovelId(), state.getChapterNum());
+            if (checkpoint.isPresent()) {
+                log.info("[GraphRunner] 从检查点恢复: {}", checkpoint.get().getNodeName());
+                try {
+                    NovelAgentState restored = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readValue(checkpoint.get().getStateJson(), NovelAgentState.class);
+                    String resumeNode = getNextNode(checkpoint.get().getNodeName(), restored, mode);
+                    return executeFrom(resumeNode, restored, mode);
+                } catch (Exception e) {
+                    log.warn("[GraphRunner] 检查点恢复失败，从头执行: {}", e.getMessage());
+                }
+            }
+        }
+
+        return executeFrom("arc_check", state, mode);
+    }
+
+    private NovelAgentState executeFrom(String startNode, NovelAgentState state, Mode mode) {
+        String currentNode = startNode;
         int iterations = 0;
 
         while (currentNode != null && !currentNode.equals(GraphDefinition.END)) {
@@ -50,78 +81,35 @@ public class GraphRunner {
                 break;
             }
 
-            // AuthorAgent intercept at checkpoints (FULL mode only)
-            if (mode == Mode.FULL && definition.isCheckpoint(currentNode) && authorAgent != null) {
-                AuthorDirective directive = authorAgent.beforeNode(currentNode, state);
-                if (directive != null && directive.getAction() == AuthorDirective.Action.REDIRECT) {
-                    String redirectKey = "__redirect_from_" + currentNode;
-                    int redirectCount = StateHelper.getNodeRetryCount(state, redirectKey);
-                    if (redirectCount >= MAX_AUTHOR_REDIRECT_RETRIES) {
-                        log.warn("[GraphRunner] AuthorAgent REDIRECT from {} exceeded max retries ({}), ignoring",
-                                currentNode, MAX_AUTHOR_REDIRECT_RETRIES);
-                    } else {
-                        String target = directive.getTargetNode();
-                        if (target != null && nodes.containsKey(target)) {
-                            log.info("[GraphRunner] AuthorAgent redirect: {} -> {}", currentNode, target);
-                            state = StateHelper.incrementNodeRetry(state, redirectKey);
-                            NovelAgentState afterState = authorAgent.afterNode(currentNode, state, directive);
-                            state = afterState != null ? afterState : state;
-                            NovelGraphNode targetGraphNode = nodes.get(target);
-                            if (targetGraphNode != null) {
-                                NovelAgentState resetResult = targetGraphNode.resetState(state, currentNode);
-                                state = resetResult != null ? resetResult : state;
-                            }
-                            Instant now = Instant.now();
-                            state = StateHelper.appendTrace(state, NodeExecutionRecord.success(
-                                    currentNode, state.getMode(), now, now, directive,
-                                    Map.of("action", "author_redirect", "target", target)));
-                            currentNode = target;
-                            continue;
-                        }
-                    }
-                }
-                if (directive != null && directive.getAction() == AuthorDirective.Action.REJECT) {
-                    String rejectKey = "__author_reject_" + currentNode;
-                    int rejectCount = StateHelper.getNodeRetryCount(state, rejectKey);
-                    if (rejectCount >= MAX_AUTHOR_REJECT_RETRIES) {
-                        log.warn("[GraphRunner] AuthorAgent REJECT on {} exceeded max retries ({}), proceeding",
-                                currentNode, MAX_AUTHOR_REJECT_RETRIES);
-                    } else {
-                        log.info("[GraphRunner] AuthorAgent rejected: {}", currentNode);
-                        state = StateHelper.incrementNodeRetry(state, rejectKey);
-                        NovelAgentState afterState = authorAgent.afterNode(currentNode, state, directive);
-                        state = afterState != null ? afterState : state;
-                        Instant now = Instant.now();
-                        state = StateHelper.appendTrace(state, NodeExecutionRecord.success(
-                                currentNode, state.getMode(), now, now, directive,
-                                Map.of("action", "author_rejected")));
-                        // Skip this node, route to next
-                        currentNode = getNextNode(currentNode, state, mode);
-                        continue;
-                    }
-                }
-                // Store directive for afterNode
-                state = state.toBuilder().authorDirective(directive).build();
+            NovelGraphNode node = nodes.get(currentNode);
+            if (node == null) {
+                log.error("[GraphRunner] Node not found: {}", currentNode);
+                state = StateHelper.appendError(state, new StructuredError(
+                        currentNode, ErrorStrategy.FAIL, "Node not registered",
+                        null, Instant.now(), false));
+                break;
             }
 
-            // Execute node with error strategy
-            Instant startTime = Instant.now();
             log.info("[GraphRunner] Executing node: {} (iter={})", currentNode, iterations);
-            state = executeNodeWithErrorStrategy(currentNode, state, mode);
-            Instant endTime = Instant.now();
+
+            if (nodeExecutor != null) {
+                state = nodeExecutor.execute(node, state, mode);
+            } else {
+                // Fallback: 直接执行（无 AuthorAgent、无检查点）
+                try {
+                    state = node.apply(state);
+                } catch (Exception e) {
+                    state = StateHelper.appendError(state, new StructuredError(
+                            currentNode, ErrorStrategy.SKIP, e.getMessage(),
+                            e, Instant.now(), true));
+                }
+            }
+
+            Instant now = Instant.now();
             state = StateHelper.appendTrace(state, NodeExecutionRecord.success(
-                    currentNode, state.getMode(), startTime, endTime,
+                    currentNode, state.getMode(), now, now,
                     state.getAuthorDirective(), Map.of()));
 
-            // AuthorAgent afterNode
-            if (authorAgent != null && state.getAuthorDirective() != null) {
-                NovelAgentState afterState = authorAgent.afterNode(currentNode, state, state.getAuthorDirective());
-                if (afterState != null) {
-                    state = afterState;
-                }
-            }
-
-            // Fan-out parallel execution (after source node has been executed)
             if (definition.isFanOut(currentNode)) {
                 state = executeFanOut(currentNode, state, mode);
                 currentNode = definition.getFanInTarget(
@@ -132,7 +120,6 @@ public class GraphRunner {
                 continue;
             }
 
-            // Route to next node (with retry protection)
             String nextNode = getNextNode(currentNode, state, mode);
             if (nextNode != null && !nextNode.equals(GraphDefinition.END)) {
                 NovelGraphNode nextGraphNode = nodes.get(nextNode);
@@ -142,6 +129,11 @@ public class GraphRunner {
                 }
             }
             currentNode = nextNode;
+        }
+
+        // 章节生成完成后清理检查点
+        if (checkpointService != null && state.getNovelId() != null) {
+            checkpointService.clearCheckpoints(state.getNovelId(), state.getChapterNum());
         }
 
         return state;
@@ -246,56 +238,6 @@ public class GraphRunner {
             return definition.getFallbackNode(target);
         }
         return target;
-    }
-
-    /**
-     * Execute node with error strategy (SKIP/RETRY/FAIL). Preserved from Task 4.
-     */
-    private NovelAgentState executeNodeWithErrorStrategy(String nodeName, NovelAgentState state, Mode mode) {
-        NovelGraphNode node = nodes.get(nodeName);
-        if (node == null) {
-            log.error("[GraphRunner] Node not found: {}", nodeName);
-            return StateHelper.appendError(state, new StructuredError(
-                    nodeName, ErrorStrategy.FAIL, "Node not found",
-                    null, Instant.now(), false));
-        }
-
-        if (node.shouldSkip(state)) {
-            log.debug("[GraphRunner] Skipping node: {}", nodeName);
-            Instant now = Instant.now();
-            state = StateHelper.appendTrace(state, NodeExecutionRecord.skipped(
-                    nodeName, mode, now, now));
-            return state;
-        }
-
-        ErrorStrategy strategy = node.errorStrategy();
-        int maxRetries = strategy == ErrorStrategy.RETRY ? node.maxRetries() : 0;
-
-        for (int attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                if (attempt > 0) {
-                    log.info("[GraphRunner] Retrying node {} (attempt {}/{})", nodeName, attempt, maxRetries);
-                }
-                NovelAgentState result = node.apply(state);
-                // Track retry count for loop-back nodes
-                result = StateHelper.incrementNodeRetry(result, nodeName);
-                return result;
-            } catch (Exception e) {
-                log.warn("[GraphRunner] Node {} failed on attempt {}: {}", nodeName, attempt + 1, e.getMessage());
-
-                if (strategy == ErrorStrategy.FAIL) {
-                    return StateHelper.appendError(state, new StructuredError(
-                            nodeName, strategy, e.getMessage(), e, Instant.now(), false));
-                }
-
-                if (strategy == ErrorStrategy.SKIP || attempt == maxRetries) {
-                    return StateHelper.appendError(state, new StructuredError(
-                            nodeName, strategy, e.getMessage(), e, Instant.now(), true));
-                }
-                // RETRY: continue loop
-            }
-        }
-        return state;
     }
 
 }
