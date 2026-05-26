@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +25,9 @@ public class NovelAgentState {
     private String styleCardId;
     private String llmConfigId;
     private String rhythmTag;
+
+    // ==================== SSE 流式输出 ====================
+    private SseEmitter sseEmitter;
 
     // ==================== 上下文（构建一次，复用多次）====================
     private String outlineContext;
@@ -181,6 +186,23 @@ public class NovelAgentState {
         private boolean allPassed;
         private String overallAssessment;
         private List<String> suggestions;
+        // === 加权评分（新增） ===
+        private double weightedScore;
+        private List<DimensionResult> dimensionResults;
+        private List<String> fatalFailures;
+        private List<String> warnings;
+    }
+
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    public static class DimensionResult {
+        private String dimension;
+        private boolean passed;
+        private double score;
+        private double weight;
+        private String severity;
+        private String detail;
     }
 
     @Getter
