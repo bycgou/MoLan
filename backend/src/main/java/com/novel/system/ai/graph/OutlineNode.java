@@ -34,6 +34,16 @@ public class OutlineNode implements NovelGraphNode {
     public String nodeName() { return "outline"; }
 
     @Override
+    public NovelAgentState resetState(NovelAgentState state, String source) {
+        return state.toBuilder()
+                .chapterPlan(null)
+                .preWriteValidation(null)
+                .selectedIdea(null)
+                .implementationIdeas(null)
+                .build();
+    }
+
+    @Override
     public ErrorStrategy errorStrategy() { return ErrorStrategy.RETRY; }
 
     @Override

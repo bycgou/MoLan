@@ -29,6 +29,19 @@ public class WritingNode implements NovelGraphNode {
     public String nodeName() { return "writing"; }
 
     @Override
+    public NovelAgentState resetState(NovelAgentState state, String source) {
+        NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft != null) {
+            return state.toBuilder()
+                    .draftContent(draft.toBuilder()
+                            .severity(NovelAgentState.Severity.HIGH)
+                            .build())
+                    .build();
+        }
+        return state;
+    }
+
+    @Override
     public ErrorStrategy errorStrategy() { return ErrorStrategy.RETRY; }
 
     @Override
