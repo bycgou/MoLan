@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.novel.system.ai.graph.Mode;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,6 +54,20 @@ public class NovelToolProvider {
         }
 
         return tools.toArray();
+    }
+
+    /**
+     * 按模式过滤工具列表。FAST 模式不返回 RagTool。
+     */
+    public List<Object> getAllTools(Mode mode) {
+        List<Object> tools = new ArrayList<>();
+        tools.add(characterTool);
+        tools.add(clueTool);
+        tools.add(novelTool);
+        if (mode == Mode.FULL) {
+            tools.add(ragTool);
+        }
+        return tools;
     }
 
     public List<ToolSpecification> getMcpToolSpecifications() {

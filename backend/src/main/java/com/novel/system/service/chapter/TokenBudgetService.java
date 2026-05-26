@@ -33,8 +33,7 @@ public class TokenBudgetService {
         BUDGET_RATIOS.put("arcSummary", 0.06);         // 第四层：滑动窗口 — 子层4a弧段摘要
         BUDGET_RATIOS.put("novelOutline", 0.08);       // 小说总纲
         BUDGET_RATIOS.put("worldSetting", 0.04);       // 世界观
-        BUDGET_RATIOS.put("ragContext", 0.04);         // 第六层：RAG向量检索
-        BUDGET_RATIOS.put("output", 0.35);             // 输出空间（至少30%）
+        BUDGET_RATIOS.put("output", 0.39);             // 输出空间（至少30%）
         BUDGET_RATIOS.put("safetyMargin", 0.08);       // 安全余量
     }
 
