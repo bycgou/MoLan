@@ -29,6 +29,18 @@ public class WritingNode implements NovelGraphNode {
     public String nodeName() { return "writing"; }
 
     @Override
+    public ErrorStrategy errorStrategy() { return ErrorStrategy.RETRY; }
+
+    @Override
+    public int maxRetries() { return 2; }
+
+    @Override
+    public boolean shouldSkip(NovelAgentState state) {
+        return state.getDraftContent() != null
+                && state.getDraftContent().getSeverity() != NovelAgentState.Severity.HIGH;
+    }
+
+    @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
         log.info("[{}] 生成正文, iterationCount={}", nodeName(), state.getIterationCount());
 
@@ -63,7 +75,7 @@ public class WritingNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.WRITING.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private String enhanceContext(String baseContext, NovelAgentState.ChapterPlan plan,

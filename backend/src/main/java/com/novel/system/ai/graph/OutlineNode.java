@@ -34,6 +34,12 @@ public class OutlineNode implements NovelGraphNode {
     public String nodeName() { return "outline"; }
 
     @Override
+    public ErrorStrategy errorStrategy() { return ErrorStrategy.RETRY; }
+
+    @Override
+    public int maxRetries() { return 2; }
+
+    @Override
     public boolean shouldSkip(NovelAgentState state) {
         return state.getChapterPlan() != null;
     }

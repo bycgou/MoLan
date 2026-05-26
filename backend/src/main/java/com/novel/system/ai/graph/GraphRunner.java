@@ -126,6 +126,13 @@ public class GraphRunner {
 
             String nextNode = resolveNextNode(nodeName, state);
             if (nextNode != null) {
+                RoutingDecision decision = new RoutingDecision(nodeName, nextNode, "audit_decision",
+                        Map.of(
+                                "auditDecision", state.getAuditDecision() != null ? state.getAuditDecision() : "null",
+                                "planRetryCount", state.getPlanRetryCount(),
+                                "writeRetryCount", state.getWriteRetryCount()
+                        ));
+                log.debug("Routing: {}", decision);
                 int targetIndex = NODE_ORDER.indexOf(nextNode);
                 if (targetIndex >= 0) {
                     log.info("[GraphRunner] 路由跳转: {} → {}", nodeName, nextNode);
@@ -210,10 +217,6 @@ public class GraphRunner {
         }
 
         return null;
-    }
-
-    private NovelAgentState appendTrace(NovelAgentState state, String trace) {
-        return StateHelper.appendTrace(state, trace);
     }
 
     private NovelAgentState resetStateForReroute(NovelAgentState state, String targetNode) {
