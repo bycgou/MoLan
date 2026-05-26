@@ -63,7 +63,8 @@ public class QualityScoringNode implements NovelGraphNode {
         String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         QualityResult quality = parseQuality(response);
 
-        // 全部使用 builder，不混用 setter
+        // allPassed 由 AuditRouterNode 的 GradedAuditCalculator 决定（当 useGradedAudit=true）
+        // 此处保留向后兼容的老逻辑（useGradedAudit=false 时仍可用）
         boolean allPassed = audit.isOocPassed()
                 && audit.isLogicPassed()
                 && audit.isCluePassed()
@@ -79,7 +80,7 @@ public class QualityScoringNode implements NovelGraphNode {
                 .clueLandingPassed(quality.clueLandingPassed)
                 .clueLandingIssues(quality.clueLandingIssues)
                 .suggestions(mergeSuggestions(audit.getSuggestions(), quality.suggestions))
-                .allPassed(allPassed)
+                .allPassed(allPassed)  // AuditRouterNode 可能会用 GradedAuditCalculator 覆盖
                 .build();
 
         NovelAgentState updated = state.toBuilder()
