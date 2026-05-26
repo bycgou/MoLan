@@ -1,30 +1,19 @@
 package com.novel.system.ai.graph;
 
-import com.novel.system.ai.agent.WritingAgent;
 import com.novel.system.ai.chain.ChapterGenerationChain;
-import com.novel.system.config.LangChainConfig;
-import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.NovelChapter;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.service.chapter.ContextBuilderService;
 import com.novel.system.service.chapter.TokenBudgetService;
-import com.novel.system.service.llm.LlmConfigService;
-import com.novel.system.service.style.StyleCardService;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 /**
  * 正文生成节点 — 复用 WritingAgent + 增强上下文
- * 支持同步（FULL模式）和流式（FAST模式，通过SseEmitter）两种输出方式
  */
 @Slf4j
 @Component
@@ -35,25 +24,9 @@ public class WritingNode implements NovelGraphNode {
     private final ContextBuilderService contextBuilderService;
     private final TokenBudgetService tokenBudgetService;
     private final NovelBaseMapper novelBaseMapper;
-    private final LangChainConfig langChainConfig;
-    private final LlmConfigService llmConfigService;
-    private final StyleCardService styleCardService;
 
     @Override
     public String nodeName() { return "writing"; }
-
-    @Override
-    public NovelAgentState resetState(NovelAgentState state, String source) {
-        NovelAgentState.DraftContent draft = state.getDraftContent();
-        if (draft != null) {
-            return state.toBuilder()
-                    .draftContent(draft.toBuilder()
-                            .severity(NovelAgentState.Severity.HIGH)
-                            .build())
-                    .build();
-        }
-        return state;
-    }
 
     @Override
     public ErrorStrategy errorStrategy() { return ErrorStrategy.RETRY; }
@@ -69,8 +42,7 @@ public class WritingNode implements NovelGraphNode {
 
     @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
-        log.info("[{}] 生成正文, iterationCount={}, streaming={}",
-                nodeName(), state.getIterationCount(), state.getSseEmitter() != null);
+        log.info("[{}] 生成正文, iterationCount={}", nodeName(), state.getIterationCount());
 
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
@@ -88,15 +60,11 @@ public class WritingNode implements NovelGraphNode {
         // 增强上下文
         String enhancedContext = enhanceContext(writingContext, plan, state);
 
-        String content;
-        if (state.getSseEmitter() != null) {
-            content = executeStreaming(state, plan.getSummary(), enhancedContext);
-        } else {
-            content = chain.executeWritingChain(
-                    state.getNovelId(), state.getChapterNum(),
-                    plan.getSummary(), enhancedContext,
-                    state.getStyleCardId(), state.getLlmConfigId());
-        }
+        // 统一使用6参数版本
+        String content = chain.executeWritingChain(
+                state.getNovelId(), state.getChapterNum(),
+                plan.getSummary(), enhancedContext,
+                state.getStyleCardId(), state.getLlmConfigId());
 
         NovelAgentState updated = state.toBuilder()
                 .writingContext(writingContext)
@@ -108,122 +76,6 @@ public class WritingNode implements NovelGraphNode {
                 .build();
 
         return updated;
-    }
-
-    /**
-     * 流式执行：通过 StreamingChatModel 逐token发送到SseEmitter，阻塞直到完成。
-     * WritingNode 在 apply() 中同步返回完整内容，GraphRunner 继续执行后续节点。
-     */
-    private String executeStreaming(NovelAgentState state, String outline, String context) throws Exception {
-        SseEmitter emitter = state.getSseEmitter();
-
-        LlmConfig llmConfig = llmConfigService.getConfigById(state.getLlmConfigId());
-        if (llmConfig == null) {
-            throw new RuntimeException("找不到LLM配置: " + state.getLlmConfigId());
-        }
-
-        StreamingChatModel streamingModel = langChainConfig.createStreamingChatModel(llmConfig);
-
-        // 构建系统消息（与 WritingAgent @SystemMessage 一致）
-        String systemMessage = getBaseSystemMessage();
-
-        // 构建用户消息（与 ChapterGenerationChain.executeWritingChain 6参数版本一致）
-        StringBuilder userPromptBuilder = new StringBuilder();
-        userPromptBuilder.append(String.format("小说ID: %s\n章节号: 第%d章\n\n",
-                state.getNovelId(), state.getChapterNum()));
-
-        // 注入文风卡片内容
-        String styleCardId = state.getStyleCardId();
-        if (styleCardId != null && !styleCardId.isEmpty()) {
-            try {
-                String styleInjection = styleCardService.buildStyleInjection(styleCardId);
-                if (styleInjection != null && !styleInjection.isEmpty()) {
-                    userPromptBuilder.append(styleInjection).append("\n\n");
-                }
-            } catch (Exception e) {
-                log.warn("获取文风卡片失败: {}", e.getMessage());
-            }
-        }
-
-        // 附加指令
-        if (state.getUserIntent() != null && !state.getUserIntent().isBlank()) {
-            userPromptBuilder.append("===用户附加指令===\n")
-                    .append(state.getUserIntent().trim())
-                    .append("\n\n");
-        }
-
-        userPromptBuilder.append(String.format(
-                "===章纲===\n%s\n\n===上下文信息===\n%s\n\n请根据章纲生成第%d章正文。",
-                outline, context, state.getChapterNum()));
-
-        String userPrompt = userPromptBuilder.toString();
-
-        // 流式调用，阻塞直到完成
-        CompletableFuture<String> future = new CompletableFuture<>();
-        StringBuilder fullContent = new StringBuilder();
-
-        dev.langchain4j.data.message.SystemMessage sysMsg =
-                dev.langchain4j.data.message.SystemMessage.from(systemMessage);
-        dev.langchain4j.data.message.UserMessage userMsg =
-                dev.langchain4j.data.message.UserMessage.from(userPrompt);
-
-        streamingModel.chat(
-                dev.langchain4j.model.chat.request.ChatRequest.builder()
-                        .messages(sysMsg, userMsg)
-                        .build(),
-                new StreamingChatResponseHandler() {
-                    @Override
-                    public void onPartialResponse(String token) {
-                        try {
-                            fullContent.append(token);
-                            emitter.send(SseEmitter.event().data(token));
-                        } catch (Exception e) {
-                            log.error("发送token失败: {}", e.getMessage());
-                            future.completeExceptionally(e);
-                        }
-                    }
-
-                    @Override
-                    public void onCompleteResponse(ChatResponse response) {
-                        // 流式完成，发送 writing_complete 事件通知客户端
-                        try {
-                            String fullText = response.aiMessage().text();
-                            fullContent.setLength(0);
-                            fullContent.append(fullText);
-                            emitter.send(SseEmitter.event().name("writing_complete").data(""));
-                        } catch (Exception e) {
-                            log.warn("发送writing_complete事件失败: {}", e.getMessage());
-                        }
-                        future.complete(fullContent.toString());
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        log.error("流式生成失败: {}", error.getMessage());
-                        future.completeExceptionally(error);
-                    }
-                });
-
-        // 阻塞等待流式完成（最多10分钟）
-        return future.get(10, TimeUnit.MINUTES);
-    }
-
-    /**
-     * 从 WritingAgent 的 @SystemMessage 注解中提取系统指令。
-     */
-    private String getBaseSystemMessage() {
-        try {
-            dev.langchain4j.service.SystemMessage annotation =
-                    WritingAgent.class.getMethod("generateChapter", String.class)
-                            .getAnnotation(dev.langchain4j.service.SystemMessage.class);
-            if (annotation == null) return "";
-            String[] values = annotation.value();
-            if (values == null || values.length == 0) return "";
-            return String.join("", values).trim();
-        } catch (Exception e) {
-            log.warn("无法获取WritingAgent系统消息: {}", e.getMessage());
-            return "";
-        }
     }
 
     private String enhanceContext(String baseContext, NovelAgentState.ChapterPlan plan,
