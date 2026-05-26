@@ -23,4 +23,15 @@ public record NodeExecutionRecord(
         return new NodeExecutionRecord(nodeName, mode, start, end,
                 Duration.between(start, end).toMillis(), false, null, null, directive, metadata);
     }
+
+    public static NodeExecutionRecord skipped(String nodeName, Mode mode, Instant start, Instant end) {
+        return new NodeExecutionRecord(nodeName, mode, start, end,
+                Duration.between(start, end).toMillis(), true, null, null, null, Map.of());
+    }
+
+    public static NodeExecutionRecord error(String nodeName, Mode mode, Instant start, Instant end,
+                                             ErrorStrategy strategy, StructuredError error) {
+        return new NodeExecutionRecord(nodeName, mode, start, end,
+                Duration.between(start, end).toMillis(), false, strategy, error, null, Map.of());
+    }
 }
