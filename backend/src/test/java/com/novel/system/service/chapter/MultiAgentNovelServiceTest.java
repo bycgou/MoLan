@@ -1,9 +1,6 @@
 package com.novel.system.service.chapter;
 
 import com.novel.system.ai.graph.*;
-import com.novel.system.entity.mysql.NovelBase;
-import com.novel.system.mapper.NovelBaseMapper;
-import com.novel.system.mapper.NovelArcMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +51,7 @@ class MultiAgentNovelServiceTest {
         service = new MultiAgentNovelService(
                 arcCheck, outline, cluePlan, charPlan, worldValidate,
                 ideaSelect, writing, selfReview, validation,
-                qualityScoring, auditRouter, summary, postProcess, authorAgent);
+                qualityScoring, auditRouter, summary, postProcess, authorAgent, null);
     }
 
     @Test
@@ -108,6 +105,10 @@ class MultiAgentNovelServiceTest {
                     .build();
         });
         when(postProcess.apply(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // AuthorAgent returns APPROVE for all checkpoints
+        when(authorAgent.beforeNode(any(), any())).thenReturn(
+                AuthorDirective.builder().action(AuthorDirective.Action.APPROVE).build());
 
         AgentExecutionResult result = service.writeChapter("n1", 1, null, null, null);
 
