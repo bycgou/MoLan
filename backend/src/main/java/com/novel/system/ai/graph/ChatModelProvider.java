@@ -53,4 +53,13 @@ public class ChatModelProvider {
     public ChatModel getStructuredModel(String llmConfigId) {
         return getModel(llmConfigId, LangChainConfig.TaskType.STRUCTURED);
     }
+
+    /**
+     * 返回带追踪功能的 ChatModel 包装器
+     */
+    public ChatModel getTracingModel(String llmConfigId, LangChainConfig.TaskType taskType,
+                                       String nodeName, java.util.function.Consumer<LlmCallRecord> recorder) {
+        ChatModel delegate = getModel(llmConfigId, taskType);
+        return new TracingChatModel(delegate, recorder, nodeName);
+    }
 }
