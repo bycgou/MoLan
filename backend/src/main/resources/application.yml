@@ -109,6 +109,26 @@ moyun:
         - writing
         - audit_router
       max-interventions: 3
+      pre-filter-enabled: true
+      word-count-min: 1000
+      word-count-max: 8000
+      quality-score-auto-approve: 90.0
+
+# ===== 加权校验配置 =====
+novel:
+  validation:
+    use-graded-audit: false  # 默认走老逻辑，验证后切换为 true
+    pass-threshold: 60.0
+    dimensions:
+      ooc:         { weight: 0.20, severity: FATAL }
+      logic:       { weight: 0.20, severity: FATAL }
+      setting:     { weight: 0.15, severity: FATAL }
+      clue:        { weight: 0.15, severity: WARNING }
+      rhythm:      { weight: 0.10, severity: WARNING }
+      quality:     { weight: 0.10, severity: WARNING }
+      clue-landing: { weight: 0.10, severity: WARNING }
+  checkpoint:
+    enabled: true
 
 # ===== MCP 集成配置 =====
 mcp:
