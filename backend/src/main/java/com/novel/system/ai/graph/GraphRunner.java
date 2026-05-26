@@ -148,10 +148,11 @@ public class GraphRunner {
     }
 
     /**
-     * Fan-out: execute multiple nodes in parallel, merge results.
+     * Fan-out: execute multiple nodes in parallel, merge results using pluggable MergeStrategy.
      */
     private NovelAgentState executeFanOut(String sourceNode, NovelAgentState state, Mode mode) {
         List<String> targets = definition.getFanOutTargets(sourceNode, mode);
+        MergeStrategy strategy = definition.getFanOutMergeStrategy(sourceNode, mode);
         if (targets.isEmpty()) {
             return state;
         }
@@ -179,54 +180,19 @@ public class GraphRunner {
                 }, parallelExecutor))
                 .toList();
 
-        // Wait for all with timeout
-        NovelAgentState merged = state;
+        List<NovelAgentState> results = new ArrayList<>();
         for (int i = 0; i < futures.size(); i++) {
             try {
-                NovelAgentState result = futures.get(i).get(60, TimeUnit.SECONDS);
-                merged = mergeFanOutResult(merged, result, targets.get(i));
+                results.add(futures.get(i).get(60, TimeUnit.SECONDS));
             } catch (Exception e) {
                 log.error("[GraphRunner] Fan-out target {} failed: {}", targets.get(i), e.getMessage());
-                merged = StateHelper.appendError(merged, new StructuredError(
+                results.add(StateHelper.appendError(currentState, new StructuredError(
                         targets.get(i), ErrorStrategy.SKIP, e.getMessage(),
-                        e, Instant.now(), true));
+                        e, Instant.now(), true)));
             }
         }
 
-        return merged;
-    }
-
-    /**
-     * Merge fan-out results: take clueActions from clue_planning, characterActions from character_planning.
-     */
-    private NovelAgentState mergeFanOutResult(NovelAgentState base, NovelAgentState result, String nodeName) {
-        if ("clue_planning".equals(nodeName)) {
-            if (result.getChapterPlan() != null) {
-                NovelAgentState.ChapterPlan existing = base.getChapterPlan();
-                if (existing != null) {
-                    return base.toBuilder()
-                            .chapterPlan(existing.toBuilder()
-                                    .clueActions(result.getChapterPlan().getClueActions())
-                                    .build())
-                            .executionTrace(new ArrayList<>(result.getExecutionTrace()))
-                            .build();
-                }
-                return result;
-            }
-        } else if ("character_planning".equals(nodeName)) {
-            if (result.getChapterPlan() != null) {
-                NovelAgentState.ChapterPlan existing = base.getChapterPlan();
-                if (existing != null) {
-                    return base.toBuilder()
-                            .chapterPlan(existing.toBuilder()
-                                    .characterActions(result.getChapterPlan().getCharacterActions())
-                                    .build())
-                            .build();
-                }
-                return result;
-            }
-        }
-        return base;
+        return strategy.merge(state, results);
     }
 
     /**

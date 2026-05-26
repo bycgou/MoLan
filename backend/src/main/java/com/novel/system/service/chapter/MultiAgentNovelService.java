@@ -3,21 +3,16 @@ package com.novel.system.service.chapter;
 import com.novel.system.ai.graph.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.stream.Collectors;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 public class MultiAgentNovelService {
 
     private final GraphRunner runner;
-    private final ArcOrchestrationNode arcCheck;
-    private final OutlineNode outline;
-    private final CluePlanningNode cluePlan;
-    private final CharacterPlanningNode charPlan;
-    private final WorldValidatorNode worldValidate;
 
     public MultiAgentNovelService(
             ArcOrchestrationNode arcCheck,
@@ -35,48 +30,92 @@ public class MultiAgentNovelService {
             PostProcessNode postProcess,
             AuthorAgent authorAgent) {
 
-        this.arcCheck = arcCheck;
-        this.outline = outline;
-        this.cluePlan = cluePlan;
-        this.charPlan = charPlan;
-        this.worldValidate = worldValidate;
+        GraphDefinition definition = GraphDefinition.builder()
+                .edge("arc_check", "outline")
+                .edge("outline", "clue_planning", Mode.FULL)
+                .edge("outline", "writing", Mode.FAST)
+                .fanOut("outline", List.of("clue_planning", "character_planning"), Mode.FULL, MergeStrategy.chapterPlanMerge())
+                .fanIn(List.of("clue_planning", "character_planning"), "world_validate", Mode.FULL)
+                .edge("world_validate", "idea_select", Mode.FULL)
+                .edge("idea_select", "writing", Mode.FULL)
+                .edge("writing", "self_review")
+                .conditionalEdge("self_review", "writing",
+                        s -> s.getDraftContent() != null
+                                && s.getDraftContent().getSeverity() == NovelAgentState.Severity.HIGH
+                                && s.getWriteRetryCount() < 2)
+                .conditionalEdge("self_review", "summary", s -> s.getMode() == Mode.FAST)
+                .conditionalEdge("self_review", "validation", s -> s.getMode() == Mode.FULL)
+                .edge("validation", "quality_scoring", Mode.FULL)
+                .edge("quality_scoring", "audit_router", Mode.FULL)
+                .conditionalEdge("audit_router", "summary",
+                        s -> "PASS".equals(s.getAuditDecision()), Mode.FULL)
+                .conditionalEdge("audit_router", "outline",
+                        s -> "REPLAN".equals(s.getAuditDecision()), Mode.FULL)
+                .conditionalEdge("audit_router", "writing",
+                        s -> "REWRITE".equals(s.getAuditDecision()), Mode.FULL)
+                .edge("summary", "post_process")
+                .checkpoint("outline")
+                .checkpoint("writing")
+                .checkpoint("audit_router")
+                .retryPolicy("outline", 2, "summary")
+                .retryPolicy("writing", 3, "summary")
+                .retryPolicy("audit_router", 2, "summary")
+                .build();
 
-        this.runner = new GraphRunner();
-        this.runner.register(arcCheck);
-        this.runner.register(outline);
-        this.runner.register(cluePlan);
-        this.runner.register(charPlan);
-        this.runner.register(worldValidate);
-        this.runner.register(ideaSelect);
-        this.runner.register(writing);
-        this.runner.register(selfReview);
-        this.runner.register(validation);
-        this.runner.register(qualityScoring);
-        this.runner.register(auditRouter);
-        this.runner.register(summary);
-        this.runner.register(postProcess);
-        this.runner.setAuthorAgent(authorAgent);
+        this.runner = new GraphRunner(definition);
+        runner.register(arcCheck);
+        runner.register(outline);
+        runner.register(cluePlan);
+        runner.register(charPlan);
+        runner.register(worldValidate);
+        runner.register(ideaSelect);
+        runner.register(writing);
+        runner.register(selfReview);
+        runner.register(validation);
+        runner.register(qualityScoring);
+        runner.register(auditRouter);
+        runner.register(summary);
+        runner.register(postProcess);
+        runner.setAuthorAgent(authorAgent);
     }
 
     public AgentExecutionResult writeChapter(String novelId, int chapterNum,
                                               String userIntent, String styleCardId,
                                               String llmConfigId) throws Exception {
+        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, null);
+    }
+
+    /**
+     * 流式写章节：通过 SseEmitter 逐token输出，使用 Mode.FAST 跳过 clue/character planning。
+     */
+    public AgentExecutionResult writeChapterStreaming(String novelId, int chapterNum,
+                                                       String userIntent, String styleCardId,
+                                                       String llmConfigId,
+                                                       SseEmitter sseEmitter) throws Exception {
+        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, sseEmitter);
+    }
+
+    private AgentExecutionResult doWriteChapter(String novelId, int chapterNum,
+                                                 String userIntent, String styleCardId,
+                                                 String llmConfigId,
+                                                 SseEmitter sseEmitter) throws Exception {
         long startTime = System.currentTimeMillis();
 
-        NovelAgentState state = NovelAgentState.builder()
+        NovelAgentState.NovelAgentStateBuilder stateBuilder = NovelAgentState.builder()
                 .novelId(novelId)
                 .chapterNum(chapterNum)
                 .userIntent(userIntent)
                 .styleCardId(styleCardId)
-                .llmConfigId(llmConfigId)
-                .build();
+                .llmConfigId(llmConfigId);
+        if (sseEmitter != null) {
+            stateBuilder.sseEmitter(sseEmitter);
+        }
+        NovelAgentState state = stateBuilder.build();
 
-        // Phase 1: Planning (with parallel cluePlan + charPlan)
-        state = runPhase1(state);
-
-        // Phase 2+: idea_select → post_process (index 5 in NODE_ORDER)
-        // audit_router 的 REPLAN 路由仍能正常工作，因为 Phase 1 节点仍在 runner 中注册
-        NovelAgentState finalState = runner.executeFrom(state, 5);
+        // FAST mode: arc_check -> outline -> writing -> self_review -> summary -> post_process
+        // FULL mode: adds clue_planning + character_planning + world_validate + idea_select + validation + quality_scoring + audit_router
+        Mode mode = sseEmitter != null ? Mode.FAST : Mode.FULL;
+        NovelAgentState finalState = runner.execute(state, mode);
 
         long elapsed = System.currentTimeMillis() - startTime;
 
@@ -95,45 +134,5 @@ public class MultiAgentNovelService {
                         .collect(Collectors.toList()))
                 .elapsedMs(elapsed)
                 .build();
-    }
-
-    /**
-     * Phase 1: arcCheck -> outline -> [cluePlan || charPlan] -> worldValidate
-     * cluePlan 和 charPlan 互不依赖，并行执行以节省 ~30s
-     */
-    private NovelAgentState runPhase1(NovelAgentState state) throws Exception {
-        state = arcCheck.apply(state);
-        state = outline.apply(state);
-
-        // cluePlan 和 charPlan 互不依赖，并行执行
-        final NovelAgentState afterOutline = state;
-        CompletableFuture<NovelAgentState> clueFuture =
-                CompletableFuture.supplyAsync(() -> {
-                    try { return cluePlan.apply(afterOutline); }
-                    catch (Exception e) { throw new RuntimeException(e); }
-                });
-        CompletableFuture<NovelAgentState> charFuture =
-                CompletableFuture.supplyAsync(() -> {
-                    try { return charPlan.apply(afterOutline); }
-                    catch (Exception e) { throw new RuntimeException(e); }
-                });
-
-        try {
-            NovelAgentState clueState = clueFuture.get(60, TimeUnit.SECONDS);
-            NovelAgentState charState = charFuture.get(60, TimeUnit.SECONDS);
-            // 合并两个结果：取 clueState 的 clueActions + charState 的 characterActions
-            state = clueState.toBuilder()
-                    .chapterPlan(clueState.getChapterPlan().toBuilder()
-                            .characterActions(charState.getChapterPlan().getCharacterActions())
-                            .build())
-                    .build();
-        } catch (Exception e) {
-            log.error("并行策划失败，回退到串行: {}", e.getMessage());
-            state = cluePlan.apply(afterOutline);
-            state = charPlan.apply(state);
-        }
-
-        state = worldValidate.apply(state);
-        return state;
     }
 }
