@@ -75,7 +75,7 @@ mybatis-plus:
 redis-stack:
   vector:
     index-name: novel_summary_idx
-    dimension: 1536
+    dimension: 1024
     distance-metric: cosine
 
 # 生成配置
@@ -98,6 +98,17 @@ logging:
     org.springframework.data.redis: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ===== 作者Agent配置 =====
+moyun:
+  agent:
+    author:
+      enabled: true
+      checkpoints:
+        - outline
+        - writing
+        - audit_router
+      max-interventions: 3
 
 # ===== MCP 集成配置 =====
 mcp:
