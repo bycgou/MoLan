@@ -38,6 +38,20 @@ public class AuthorAgentImpl implements AuthorAgent {
                     .build();
         }
 
+        // 预筛：命中则跳过 LLM 调用
+        if (authorConfig.isPreFilterEnabled()) {
+            AuthorDirective preFilterResult = switch (nodeName) {
+                case "outline" -> preFilterOutline(state);
+                case "writing" -> preFilterWriting(state);
+                case "audit_router" -> preFilterAudit(state);
+                default -> null;
+            };
+            if (preFilterResult != null) {
+                log.info("[AuthorAgent] 预筛通过({}): {}", nodeName, preFilterResult.getRationale());
+                return preFilterResult;
+            }
+        }
+
         log.info("[AuthorAgent] beforeNode 检查点: {}", nodeName);
 
         try {
@@ -299,6 +313,64 @@ public class AuthorAgentImpl implements AuthorAgent {
                     .action(AuthorDirective.Action.APPROVE)
                     .build();
         }
+    }
+
+    private AuthorDirective preFilterOutline(NovelAgentState state) {
+        NovelAgentState.ChapterPlan plan = state.getChapterPlan();
+        if (plan == null) return null;
+
+        boolean structurallyComplete =
+                isNotBlank(plan.getTitle()) &&
+                isNotBlank(plan.getSummary()) &&
+                plan.getKeyPoints() != null && !plan.getKeyPoints().isEmpty() &&
+                isNotBlank(plan.getHook());
+
+        if (!structurallyComplete) return null;
+        if (isNotBlank(state.getUserIntent())) return null;
+        if (state.getAuthorDirective() != null
+                && isNotBlank(state.getAuthorDirective().getNarrativeDirection())) return null;
+
+        return AuthorDirective.builder()
+                .action(AuthorDirective.Action.APPROVE)
+                .rationale("章纲结构完整，无创作意图/叙事方向需审查")
+                .build();
+    }
+
+    private AuthorDirective preFilterWriting(NovelAgentState state) {
+        NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft == null) return null;
+
+        if (draft.getSeverity() != NovelAgentState.Severity.LOW) return null;
+        if (draft.getRevisionNotes() != null && !draft.getRevisionNotes().isEmpty()) return null;
+        if (draft.getWordCount() < authorConfig.getWordCountMin()
+                || draft.getWordCount() > authorConfig.getWordCountMax()) return null;
+        if (isNotBlank(state.getUserIntent())) return null;
+        if (state.getAuthorDirective() != null
+                && isNotBlank(state.getAuthorDirective().getNarrativeDirection())) return null;
+
+        return AuthorDirective.builder()
+                .action(AuthorDirective.Action.APPROVE)
+                .rationale("正文自审LOW，字数正常，无修订意见")
+                .build();
+    }
+
+    private AuthorDirective preFilterAudit(NovelAgentState state) {
+        NovelAgentState.AuditResult audit = state.getAuditResult();
+        if (audit == null) return null;
+
+        if (audit.isAllPassed() && audit.getQualityScore() >= authorConfig.getQualityScoreAutoApprove()) {
+            return AuthorDirective.builder()
+                    .action(AuthorDirective.Action.APPROVE)
+                    .rationale(String.format("全部通过且质量分 %.1f >= %.0f",
+                            audit.getQualityScore(), authorConfig.getQualityScoreAutoApprove()))
+                    .build();
+        }
+
+        return null;
+    }
+
+    private boolean isNotBlank(String s) {
+        return s != null && !s.isBlank();
     }
 
     private String formatCharacterActions(List<NovelAgentState.CharacterAction> actions) {
