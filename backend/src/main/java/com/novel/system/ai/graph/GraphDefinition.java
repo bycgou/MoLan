@@ -27,7 +27,7 @@ public class GraphDefinition {
 
     public record Edge(String from, String to, Set<Mode> modes) {}
     public record ConditionalEdge(String from, String to, Predicate<NovelAgentState> condition, Set<Mode> modes) {}
-    public record FanOutGroup(String source, List<String> targets, Mode mode) {}
+    public record FanOutGroup(String source, List<String> targets, Mode mode, MergeStrategy mergeStrategy) {}
     public record FanInGroup(List<String> sources, String target, Mode mode) {}
 
     public String getNextNode(String currentNode, NovelAgentState state, Mode mode) {
@@ -60,6 +60,14 @@ public class GraphDefinition {
         return List.of();
     }
 
+    public MergeStrategy getFanOutMergeStrategy(String nodeName, Mode mode) {
+        FanOutGroup group = fanOutGroups.get(nodeName);
+        if (group != null && group.mergeStrategy() != null) {
+            return group.mergeStrategy();
+        }
+        return MergeStrategy.defaultStrategy();
+    }
+
     public String getFanInTarget(List<String> sources, Mode mode) {
         String key = String.join(",", sources.stream().sorted().toList());
         FanInGroup group = fanInGroups.get(key);
@@ -89,7 +97,15 @@ public class GraphDefinition {
         };
     }
 
-    private boolean matchesMode(Set<Mode> modes, Mode current) {
+    public List<Edge> getSimpleEdges() {
+        return edges;
+    }
+
+    public List<ConditionalEdge> getConditionalEdges() {
+        return conditionalEdges;
+    }
+
+    public boolean matchesMode(Set<Mode> modes, Mode current) {
         return modes.isEmpty() || modes.contains(current);
     }
 
@@ -127,7 +143,12 @@ public class GraphDefinition {
         }
 
         public Builder fanOut(String source, List<String> targets, Mode mode) {
-            fanOutGroups.put(source, new FanOutGroup(source, targets, mode));
+            fanOutGroups.put(source, new FanOutGroup(source, targets, mode, MergeStrategy.defaultStrategy()));
+            return this;
+        }
+
+        public Builder fanOut(String source, List<String> targets, Mode mode, MergeStrategy strategy) {
+            fanOutGroups.put(source, new FanOutGroup(source, targets, mode, strategy));
             return this;
         }
 
