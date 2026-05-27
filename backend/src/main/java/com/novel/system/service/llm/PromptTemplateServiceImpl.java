@@ -2,6 +2,7 @@ package com.novel.system.service.llm;
 
 import com.novel.system.entity.mysql.PromptTemplate;
 import com.novel.system.mapper.PromptTemplateMapper;
+import com.novel.system.service.genre.GenreService;
 import com.novel.system.service.llm.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -26,6 +27,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     private static final Logger log = LoggerFactory.getLogger(PromptTemplateServiceImpl.class);
     
     private final PromptTemplateMapper promptTemplateMapper;
+    private final GenreService genreService;
     private final PathMatchingResourcePatternResolver resourceResolver = new PathMatchingResourcePatternResolver();
     private static final Pattern INCLUDE_PATTERN = Pattern.compile("\\{\\{\\s*include:([^}]+)\\s*}}");
     
@@ -44,7 +46,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         String template = expandIncludes(getActiveTemplate(agentType));
         Map<String, Object> effectiveVariables = new java.util.HashMap<>(variables != null ? variables : java.util.Collections.emptyMap());
         effectiveVariables.putIfAbsent("strand_status", "暂无节奏数据");
-        effectiveVariables.putIfAbsent("genre_guide", buildGenreGuide(effectiveVariables.get("novel_genre")));
+        effectiveVariables.putIfAbsent("genre_guide", genreService.getGenreGuide(
+                effectiveVariables.get("novel_genre") != null ? effectiveVariables.get("novel_genre").toString() : null));
         
         for (Map.Entry<String, Object> entry : effectiveVariables.entrySet()) {
             String placeholder = "{" + entry.getKey() + "}";
@@ -102,69 +105,6 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         }
     }
 
-    private String buildGenreGuide(Object novelGenre) {
-        String genreText = novelGenre != null ? String.valueOf(novelGenre) : "";
-        String genreKey = mapGenreToFolder(genreText);
-        if (genreKey == null) {
-            return "无";
-        }
-        try {
-            Resource[] resources = resourceResolver.getResources("classpath:genres/" + genreKey + "/*.md");
-            if (resources == null || resources.length == 0) {
-                return "无";
-            }
-            java.util.Arrays.sort(resources, java.util.Comparator.comparing(Resource::getFilename, java.util.Comparator.nullsLast(String::compareTo)));
-
-            StringBuilder sb = new StringBuilder();
-            int maxChars = 8000;
-            for (Resource r : resources) {
-                if (sb.length() >= maxChars) {
-                    break;
-                }
-                String name = r.getFilename() != null ? r.getFilename() : "unknown";
-                String content = StreamUtils.copyToString(r.getInputStream(), StandardCharsets.UTF_8);
-                if (content.length() > 2000) {
-                    content = content.substring(0, 2000);
-                }
-                sb.append("【").append(name).append("】\n").append(content).append("\n\n");
-            }
-            return sb.toString().trim();
-        } catch (Exception e) {
-            log.warn("构建题材指南失败: {}", e.getMessage());
-            return "无";
-        }
-    }
-
-    private String mapGenreToFolder(String genreText) {
-        if (genreText == null) {
-            return null;
-        }
-        String t = genreText.trim();
-        if (t.isEmpty()) {
-            return null;
-        }
-        String lower = t.toLowerCase();
-        if (lower.contains("xuanhuan") || t.contains("玄幻")) {
-            return "xuanhuan";
-        }
-        if (lower.contains("realistic") || t.contains("现实")) {
-            return "realistic";
-        }
-        if (lower.contains("rules-mystery") || t.contains("规则") || t.contains("推理") || t.contains("悬疑")) {
-            return "rules-mystery";
-        }
-        if (lower.contains("period-drama") || t.contains("古") || t.contains("宫斗") || t.contains("朝堂")) {
-            return "period-drama";
-        }
-        if (lower.contains("dog-blood-romance") || t.contains("言情") || t.contains("甜") || t.contains("虐")) {
-            return "dog-blood-romance";
-        }
-        if (lower.contains("zhihu-short") || t.contains("知乎") || t.contains("短")) {
-            return "zhihu-short";
-        }
-        return null;
-    }
-    
     private String getDefaultTemplate(String agentType) {
         return switch (agentType) {
             case "outline" -> getDefaultOutlineTemplate();
