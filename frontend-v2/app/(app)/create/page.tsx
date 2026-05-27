@@ -99,8 +99,7 @@ export default function CreateNovelPage() {
       .getByGenre(currentGenre)
       .then((res) => {
         if (cancelled) return
-        const templates = res.data
-        setTemplateInfo(templates && templates.length > 0 ? templates[0] : null)
+        setTemplateInfo(res.data ?? null)
       })
       .catch(() => {
         if (!cancelled) setTemplateInfo(null)
