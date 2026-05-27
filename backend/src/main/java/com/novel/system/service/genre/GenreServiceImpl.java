@@ -34,7 +34,6 @@ public class GenreServiceImpl implements GenreService {
 
     public GenreServiceImpl() {
         loadFromMarkdown();
-        initTemplatesForMissing();
     }
 
     @Override
@@ -92,6 +91,29 @@ public class GenreServiceImpl implements GenreService {
         }
     }
 
+    @Override
+    public String getGenreGuideFile(String code, String filename) {
+        if (filename == null || filename.contains("..")) return null;
+        String folder = mapGenreToFolder(code);
+        if (folder == null) return null;
+        try {
+            PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+            Resource resource = resolver.getResource("classpath:genres/" + folder + "/" + filename);
+            if (!resource.exists()) return null;
+            return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("Failed to load genre guide file: {}/{}", code, filename, e);
+            return null;
+        }
+    }
+
+    @Override
+    public synchronized void reload() {
+        templates.clear();
+        loadFromMarkdown();
+        log.info("Genre templates reloaded, {} genres loaded", templates.size());
+    }
+
     // --- Private helpers ---
 
     private String mapGenreToFolder(String genre) {
@@ -107,6 +129,11 @@ public class GenreServiceImpl implements GenreService {
         }
         // Keyword match (migrated from PromptTemplateServiceImpl.mapGenreToFolder)
         if (g.contains("玄幻") || g.equals("xuanhuan")) return "xuanhuan";
+        if (g.contains("都市") || g.equals("dushi")) return "dushi";
+        if (g.contains("仙侠") || g.equals("xianxia")) return "xianxia";
+        if (g.contains("科幻") || g.equals("kehuan")) return "kehuan";
+        if (g.contains("游戏") || g.equals("youxi")) return "youxi";
+        if (g.contains("末世") || g.equals("moshi")) return "moshi";
         if (g.contains("现实") || g.equals("realistic")) return "realistic";
         if (g.contains("规则") || g.contains("推理") || g.contains("悬疑") || g.equals("rules-mystery")) return "rules-mystery";
         if (g.contains("古") || g.contains("宫斗") || g.contains("朝堂") || g.equals("period-drama")) return "period-drama";
@@ -126,9 +153,7 @@ public class GenreServiceImpl implements GenreService {
             for (Resource resource : resources) {
                 if (totalChars >= maxTotal) break;
                 String content = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                if (content.length() > maxPerFile) {
-                    content = content.substring(0, maxPerFile);
-                }
+                content = smartTruncate(content, maxPerFile);
                 sb.append(content).append("\n\n");
                 totalChars += content.length();
             }
@@ -137,6 +162,25 @@ public class GenreServiceImpl implements GenreService {
             log.warn("Failed to load markdown guide for folder: {}", folder, e);
             return "";
         }
+    }
+
+    private String smartTruncate(String content, int maxChars) {
+        if (content == null || content.length() <= maxChars) return content;
+        String[] lines = content.split("\n");
+        StringBuilder result = new StringBuilder();
+        int accumulated = 0;
+        for (String line : lines) {
+            if (line.startsWith("## ") && accumulated > maxChars) {
+                break;
+            }
+            accumulated += line.length() + 1; // +1 for newline
+            result.append(line).append("\n");
+        }
+        // Fallback: if a single section exceeds maxChars, hard-cut
+        if (result.length() > maxChars) {
+            return result.substring(0, maxChars);
+        }
+        return result.toString().trim();
     }
 
     // --- Front matter parsing ---
@@ -238,76 +282,4 @@ public class GenreServiceImpl implements GenreService {
         }
     }
 
-    private void initTemplatesForMissing() {
-        if (!templates.containsKey("dushi")) {
-            registerGenre("dushi", "都市", "男频", "现实背景、职场逆袭、商业争霸",
-                    List.of("职场逆袭：从小职员到CEO", "重生都市：重生后利用信息差", "透视异能：获得特殊能力", "神医流：医术救人", "保镖流：保护重要人物"),
-                    List.of("避免过于脱离现实", "职场描写要专业", "感情线要有深度", "金手指要有限制"),
-                    Map.of("主角", "低调务实、能力出众", "女主", "职场精英或青梅竹马", "对手", "商业对手或职场敌人", "兄弟", "患难与共的伙伴"),
-                    0.55, 0.3, 0.15, 4, 8, 18);
-        }
-        if (!templates.containsKey("xianxia")) {
-            registerGenre("xianxia", "仙侠", "男频", "修仙问道、飞升成仙、仙界争霸",
-                    List.of("凡人修仙：从凡人到仙人", "重生修仙：带着记忆重修", "系统修仙：系统辅助修炼", "宗门修仙：从小宗门到仙门", "散修流：独自修炼成仙"),
-                    List.of("境界体系要清晰", "法宝功法要详细", "仙界设定要完整", "避免境界通胀"),
-                    Map.of("主角", "心性坚定、悟性极高", "道侣", "仙子或妖女", "宗门长辈", "护短或严厉", "仙界势力", "各大仙门"),
-                    0.65, 0.1, 0.25, 6, 15, 12);
-        }
-        // yanqing and xuanyi now have index.md (as dog-blood-romance and rules-mystery), so skip them
-        // lishi now has index.md (as period-drama), so skip it
-        if (!templates.containsKey("kehuan")) {
-            registerGenre("kehuan", "科幻", "男频", "未来科技、星际文明、末日求生",
-                    List.of("星际争霸：宇宙战争", "机甲流：机甲战斗", "末日求生：灾难后生存", "赛博朋克：高科技低生活", "时间循环：重复同一天"),
-                    List.of("科技设定要自洽", "世界观要完整", "避免科技万能", "人文思考要深入"),
-                    Map.of("主角", "理性或热血、有理想", "科学家", "技术担当", "军人", "战斗担当", "AI", "人工智能角色"),
-                    0.6, 0.15, 0.25, 5, 15, 12);
-        }
-        if (!templates.containsKey("youxi")) {
-            registerGenre("youxi", "游戏", "男频", "游戏世界、电竞比赛、虚拟现实",
-                    List.of("电竞流：职业选手", "游戏穿越：穿越到游戏世界", "网游流：游戏内发展", "直播流：游戏主播", "全息网游：沉浸式游戏"),
-                    List.of("游戏设定要详细", "战斗描写要精彩", "职业平衡要合理", "避免外挂太强"),
-                    Map.of("主角", "技术流或战术流", "队友", "各有特色", "对手", "强大但可战胜", "粉丝", "提供爽点"),
-                    0.55, 0.2, 0.25, 4, 10, 15);
-        }
-        if (!templates.containsKey("lishi")) {
-            registerGenre("lishi", "历史", "男频", "古代背景、争霸天下、权谋斗争",
-                    List.of("争霸流：统一战争", "权谋流：朝堂争斗", "种田流：发展势力", "架空历史：平行世界", "穿越历史：改变历史"),
-                    List.of("历史背景要考究", "政治斗争要合理", "军事描写要专业", "避免现代思维"),
-                    Map.of("主角", "有谋略、有人格魅力", "谋士", "出谋划策", "武将", "征战四方", "对手", "枭雄或奸臣"),
-                    0.65, 0.15, 0.2, 6, 15, 12);
-        }
-        if (!templates.containsKey("moshi")) {
-            registerGenre("moshi", "末世", "男频", "丧尸危机、资源争夺、重建文明",
-                    List.of("丧尸流：对抗丧尸", "异能流：获得异能", "系统流：末世系统", "基地流：建立基地", "进化流：生物进化"),
-                    List.of("生存压力要真实", "人性描写要深刻", "资源设定要合理", "避免主角太圣母"),
-                    Map.of("主角", "冷静理智、有领导力", "伙伴", "各有专长", "反派", "人性黑暗面", "幸存者", "不同立场"),
-                    0.6, 0.2, 0.2, 5, 10, 15);
-        }
-    }
-
-    private void registerGenre(String code, String name, String category, String description,
-                               List<String> tropes, List<String> pitfalls,
-                               Map<String, String> characterArchetypes,
-                               double questRatio, double fireRatio, double constellationRatio,
-                               int questMaxConsecutive, int fireMaxGap, int constellationMaxGap) {
-        GenreTemplate template = new GenreTemplate();
-        template.setCode(code);
-        template.setName(name);
-        template.setCategory(category);
-        template.setDescription(description);
-        template.setTropes(tropes);
-        template.setPitfalls(pitfalls);
-        template.setCharacterArchetypes(characterArchetypes);
-
-        GenreRhythmConfig rhythmConfig = new GenreRhythmConfig();
-        rhythmConfig.setQuestRatio(questRatio);
-        rhythmConfig.setFireRatio(fireRatio);
-        rhythmConfig.setConstellationRatio(constellationRatio);
-        rhythmConfig.setQuestMaxConsecutive(questMaxConsecutive);
-        rhythmConfig.setFireMaxGap(fireMaxGap);
-        rhythmConfig.setConstellationMaxGap(constellationMaxGap);
-        template.setRhythmConfig(rhythmConfig);
-
-        templates.put(code, template);
-    }
 }

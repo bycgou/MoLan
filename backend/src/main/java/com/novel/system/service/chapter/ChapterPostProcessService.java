@@ -80,7 +80,7 @@ public class ChapterPostProcessService {
 
         try {
             // 通过 LlmService 统一模型选择逻辑
-            String userId = getCurrentUserId();
+            String userId = resolveUserId(novelId);
             ChatModel model;
             try {
                 model = llmService.getModelForUsage("all", userId, LangChainConfig.TaskType.STRUCTURED);
@@ -366,7 +366,7 @@ public class ChapterPostProcessService {
             log.warn("解析人物JSON失败，回退到LLM提取: {}", e.getMessage());
             // JSON 解析失败时回退到 LLM 提取
             try {
-                String userId = getCurrentUserId();
+                String userId = resolveUserId(novelId);
                 ChatModel model = llmService.getModelForUsage("all", userId, LangChainConfig.TaskType.STRUCTURED);
                 extractCharacters(model, novelId, chapterNum,
                         characterJson.length() > 4000 ? characterJson.substring(0, 4000) : characterJson,
@@ -399,6 +399,25 @@ public class ChapterPostProcessService {
             if (!"anonymousUser".equals(principal)) {
                 return principal;
             }
+        }
+        return null;
+    }
+
+    /**
+     * 解析用户ID：优先从SecurityContext获取，@Async线程中回退到小说作者ID
+     */
+    private String resolveUserId(String novelId) {
+        String userId = getCurrentUserId();
+        if (userId != null && !userId.isEmpty()) {
+            return userId;
+        }
+        try {
+            NovelBase novel = novelBaseMapper.selectById(novelId);
+            if (novel != null && novel.getUserId() != null) {
+                return novel.getUserId();
+            }
+        } catch (Exception e) {
+            log.warn("通过novelId查询userId失败: {}", e.getMessage());
         }
         return null;
     }

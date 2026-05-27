@@ -24,12 +24,6 @@ import { useSSE } from "@/hooks/useSSE"
 import { StreamViewer } from "./StreamViewer"
 import type { LlmConfigVO } from "@/types"
 
-const strandOptions = [
-  { value: "quest", label: "主线" },
-  { value: "fire", label: "情感" },
-  { value: "constellation", label: "世界" },
-]
-
 interface GenerateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -47,12 +41,11 @@ export function GenerateDialog({
 }: GenerateDialogProps) {
   const [chapterNum, setChapterNum] = useState(defaultChapterNum)
   const [chapterTitle, setChapterTitle] = useState("")
-  const [strandType, setStrandType] = useState("quest")
-  const [configId, setConfigId] = useState("")
+  const [llmConfigId, setLlmConfigId] = useState("")
   const [configs, setConfigs] = useState<LlmConfigVO[]>([])
   const [showViewer, setShowViewer] = useState(false)
 
-  const streamUrl = `/api/novel/${novelId}/chapter/stream-write`
+  const streamUrl = chapterApi.streamWriteUrl()
   const { content, isStreaming, error, start, cancel, reset } = useSSE(streamUrl)
 
   // Load LLM configs on open
@@ -70,9 +63,7 @@ export function GenerateDialog({
     start({
       novelId,
       chapterNum,
-      chapterTitle,
-      strandType,
-      configId: configId || undefined,
+      llmConfigId: llmConfigId || undefined,
     })
   }
 
@@ -97,9 +88,7 @@ export function GenerateDialog({
     start({
       novelId,
       chapterNum,
-      chapterTitle,
-      strandType,
-      configId: configId || undefined,
+      llmConfigId: llmConfigId || undefined,
     })
   }
 
@@ -122,32 +111,15 @@ export function GenerateDialog({
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="chapterNum">章节序号</Label>
-                <Input
-                  id="chapterNum"
-                  type="number"
-                  min={1}
-                  value={chapterNum}
-                  onChange={(e) => setChapterNum(Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="strandType">脉络类型</Label>
-                <Select value={strandType} onValueChange={(v) => setStrandType(v ?? "quest")}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {strandOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="chapterNum">章节序号</Label>
+              <Input
+                id="chapterNum"
+                type="number"
+                min={1}
+                value={chapterNum}
+                onChange={(e) => setChapterNum(Number(e.target.value))}
+              />
             </div>
 
             <div className="space-y-2">
@@ -161,8 +133,8 @@ export function GenerateDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="configId">模型配置 (可选)</Label>
-              <Select value={configId} onValueChange={(v) => setConfigId(v ?? "")}>
+              <Label htmlFor="llmConfigId">模型配置 (可选)</Label>
+              <Select value={llmConfigId} onValueChange={(v) => setLlmConfigId(v ?? "")}>
                 <SelectTrigger>
                   <SelectValue placeholder="使用默认配置" />
                 </SelectTrigger>

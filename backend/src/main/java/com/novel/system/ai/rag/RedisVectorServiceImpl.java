@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@SuppressWarnings({"deprecation", "unchecked"})
 public class RedisVectorServiceImpl implements RedisVectorService {
     
     private final StringRedisTemplate redisTemplate;
@@ -35,13 +34,15 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     private static final String METADATA_PREFIX = "novel:meta:";
     private static final String INDEX_PREFIX = "novel:idx:";
-    private static final int SCAN_BATCH_SIZE = 100;
+
+    private volatile boolean indexVerified = false;
 
     @PostConstruct
     public void init() {
         ensureIndex();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void createIndex() {
         try {
@@ -75,17 +76,64 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void ensureIndex() {
+        if (indexVerified) return;
         try {
             redisTemplate.execute((RedisCallback<Void>) connection -> {
                 try {
-                    connection.execute("FT.INFO " + vectorConfig.getIndexName());
-                    log.debug("Redis向量索引已存在: {}", vectorConfig.getIndexName());
+                    Object info = connection.execute("FT.INFO " + vectorConfig.getIndexName());
+                    if (info instanceof List<?> infoList) {
+                        // FT.INFO 返回一个数组，查找 "attributes" 部分中 VECTOR 的 DIM
+                        boolean dimMismatch = false;
+                        for (int i = 0; i < infoList.size() - 1; i++) {
+                            Object key = infoList.get(i);
+                            if (key instanceof byte[] keyBytes) {
+                                String keyStr = new String(keyBytes, StandardCharsets.UTF_8);
+                                if ("attributes".equals(keyStr)) {
+                                    // 下一个元素是属性列表
+                                    Object attrs = infoList.get(i + 1);
+                                    if (attrs instanceof List<?> attrList) {
+                                        for (Object attr : attrList) {
+                                            if (attr instanceof List<?> attrDetail) {
+                                                boolean isVector = false;
+                                                int foundDim = 0;
+                                                for (int j = 0; j < attrDetail.size() - 1; j++) {
+                                                    Object ak = attrDetail.get(j);
+                                                    Object av = attrDetail.get(j + 1);
+                                                    if (ak instanceof byte[] akb) {
+                                                        String aks = new String(akb, StandardCharsets.UTF_8);
+                                                        if ("TYPE".equals(aks) && av instanceof byte[] avb) {
+                                                            isVector = "VECTOR".equals(new String(avb, StandardCharsets.UTF_8));
+                                                        } else if ("DIM".equals(aks) && av instanceof byte[] avb) {
+                                                            foundDim = Integer.parseInt(new String(avb, StandardCharsets.UTF_8));
+                                                        }
+                                                    }
+                                                }
+                                                if (isVector && foundDim > 0 && foundDim != vectorConfig.getDimension()) {
+                                                    dimMismatch = true;
+                                                    log.warn("向量索引维度不匹配: 索引DIM={}, 配置DIM={}, 将重建索引",
+                                                            foundDim, vectorConfig.getDimension());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (dimMismatch) {
+                            dropIndex();
+                            createIndex();
+                        } else {
+                            log.debug("Redis向量索引已存在且维度正确: {}", vectorConfig.getIndexName());
+                        }
+                    }
                 } catch (Exception e) {
                     log.info("Redis向量索引不存在，开始创建...");
                     createIndex();
                 }
+                indexVerified = true;
                 return null;
             });
         } catch (Exception e) {
@@ -93,18 +141,25 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         }
     }
     
+    @SuppressWarnings("deprecation")
     @Override
     public void dropIndex() {
         try {
             log.info("删除向量索引: {}", vectorConfig.getIndexName());
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                connection.execute("FT.DROPINDEX", vectorConfig.getIndexName().getBytes(StandardCharsets.UTF_8), "DD".getBytes(StandardCharsets.UTF_8));
+                return null;
+            });
+            log.info("向量索引删除成功: {}", vectorConfig.getIndexName());
         } catch (Exception e) {
             log.error("删除向量索引失败: {}", e.getMessage());
         }
     }
     
+    @SuppressWarnings("deprecation")
     @Override
     public void saveVector(String key, float[] vector, Map<String, Object> metadata) {
-        EmbeddingService.validateVector(vector, vectorConfig.getDimension());
+        EmbeddingService.validateVector(vector);
         try {
             Map<String, Object> doc = new HashMap<>(metadata);
             
@@ -139,9 +194,10 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         }
     }
     
+    @SuppressWarnings("deprecation")
     @Override
     public List<VectorSearchResult> search(float[] queryVector, int topK, String filter) {
-        EmbeddingService.validateVector(queryVector, vectorConfig.getDimension());
+        EmbeddingService.validateVector(queryVector);
 
         try {
             String filterExpr = buildFilterExpr(filter);
@@ -191,25 +247,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         }
     }
     
-    private void scanAndSearch(float[] queryVector, String filter, List<VectorSearchResult> results) {
-        String pattern = METADATA_PREFIX + "*";
-        
-        // 使用 SCAN 增量遍历，避免阻塞 Redis
-        redisTemplate.execute((RedisCallback<Void>) connection -> {
-            var scanArgs = org.springframework.data.redis.core.ScanOptions.scanOptions()
-                .match(pattern)
-                .count(SCAN_BATCH_SIZE)
-                .build();
-            try (var scanCursor = connection.scan(scanArgs)) {
-                while (scanCursor.hasNext()) {
-                    String key = new String(scanCursor.next(), StandardCharsets.UTF_8);
-                    processVectorKey(key, queryVector, filter, results);
-                }
-            }
-            return null;
-        });
-    }
-    
+    @SuppressWarnings({"deprecation", "unchecked"})
     private void processVectorKey(String key, float[] queryVector, String filter, 
                                   List<VectorSearchResult> results) {
         try {
@@ -225,8 +263,9 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             if (rawEmbedding != null && rawEmbedding.size() == queryVector.length) {
                 double similarity = calculateCosineSimilarity(queryVector, rawEmbedding);
                 
+                String shortKey = key.startsWith(METADATA_PREFIX) ? key.substring(METADATA_PREFIX.length()) : key;
                 VectorSearchResult result = new VectorSearchResult(
-                    key.substring(METADATA_PREFIX.length()),
+                    shortKey,
                     similarity,
                     doc
                 );
@@ -239,16 +278,16 @@ public class RedisVectorServiceImpl implements RedisVectorService {
     
     private boolean passesFilter(Map<String, Object> doc, String filter) {
         if (filter == null || filter.isEmpty()) return true;
-        
-        if (filter.startsWith("@novelId:{")) {
-            String novelId = filter.substring(10, filter.length() - 1);
+
+        String novelId = extractNovelIdFromFilter(filter);
+        if (novelId != null) {
             return novelId.equals(doc.get("novelId"));
         }
-        
+
         return true;
     }
-    
-    private String extractNovelId(String filter) {
+
+    private String extractNovelIdFromFilter(String filter) {
         if (filter != null && filter.startsWith("@novelId:{")) {
             return filter.substring(10, filter.length() - 1);
         }
@@ -277,6 +316,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         return dotProduct / (norm1 * norm2);
     }
 
+    @SuppressWarnings("deprecation")
     private String jsonGet(String key) {
         return redisTemplate.execute((RedisCallback<String>) connection -> {
             byte[] result = (byte[]) connection.execute(
@@ -302,7 +342,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
             String novelId = filter.substring(10, filter.length() - 1);
             return "@novelId:{" + escapeTag(novelId) + "}";
         }
-        return filter;
+        return filter.replaceAll("[^a-zA-Z0-9_@:{}\\s-]", "");
     }
 
     private String escapeTag(String value) {
@@ -341,8 +381,15 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         for (int i = 1; i < rawResults.size(); i += 2) {
             if (i + 1 >= rawResults.size()) break;
 
-            String redisKey = new String((byte[]) rawResults.get(i), StandardCharsets.UTF_8);
-            List<?> fields = (List<?>) rawResults.get(i + 1);
+            if (!(rawResults.get(i) instanceof byte[] keyBytes)) {
+                log.warn("parseSearchResults: 期望 byte[] 类型的 key，实际为 {}，跳过", rawResults.get(i).getClass().getSimpleName());
+                continue;
+            }
+            String redisKey = new String(keyBytes, StandardCharsets.UTF_8);
+            if (!(rawResults.get(i + 1) instanceof List<?> fields)) {
+                log.warn("parseSearchResults: 期望 List 类型的 fields，实际为 {}，跳过", rawResults.get(i + 1).getClass().getSimpleName());
+                continue;
+            }
 
             String shortKey = redisKey.startsWith(METADATA_PREFIX)
                 ? redisKey.substring(METADATA_PREFIX.length())
@@ -353,22 +400,32 @@ public class RedisVectorServiceImpl implements RedisVectorService {
 
             for (int j = 0; j < fields.size(); j += 2) {
                 if (j + 1 >= fields.size()) break;
-                String fieldName = new String((byte[]) fields.get(j), StandardCharsets.UTF_8);
+                if (!(fields.get(j) instanceof byte[] nameBytes)) {
+                    log.warn("parseSearchResults: 字段名非 byte[] 类型，跳过该字段对");
+                    continue;
+                }
+                String fieldName = new String(nameBytes, StandardCharsets.UTF_8);
                 Object rawValue = fields.get(j + 1);
 
+                if (!(rawValue instanceof byte[] valueBytes)) {
+                    log.warn("parseSearchResults: 字段 '{}' 的值非 byte[] 类型 (实际: {})，跳过", fieldName, rawValue.getClass().getSimpleName());
+                    continue;
+                }
+
                 if ("score".equals(fieldName)) {
-                    score = Double.parseDouble(new String((byte[]) rawValue, StandardCharsets.UTF_8));
+                    score = Double.parseDouble(new String(valueBytes, StandardCharsets.UTF_8));
                 } else if ("chapterNum".equals(fieldName)) {
-                    metadata.put("chapterNum", Integer.parseInt(new String((byte[]) rawValue, StandardCharsets.UTF_8)));
+                    metadata.put("chapterNum", Integer.parseInt(new String(valueBytes, StandardCharsets.UTF_8)));
                 } else if ("novelId".equals(fieldName)) {
-                    metadata.put("novelId", new String((byte[]) rawValue, StandardCharsets.UTF_8));
+                    metadata.put("novelId", new String(valueBytes, StandardCharsets.UTF_8));
                 } else if ("content".equals(fieldName)) {
-                    metadata.put("content", new String((byte[]) rawValue, StandardCharsets.UTF_8));
+                    metadata.put("content", new String(valueBytes, StandardCharsets.UTF_8));
                 } else if ("keywords".equals(fieldName)) {
-                    metadata.put("keywords", new String((byte[]) rawValue, StandardCharsets.UTF_8));
+                    metadata.put("keywords", new String(valueBytes, StandardCharsets.UTF_8));
                 }
             }
 
+            // COSINE metric: Redis returns distance (0=identical, 2=opposite), so similarity = 1 - distance
             double similarity = 1.0 - score;
             results.add(new VectorSearchResult(shortKey, similarity, metadata));
         }
@@ -378,7 +435,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         log.warn("回退到Java侧暴力计算向量相似度");
         List<VectorSearchResult> results = new ArrayList<>();
 
-        String targetNovelId = extractNovelId(filter);
+        String targetNovelId = extractNovelIdFromFilter(filter);
         if (targetNovelId != null) {
             String idxKey = INDEX_PREFIX + targetNovelId;
             Set<String> keys = redisTemplate.opsForSet().members(idxKey);
@@ -395,6 +452,7 @@ public class RedisVectorServiceImpl implements RedisVectorService {
         return results.stream().limit(topK).collect(Collectors.toList());
     }
 
+    @SuppressWarnings({"deprecation", "unchecked"})
     @Override
     public void deleteVector(String key) {
         try {

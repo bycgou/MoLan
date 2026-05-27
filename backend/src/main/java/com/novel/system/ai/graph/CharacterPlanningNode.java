@@ -79,7 +79,7 @@ public class CharacterPlanningNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.CHAR_PLAN.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 
     private List<NovelAgentState.CharacterAction> parseCharacterActions(String json) {

@@ -40,11 +40,11 @@ export function RewriteDialog({
   onComplete,
 }: RewriteDialogProps) {
   const [instruction, setInstruction] = useState("")
-  const [configId, setConfigId] = useState("")
+  const [llmConfigId, setLlmConfigId] = useState("")
   const [configs, setConfigs] = useState<LlmConfigVO[]>([])
   const [showViewer, setShowViewer] = useState(false)
 
-  const streamUrl = `/api/novel/${novelId}/chapter/stream-write`
+  const streamUrl = chapterApi.streamWriteUrl()
   const { content, isStreaming, error, start, cancel, reset } = useSSE(streamUrl)
 
   // Load LLM configs on open
@@ -60,11 +60,7 @@ export function RewriteDialog({
     start({
       novelId,
       chapterNum: chapter.chapterNum,
-      chapterTitle: chapter.chapterTitle,
-      strandType: chapter.strandType,
-      configId: configId || undefined,
-      mode: "rewrite",
-      originalContent: chapter.content,
+      llmConfigId: llmConfigId || undefined,
       userInstruction: instruction || "请改写这段内容，保持情节但优化文笔",
     })
   }
@@ -87,11 +83,7 @@ export function RewriteDialog({
     start({
       novelId,
       chapterNum: chapter.chapterNum,
-      chapterTitle: chapter.chapterTitle,
-      strandType: chapter.strandType,
-      configId: configId || undefined,
-      mode: "rewrite",
-      originalContent: chapter.content,
+      llmConfigId: llmConfigId || undefined,
       userInstruction: instruction || "请改写这段内容，保持情节但优化文笔",
     })
   }
@@ -139,8 +131,8 @@ export function RewriteDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="configId">模型配置 (可选)</Label>
-              <Select value={configId} onValueChange={(v) => setConfigId(v ?? "")}>
+              <Label htmlFor="llmConfigId">模型配置 (可选)</Label>
+              <Select value={llmConfigId} onValueChange={(v) => setLlmConfigId(v ?? "")}>
                 <SelectTrigger>
                   <SelectValue placeholder="使用默认配置" />
                 </SelectTrigger>

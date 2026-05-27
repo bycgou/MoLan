@@ -1,32 +1,23 @@
 package com.novel.system.controller;
 
-import com.novel.system.config.LangChainConfig;
-import com.novel.system.entity.mysql.LlmConfig;
-import com.novel.system.mapper.NovelBaseMapper;
-import com.novel.system.entity.mysql.NovelBase;
-import com.novel.system.mapper.NovelChapterMapper;
-import com.novel.system.entity.mysql.NovelChapter;
-import com.novel.system.entity.mysql.NovelStyleBinding;
-import com.novel.system.mapper.NovelStyleBindingMapper;
-import com.novel.system.service.llm.LlmConfigService;
 import com.novel.system.ai.chain.ValidationService;
 import com.novel.system.ai.chain.ValidationRequest;
 import com.novel.system.ai.chain.ValidationResult;
-import com.novel.system.service.chapter.ChapterSaveService;
-import com.novel.system.service.chapter.ContextBuilderService;
+import com.novel.system.entity.mysql.NovelBase;
+import com.novel.system.entity.mysql.NovelChapter;
+import com.novel.system.entity.mysql.NovelStyleBinding;
+import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.mapper.NovelChapterMapper;
+import com.novel.system.mapper.NovelStyleBindingMapper;
 import com.novel.system.service.chapter.ChapterPostProcessService;
+import com.novel.system.service.chapter.ChapterSaveService;
 import com.novel.system.service.chapter.ChapterVersionService;
+import com.novel.system.service.chapter.MultiAgentNovelService;
 import com.novel.system.service.story.StoryStateService;
-import com.novel.system.service.style.StyleCardService;
 import com.novel.system.ai.chain.ChapterGenerationChain;
-import com.novel.system.entity.mongo.ChapterSummary;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContext;
@@ -47,35 +38,29 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * SSE 流式写作控制器
- * 实现 Super-Ma 的 SSE 流式输出和取消写作功能
- * 
- * @author AI Assistant
- * @since 1.0.0
+ * 通过 GraphRunner(FAST) 执行 arc_check → outline → writing → self_review → summary → post_process
+ * WritingNode 通过 SseEmitter 逐token输出
  */
 @Slf4j
 @RestController
 @RequestMapping("/chapter")
 @RequiredArgsConstructor
 public class StreamingChapterController {
-    
+
     private final StringRedisTemplate redisTemplate;
-    private final LangChainConfig langChainConfig;
-    private final LlmConfigService llmConfigService;
-    private final ChapterSaveService chapterSaveService;
-    private final ValidationService validationService;
     private final NovelBaseMapper novelBaseMapper;
     private final NovelChapterMapper novelChapterMapper;
-    private final ContextBuilderService contextBuilderService;
+    private final NovelStyleBindingMapper novelStyleBindingMapper;
+    private final ChapterSaveService chapterSaveService;
+    private final ValidationService validationService;
     private final ChapterPostProcessService chapterPostProcessService;
     private final ChapterVersionService chapterVersionService;
-    private final NovelStyleBindingMapper novelStyleBindingMapper;
-    private final StyleCardService styleCardService;
     private final StoryStateService storyStateService;
     private final ChapterGenerationChain chapterGenerationChain;
+    private final MultiAgentNovelService multiAgentNovelService;
     private final ObjectMapper objectMapper;
-    @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
-    
+
     /**
      * 流式写作请求
      */
@@ -89,9 +74,9 @@ public class StreamingChapterController {
         private String styleCardId;
         private String userInstruction;
     }
-    
+
     /**
-     * SSE 流式写作
+     * SSE 流式写作 — 通过 GraphRunner(FAST) 执行
      */
     @PostMapping(value = "/stream-write", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamWrite(@RequestBody StreamWriteRequest request) {
@@ -114,9 +99,9 @@ public class StreamingChapterController {
 
         CompletableFuture.runAsync(() -> {
             try {
-                redisTemplate.delete(cancelKey); // 清除旧的取消标记
+                redisTemplate.delete(cancelKey);
 
-                // 新增：重写场景 — 保存版本快照
+                // 重写场景 — 保存版本快照
                 try {
                     NovelChapter existingChapter = novelChapterMapper.selectByNovelIdAndChapterNum(
                             request.getNovelId(), request.getChapterNum());
@@ -129,39 +114,14 @@ public class StreamingChapterController {
                     log.warn("保存版本快照失败，继续生成: {}", e.getMessage());
                 }
 
-                // 获取 LlmConfig
-                LlmConfig llmConfig = llmConfigService.getConfigById(request.getLlmConfigId());
-                if (llmConfig == null) {
-                    emitter.completeWithError(new RuntimeException("找不到LLM配置: " + request.getLlmConfigId()));
-                    return;
-                }
-
-                // 获取小说信息
+                // 获取小说信息（用于后续验证）
                 NovelBase novel = novelBaseMapper.selectById(request.getNovelId());
                 if (novel == null) {
                     emitter.completeWithError(new RuntimeException("小说不存在: " + request.getNovelId()));
                     return;
                 }
 
-                // 构建上下文（如果前端未提供）
-                String contextPrompt = request.getContextPrompt();
-                if (contextPrompt == null || contextPrompt.isEmpty()) {
-                    try {
-                        // 创建临时章节实体用于构建上下文
-                        NovelChapter currentChapter = new NovelChapter();
-                        currentChapter.setChapterNum(request.getChapterNum());
-                        currentChapter.setChapterOutline(request.getOutline());
-
-                        contextPrompt = contextBuilderService.buildWritingContext(
-                            request.getNovelId(), request.getChapterNum(),
-                            currentChapter, novel, request.getOutline());
-                    } catch (Exception e) {
-                        log.warn("构建上下文失败，使用空上下文: {}", e.getMessage());
-                    }
-                    if (contextPrompt == null) contextPrompt = "";
-                }
-
-                // 获取文风卡片
+                // 解析 styleCardId（如果前端未提供）
                 String effectiveStyleCardId = request.getStyleCardId();
                 if (effectiveStyleCardId == null || effectiveStyleCardId.isEmpty()) {
                     NovelStyleBinding binding = novelStyleBindingMapper.selectByNovelId(request.getNovelId());
@@ -170,217 +130,46 @@ public class StreamingChapterController {
                     }
                 }
 
-                // 注入文风卡片内容
-                String styleInjection = "";
-                if (effectiveStyleCardId != null && !effectiveStyleCardId.isEmpty()) {
-                    try {
-                        styleInjection = styleCardService.buildStyleInjection(effectiveStyleCardId);
-                    } catch (Exception e) {
-                        log.warn("获取文风卡片失败: {}", e.getMessage());
-                    }
+                // 通过 GraphRunner(FAST) 执行，WritingNode 会流式输出到 emitter
+                String finalStyleCardId = effectiveStyleCardId;
+                multiAgentNovelService.writeChapterStreaming(
+                        request.getNovelId(),
+                        request.getChapterNum(),
+                        request.getUserInstruction(),
+                        finalStyleCardId,
+                        request.getLlmConfigId(),
+                        emitter);
+
+                // Graph 执行完成（WritingNode 流式已结束），获取结果
+                // 注意：GraphRunner 是同步的，writeChapterStreaming 返回时流式已完成
+                // 此时需要做验证、保存、后处理
+
+                // 获取 novel 最新状态（GraphRunner 可能已更新）
+                novel = novelBaseMapper.selectById(request.getNovelId());
+
+                // 发送 complete 事件
+                try {
+                    emitter.send(SseEmitter.event().name("complete").data(""));
+                    emitter.complete();
+                } catch (Exception sendEx) {
+                    log.warn("发送complete事件失败: {}", sendEx.getMessage());
+                    try { emitter.complete(); } catch (Exception ignored) {}
                 }
-
-                // 构建用户消息
-                StringBuilder userPromptBuilder = new StringBuilder();
-                userPromptBuilder.append(String.format(
-                    "小说ID: %s\n章节号: 第%d章\n\n", request.getNovelId(), request.getChapterNum()));
-
-                if (!styleInjection.isEmpty()) {
-                    userPromptBuilder.append(styleInjection).append("\n\n");
-                }
-
-                // 用户附加指令（重写场景）
-                if (request.getUserInstruction() != null && !request.getUserInstruction().isBlank()) {
-                    userPromptBuilder.append("===用户附加指令===\n")
-                            .append(request.getUserInstruction().trim())
-                            .append("\n\n");
-                }
-
-                userPromptBuilder.append(String.format(
-                    "===章纲===\n%s\n\n===上下文信息===\n%s\n\n请根据章纲生成第%d章正文。\n\n" +
-                    "【重要】正文结束后，请另起一行输出以下分隔符和JSON（不要在正文中输出）：\n" +
-                    "---CHARACTERS---\n" +
-                    "{\"characters\":[{\"name\":\"人物名\",\"isNew\":true/false,\"traits\":\"性格\",\"location\":\"位置\",\"emotion\":\"情绪\"}],\"relationships\":[{\"from\":\"人物A\",\"to\":\"人物B\",\"type\":\"关系类型\"}]}",
-                    request.getOutline(), contextPrompt, request.getChapterNum()));
-
-                String userPrompt = userPromptBuilder.toString();
-                
-                // 创建流式模型
-                StreamingChatModel streamingModel = langChainConfig.createStreamingChatModel(llmConfig);
-
-                // 逐token流式输出
-                StringBuilder fullContent = new StringBuilder();
-                streamingModel.chat(userPrompt, new StreamingChatResponseHandler() {
-                    @Override
-                    public void onPartialResponse(String token) {
-                        try {
-                            // 检查取消
-                            if (Boolean.TRUE.equals(redisTemplate.hasKey(cancelKey))) {
-                                emitter.completeWithError(new RuntimeException("用户取消了写作"));
-                                return;
-                            }
-                            fullContent.append(token);
-                            emitter.send(SseEmitter.event().data(token));
-                        } catch (Exception e) {
-                            log.error("发送token失败: {}", e.getMessage());
-                            emitter.completeWithError(e);
-                        }
-                    }
-                    
-                    @Override
-                    public void onCompleteResponse(ChatResponse response) {
-                        try {
-                            String fullText = response.aiMessage().text();
-                            fullContent.setLength(0);
-                            fullContent.append(fullText);
-
-                            // 分离正文和人物JSON
-                            String chapterContent = fullText;
-                            String characterJson = null;
-                            int markerIdx = fullText.indexOf("---CHARACTERS---");
-                            if (markerIdx >= 0) {
-                                chapterContent = fullText.substring(0, markerIdx).trim();
-                                String jsonPart = fullText.substring(markerIdx + "---CHARACTERS---".length()).trim();
-                                if (jsonPart.startsWith("{")) {
-                                    characterJson = jsonPart;
-                                }
-                            }
-                            final String finalContent = chapterContent;
-                            final String finalCharacterJson = characterJson;
-
-                            // 异步保存 + 校验
-                            CompletableFuture.runAsync(() -> {
-                                SecurityContextHolder.setContext(securityContext);
-                                try {
-                                    // 1. 校验（补全上下文）
-                                    ValidationRequest valReq = new ValidationRequest();
-                                    valReq.setNovelId(request.getNovelId());
-                                    valReq.setChapterNum(request.getChapterNum());
-                                    valReq.setChapterContent(finalContent);
-                                    valReq.setChapterOutline(request.getOutline());
-                                    valReq.setTotalOutline(novel.getTotalOutline());
-                                    valReq.setWorldSetting(novel.getWorldSetting());
-                                    ValidationResult valResult = validationService.validateAll(valReq);
-
-                                    if (!valResult.getPassed()) {
-                                        try {
-                                            List<String> warnings = new ArrayList<>();
-                                            if (valResult.getOocResult() != null && !valResult.getOocResult().isPassed()) {
-                                                warnings.add("前章OOC问题：总分" + valResult.getOocResult().getTotalScore() + "分（阈值70）");
-                                            }
-                                            if (valResult.getLogicResult() != null && !valResult.getLogicResult().isPassed()) {
-                                                warnings.add("前章逻辑问题：" + valResult.getLogicResult().getConflictDescription());
-                                            }
-                                            if (valResult.getSettingResult() != null && !valResult.getSettingResult().isPassed()) {
-                                                warnings.add("前章设定冲突：" + valResult.getSettingResult().getConflicts());
-                                            }
-                                            if (!warnings.isEmpty()) {
-                                                storyStateService.addWarnings(request.getNovelId(), warnings);
-                                            }
-                                        } catch (Exception e) {
-                                            log.warn("写入校验警告失败: {}", e.getMessage());
-                                        }
-                                    } else {
-                                        try {
-                                            storyStateService.clearWarnings(request.getNovelId());
-                                        } catch (Exception e) {
-                                            log.warn("清除校验警告失败: {}", e.getMessage());
-                                        }
-                                    }
-
-                                    String valSummary = valResult.getSummary();
-                                    log.info("流式生成校验结果: {}", valSummary);
-
-                                    // 发送校验结果SSE事件
-                                    try {
-                                        Map<String, Object> valEvent = new HashMap<>();
-                                        valEvent.put("passed", valResult.getPassed());
-                                        valEvent.put("summary", valResult.getSummary());
-                                        if (!valResult.getPassed()) {
-                                            valEvent.put("oocScore", valResult.getOocResult() != null ? valResult.getOocResult().getTotalScore() : -1);
-                                            valEvent.put("logicPassed", valResult.getLogicResult() != null && valResult.getLogicResult().isPassed());
-                                            valEvent.put("settingPassed", valResult.getSettingResult() != null && valResult.getSettingResult().isPassed());
-                                        }
-                                        emitter.send(SseEmitter.event()
-                                            .name("validation_result")
-                                            .data(objectMapper.writeValueAsString(valEvent)));
-                                    } catch (Exception e) {
-                                        log.warn("发送校验结果SSE事件失败: {}", e.getMessage());
-                                    }
-
-                                    // 2. 生成摘要
-                                    String summaryContent = "";
-                                    try {
-                                        String summaryJson = chapterGenerationChain.executeSummaryChain(
-                                            request.getNovelId(), request.getChapterNum(),
-                                            finalContent, request.getOutline(), request.getLlmConfigId());
-                                        // 简单提取摘要内容
-                                        if (summaryJson != null && !summaryJson.isEmpty()) {
-                                            summaryContent = summaryJson.length() > 300
-                                                ? summaryJson.substring(0, 300) : summaryJson;
-                                        }
-                                    } catch (Exception e) {
-                                        log.warn("生成摘要失败: {}", e.getMessage());
-                                    }
-
-                                    // 3. 保存到数据库（只保存正文，不含人物JSON）
-                                    int wordCount = finalContent.replaceAll("\\s+", "").length();
-                                    chapterSaveService.saveGenerationResult(
-                                        request.getNovelId(), request.getChapterNum(),
-                                        "第" + request.getChapterNum() + "章",
-                                        request.getOutline(), finalContent, wordCount,
-                                        request.getContextPrompt(), summaryContent, null);
-
-                                    log.info("流式生成内容已保存, 小说ID: {}, 章节号: {}, 字数: {}",
-                                        request.getNovelId(), request.getChapterNum(), wordCount);
-
-                                    // 4. 发送完成事件（含校验摘要）— 必须在 postProcess 之前，确保客户端收到
-                                    String completeData = valSummary != null ? valSummary : "";
-                                    try {
-                                        emitter.send(SseEmitter.event().name("complete").data(completeData));
-                                        emitter.complete();
-                                    } catch (Exception sendEx) {
-                                        log.warn("发送complete事件失败: {}", sendEx.getMessage());
-                                        try { emitter.complete(); } catch (Exception ignored) {}
-                                    }
-
-                                    // 5. 异步后处理（提取人物/伏笔/时间线）— 在 complete 之后，失败不影响客户端
-                                    try {
-                                        chapterPostProcessService.postProcess(
-                                            request.getNovelId(), request.getChapterNum(),
-                                            finalContent, request.getOutline(), finalCharacterJson);
-                                    } catch (Exception postEx) {
-                                        log.warn("后处理提交失败: {}", postEx.getMessage());
-                                    }
-                                } catch (Exception e) {
-                                    log.error("保存流式内容失败", e);
-                                    try { emitter.complete(); } catch (Exception ignored) {}
-                                } finally {
-                                    SecurityContextHolder.clearContext();
-                                }
-                            }, ioTaskExecutor);
-                        } catch (Exception e) {
-                            log.error("onCompleteResponse处理失败: {}", e.getMessage());
-                            try { emitter.complete(); } catch (Exception ignored) {}
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        log.error("流式生成失败: {}", error.getMessage());
-                        try { emitter.complete(); } catch (Exception ignored) {}
-                    }
-                });
 
             } catch (Exception e) {
-                log.error("流式写作初始化失败: {}", e.getMessage());
+                log.error("流式写作失败: {}", e.getMessage(), e);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data("生成失败: " + e.getMessage()));
+                } catch (Exception ignored) {}
                 try { emitter.complete(); } catch (Exception ignored) {}
+            } finally {
+                SecurityContextHolder.clearContext();
             }
         }, ioTaskExecutor);
-        
+
         return emitter;
     }
-    
+
     /**
      * 取消写作
      */

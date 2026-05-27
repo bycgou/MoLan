@@ -58,7 +58,28 @@
       "Bash(mvn dependency:resolve -pl . -U)",
       "Bash(mvn help:effective-pom -pl .)",
       "Bash(mvn dependency:purge-local-repository -pl . -DmanualInclude=\"dev.langchain4j\")",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(pnpm --version)",
+      "Bash(pnpm create *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm build *)",
+      "Bash(node -e \"try { require.resolve\\('next-themes'\\); console.log\\('OK:', require.resolve\\('next-themes'\\)\\); } catch\\(e\\) { console.log\\('FAIL:', e.message\\); }\")",
+      "Bash(timeout 15 pnpm dev)",
+      "Bash(npx shadcn@latest --version)",
+      "Bash(npx shadcn@latest init --help)",
+      "Bash(npx shadcn@latest init --defaults --force --css-variables)",
+      "Bash(npx shadcn@latest add button card input dialog badge tabs select textarea sonner dropdown-menu avatar progress separator sheet label skeleton tooltip --yes --overwrite)",
+      "Bash(npx next *)",
+      "Bash(npx tsc *)",
+      "Bash(pnpm dlx *)",
+      "Bash(npm run *)",
+      "Bash(xargs grep -l -i \"langgraph\")",
+      "Bash(mvn dependency:tree -Dincludes=\"dev.langchain4j\")",
+      "Bash(cd *)",
+      "Bash(./mvnw test *)",
+      "Bash(mvn dependency:tree -pl .)",
+      "Bash(docker inspect redis-stack *)"
     ]
   }
 }

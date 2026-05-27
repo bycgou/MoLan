@@ -17,4 +17,8 @@ public interface GenreService {
     String getGenreGuide(String code);
 
     List<String> getGenreDetailFiles(String code);
+
+    String getGenreGuideFile(String code, String filename);
+
+    void reload();
 }

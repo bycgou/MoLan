@@ -1,11 +1,13 @@
 "use client"
 
-import { useParams, useRouter } from "next/navigation"
+import { useState } from "react"
+import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, ChevronLeft, ChevronRight, Pencil, Loader2 } from "lucide-react"
+import { ArrowLeft, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
 import useSWR from "swr"
 import { ChapterReader } from "@/components/novel/ChapterReader"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { RewriteDialog } from "@/components/novel/RewriteDialog"
+import { buttonVariants } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { novelApi } from "@/lib/api/novel"
 import { chapterApi } from "@/lib/api/chapter"
@@ -14,10 +16,10 @@ import { cn } from "@/lib/utils"
 
 export default function ChapterReadPage() {
   const { id, num } = useParams<{ id: string; num: string }>()
-  const router = useRouter()
   useAuth()
 
   const chapterNum = Number(num)
+  const [rewriteOpen, setRewriteOpen] = useState(false)
 
   const { data: novelData, isLoading: novelLoading } = useSWR(
     id ? `novel-${id}` : null,
@@ -25,7 +27,7 @@ export default function ChapterReadPage() {
   )
   const novel = novelData?.data ?? null
 
-  const { data: chapterData, isLoading: chapterLoading } = useSWR(
+  const { data: chapterData, isLoading: chapterLoading, mutate: mutateChapter } = useSWR(
     id && num ? `chapter-${id}-${num}` : null,
     () => chapterApi.get(id, chapterNum)
   )
@@ -117,9 +119,7 @@ export default function ChapterReadPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <ChapterReader
           chapter={chapter}
-          onRewrite={() => {
-            /* TODO: open rewrite dialog */
-          }}
+          onRewrite={() => setRewriteOpen(true)}
           onVersions={() => {
             /* TODO: open versions dialog */
           }}
@@ -154,6 +154,17 @@ export default function ChapterReadPage() {
           )}
         </div>
       </div>
+
+      {/* AI Rewrite dialog */}
+      {chapter && (
+        <RewriteDialog
+          open={rewriteOpen}
+          onOpenChange={setRewriteOpen}
+          novelId={id}
+          chapter={chapter}
+          onComplete={() => mutateChapter()}
+        />
+      )}
     </div>
   )
 }

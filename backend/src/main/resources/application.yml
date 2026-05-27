@@ -78,6 +78,10 @@ redis-stack:
     dimension: 1024
     distance-metric: cosine
 
+# Embedding配置
+embedding:
+  max-input-chars: 2000
+
 # 生成配置
 jwt:
   # 必须配置！至少32字节的随机密钥，不可使用默认值

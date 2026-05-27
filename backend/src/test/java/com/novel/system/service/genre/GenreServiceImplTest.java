@@ -26,6 +26,6 @@ class GenreServiceImplTest {
 
     @Test
     void getGenreList_returnsAllGenres() {
-        assertTrue(service.getGenreList().size() >= 9);
+        assertTrue(service.getGenreList().size() >= 10);
     }
 }

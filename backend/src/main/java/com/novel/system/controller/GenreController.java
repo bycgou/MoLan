@@ -33,4 +33,17 @@ public class GenreController {
     public ApiResponse<?> getGenreGuides(@PathVariable String genreCode) {
         return ApiResponse.success(genreService.getGenreDetailFiles(genreCode));
     }
+
+    @GetMapping("/{genreCode}/guides/{filename}")
+    public ApiResponse<?> getGenreGuideFile(@PathVariable String genreCode, @PathVariable String filename) {
+        String content = genreService.getGenreGuideFile(genreCode, filename);
+        if (content == null) return ApiResponse.error("文件不存在");
+        return ApiResponse.success(content);
+    }
+
+    @PostMapping("/reload")
+    public ApiResponse<?> reloadGenres() {
+        genreService.reload();
+        return ApiResponse.success("题材数据已刷新");
+    }
 }

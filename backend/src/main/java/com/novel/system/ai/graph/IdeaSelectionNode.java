@@ -31,6 +31,6 @@ public class IdeaSelectionNode implements NovelGraphNode {
                 .currentPhase(NovelAgentState.GenerationPhase.IDEA_SELECT.name())
                 .build();
 
-        return StateHelper.appendTrace(updated, nodeName());
+        return updated;
     }
 }

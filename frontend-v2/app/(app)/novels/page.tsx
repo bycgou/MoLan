@@ -60,6 +60,7 @@ export default function NovelsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const selected = novels.find((n) => n.novelId === selectedId) ?? null
 
@@ -143,8 +144,6 @@ export default function NovelsPage() {
     )
   }
 
-  const [sheetOpen, setSheetOpen] = useState(false)
-
   const sidebarContent = (
     <>
       <div className="flex items-center justify-between mb-3">
@@ -192,6 +191,20 @@ export default function NovelsPage() {
 
       {/* Mobile sidebar sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        {/* Mobile toggle button */}
+        {!selected && (
+          <div className="md:hidden fixed bottom-4 left-4 z-40">
+            <SheetTrigger
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "shadow-lg"
+              )}
+            >
+              <List className="w-4 h-4 mr-2" />
+              查看小说列表
+            </SheetTrigger>
+          </div>
+        )}
         <SheetContent side="left" showCloseButton={true}>
           <SheetHeader>
             <SheetTitle>小说列表</SheetTitle>
@@ -229,21 +242,6 @@ export default function NovelsPage() {
 
       {/* Right content: selected novel detail */}
       <div className="flex-1 overflow-y-auto">
-        {/* Mobile toggle button */}
-        {!selected && (
-          <div className="md:hidden p-4">
-            <SheetTrigger
-              className={cn(
-                buttonVariants({ variant: "outline", size: "sm" }),
-                "w-full"
-              )}
-            >
-              <List className="w-4 h-4 mr-2" />
-              查看小说列表
-            </SheetTrigger>
-          </div>
-        )}
-
         {selected ? (
           <div>
             {/* Mobile back button */}

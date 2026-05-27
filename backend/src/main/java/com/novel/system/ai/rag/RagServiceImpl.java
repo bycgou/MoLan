@@ -19,6 +19,9 @@ import org.springframework.data.mongodb.core.query.TextQuery;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -51,27 +54,33 @@ public class RagServiceImpl implements RagService {
         List<ChapterSummary> recentSummaries = getRecentSummaries(novelId, currentChapterNum, 10);
         results.addAll(recentSummaries);
         
+        // Build set of already-seen IDs for O(1) dedup
+        Set<String> seenIds = new HashSet<>();
+        for (ChapterSummary s : results) {
+            seenIds.add(s.getId());
+        }
+
         // 2. 混合检索（向量 + BM25 + RRF）
         try {
-            String queryText = buildQueryFromRecentSummaries(novelId, currentChapterNum);
+            String queryText = buildQueryFromRecentSummaries(currentChapterNum, recentSummaries);
             List<ChapterSummary> hybridResults = hybridSearch(novelId, queryText, 5);
-            
+
             for (ChapterSummary summary : hybridResults) {
-                if (!results.stream().anyMatch(r -> r.getId().equals(summary.getId()))) {
+                if (seenIds.add(summary.getId())) {
                     results.add(summary);
                 }
             }
         } catch (Exception e) {
             log.warn("混合检索失败: {}", e.getMessage());
         }
-        
+
         // 3. 关键词检索
         if (keywords != null && !keywords.isEmpty()) {
             try {
                 List<ChapterSummary> keywordResults = chapterSummaryRepository
                     .findByNovelIdAndKeywordsIn(novelId, keywords);
                 for (ChapterSummary summary : keywordResults) {
-                    if (!results.stream().anyMatch(r -> r.getId().equals(summary.getId()))) {
+                    if (seenIds.add(summary.getId())) {
                         results.add(summary);
                     }
                 }
@@ -125,7 +134,7 @@ public class RagServiceImpl implements RagService {
             for (RedisVectorService.VectorSearchResult result : results) {
                 Map<String, Object> metadata = result.getMetadata();
                 if (metadata != null && metadata.containsKey("chapterNum")) {
-                    Integer chapterNum = (Integer) metadata.get("chapterNum");
+                    int chapterNum = ((Number) metadata.get("chapterNum")).intValue();
                     chapterSummaryRepository.findByNovelIdAndChapterNum(novelId, chapterNum)
                         .ifPresent(summaries::add);
                 }
@@ -159,7 +168,7 @@ public class RagServiceImpl implements RagService {
             // 回退到基于摘要keywords字段的匹配
             Query query = new Query();
             query.addCriteria(Criteria.where("novelId").is(novelId));
-            query.addCriteria(Criteria.where("content").regex(queryText.substring(0, Math.min(queryText.length(), 50))));
+            query.addCriteria(Criteria.where("content").regex(Pattern.quote(queryText.substring(0, Math.min(queryText.length(), 50)))));
             query.with(Sort.by(Sort.Direction.DESC, "chapterNum"));
             query.limit(topK);
 
@@ -171,11 +180,14 @@ public class RagServiceImpl implements RagService {
     public List<ChapterSummary> hybridSearch(String novelId, String queryText, int topK) {
         log.info("执行混合检索，小说ID: {}, 查询: {}", novelId, queryText);
         
-        // 1. 向量检索
-        List<ChapterSummary> vectorResults = vectorSearch(novelId, queryText, topK * 2);
-        
-        // 2. BM25检索
-        List<ChapterSummary> bm25Results = bm25Search(novelId, queryText, topK * 2);
+        // 1. 向量检索 + BM25检索（并行执行）
+        CompletableFuture<List<ChapterSummary>> vectorFuture = CompletableFuture.supplyAsync(
+            () -> vectorSearch(novelId, queryText, topK * 2));
+        CompletableFuture<List<ChapterSummary>> bm25Future = CompletableFuture.supplyAsync(
+            () -> bm25Search(novelId, queryText, topK * 2));
+        CompletableFuture.allOf(vectorFuture, bm25Future).join();
+        List<ChapterSummary> vectorResults = vectorFuture.join();
+        List<ChapterSummary> bm25Results = bm25Future.join();
         
         // 3. RRF融合
         Map<String, Double> rrfScores = new HashMap<>();
@@ -249,15 +261,17 @@ public class RagServiceImpl implements RagService {
         }
     }
     
-    private String buildQueryFromRecentSummaries(String novelId, int currentChapterNum) {
-        List<ChapterSummary> recent = getRecentSummaries(novelId, currentChapterNum, 3);
+    private String buildQueryFromRecentSummaries(int currentChapterNum, List<ChapterSummary> recentSummaries) {
+        List<ChapterSummary> querySummaries = recentSummaries.size() > 3
+            ? recentSummaries.subList(0, 3)
+            : recentSummaries;
         StringBuilder sb = new StringBuilder();
-        for (ChapterSummary s : recent) {
+        for (ChapterSummary s : querySummaries) {
             if (s.getContent() != null && !s.getContent().isEmpty()) {
                 String snippet = s.getContent().length() > 200
                     ? s.getContent().substring(0, 200)
                     : s.getContent();
-                sb.append(snippet).append(" ");
+                sb.append(snippet).append("。");
             }
         }
         return sb.length() > 0
@@ -266,7 +280,7 @@ public class RagServiceImpl implements RagService {
     }
 
     /**
-     * 计算相关性分数（支持中文的字符级匹配）
+     * 计算相关性分数（使用中文字符二元组bigram进行匹配）
      */
     private double calculateRelevanceScore(String query, ChapterSummary summary) {
         if (summary.getContent() == null) {
@@ -278,25 +292,24 @@ public class RagServiceImpl implements RagService {
 
         double score = 0.0;
 
-        // 按空格分词（英文场景），同时保留整个查询用于中文匹配
-        String[] queryTerms = queryLower.split("\\s+");
+        // 使用字符二元组（bigram）进行中文友好匹配
+        Set<String> queryBigrams = extractBigrams(queryLower);
+        Set<String> contentBigrams = extractBigrams(content);
 
-        for (String term : queryTerms) {
-            if (term.isEmpty()) continue;
-            if (content.contains(term)) {
-                score += 1.0;
-            }
-        }
-
-        // 中文场景：用整个查询文本做子串匹配（中文无空格分隔）
-        if (queryTerms.length <= 1 && queryLower.length() > 2) {
-            // 按标点和常见分隔符切分，得到句子片段
-            String[] segments = queryLower.split("[，。！？、；：\\s]+");
-            for (String seg : segments) {
-                if (seg.length() >= 2 && content.contains(seg)) {
-                    score += 1.0;
+        if (!queryBigrams.isEmpty()) {
+            int overlap = 0;
+            for (String bigram : queryBigrams) {
+                if (contentBigrams.contains(bigram)) {
+                    overlap++;
                 }
             }
+            // Overlap ratio as relevance score
+            score += (double) overlap / queryBigrams.size() * 3.0;
+        }
+
+        // 额外的整串包含匹配（对短查询有效）
+        if (queryLower.length() >= 2 && content.contains(queryLower)) {
+            score += 2.0;
         }
 
         // 关键词匹配加分
@@ -314,6 +327,30 @@ public class RagServiceImpl implements RagService {
         score *= (4 - priority) * 0.25 + 0.5;
 
         return score;
+    }
+
+    /**
+     * 从文本中提取字符二元组（bigram），用于中文文本相似度计算。
+     * 会跳过标点和空白字符，只保留有意义的字符对。
+     */
+    private Set<String> extractBigrams(String text) {
+        Set<String> bigrams = new HashSet<>();
+        // 过滤掉标点和空白，只保留有意义的字符
+        StringBuilder cleaned = new StringBuilder();
+        for (char c : text.toCharArray()) {
+            if (!Character.isWhitespace(c) && !Character.isISOControl(c)
+                && !String.valueOf(c).matches("[，。！？、；：\\p{Punct}]")) {
+                cleaned.append(c);
+            }
+        }
+        for (int i = 0; i < cleaned.length() - 1; i++) {
+            bigrams.add(cleaned.substring(i, i + 2));
+        }
+        // 也把单字加入，处理极短文本
+        if (cleaned.length() == 1) {
+            bigrams.add(cleaned.toString());
+        }
+        return bigrams;
     }
     
     @Override
@@ -379,14 +416,19 @@ public class RagServiceImpl implements RagService {
         StringBuilder contentToCompress = new StringBuilder();
         for (ChapterSummary summary : summariesToCompress) {
             contentToCompress.append("第").append(summary.getChapterNum()).append("章剧情: ")
-                             .append(summary.getContent()).append("\n");
+                             .append(summary.getContent() != null ? summary.getContent() : "").append("\n");
         }
 
         String systemPrompt = "你是一个专业的小说世界观架构师，请将以下数十章零碎的剧情指纹，浓缩成一个精炼的'全局背景和现状'。必须保留核心伏笔、重要人物生死状态和世界格局变化，丢弃次要细节。字数控制在800字以内。";
         String userMessage = "之前已有的全局背景：\n" + previousMemory + "\n\n新发生的剧情：\n" + contentToCompress.toString();
 
         try {
-            String newGlobalMemory = llmService.generateWithUsage(systemPrompt, userMessage, "summary");
+            String newGlobalMemory = CompletableFuture.supplyAsync(() ->
+                llmService.generateWithUsage(systemPrompt, userMessage, "summary")
+            ).orTimeout(30, TimeUnit.SECONDS).exceptionally(ex -> {
+                log.warn("compressMemory LLM call timed out or failed", ex);
+                return previousMemory;  // return original on failure
+            }).join();
 
             // 更新StoryState中的压缩背景
             storyState.setCompressedBackstory(newGlobalMemory);
@@ -448,7 +490,8 @@ public class RagServiceImpl implements RagService {
         
         // 5. 混合检索相关剧情
         try {
-            String queryText = buildQueryFromRecentSummaries(novelId, chapterNum);
+            List<ChapterSummary> recentForQuery = getRecentSummaries(novelId, chapterNum, 3);
+            String queryText = buildQueryFromRecentSummaries(chapterNum, recentForQuery);
             List<ChapterSummary> relevantSummaries = hybridSearch(novelId, queryText, 5);
             
             if (!relevantSummaries.isEmpty()) {

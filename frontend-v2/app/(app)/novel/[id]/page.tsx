@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import Link from "next/link"
 import {
   BookOpen,
-  FileText,
   Layers,
   Wand2,
   Pencil,
@@ -18,6 +17,7 @@ import { StatsCard } from "@/components/shared/StatsCard"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { ChapterList } from "@/components/novel/ChapterList"
+import { GenerateDialog } from "@/components/novel/GenerateDialog"
 import { RhythmPanel } from "@/components/novel/RhythmPanel"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -56,7 +56,6 @@ const statusMap: Record<number, { label: string; className: string }> = {
 
 export default function NovelDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
   useAuth()
 
   const { data: novelData, isLoading: novelLoading } = useSWR(
@@ -65,7 +64,7 @@ export default function NovelDetailPage() {
   )
   const novel = novelData?.data ?? null
 
-  const { data: chaptersData, isLoading: chaptersLoading } = useSWR(
+  const { data: chaptersData, isLoading: chaptersLoading, mutate: mutateChapters } = useSWR(
     id ? `chapters-${id}` : null,
     () => chapterApi.list(id)
   )
@@ -85,6 +84,9 @@ export default function NovelDetailPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deletingChapterNum, setDeletingChapterNum] = useState<number | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
+  const [generateChapterNum, setGenerateChapterNum] = useState(1)
 
   const handleDeleteChapter = useCallback((chapterNum: number) => {
     setDeletingChapterNum(chapterNum)
@@ -105,10 +107,10 @@ export default function NovelDetailPage() {
 
   const handleGenerate = useCallback(
     (chapterNum: number) => {
-      // Navigate to generate page or open dialog
-      router.push(`/novel/${id}/chapter/${chapterNum}/generate`)
+      setGenerateChapterNum(chapterNum)
+      setGenerateOpen(true)
     },
-    [id, router]
+    []
   )
 
   const handleExport = useCallback(async () => {
@@ -164,7 +166,6 @@ export default function NovelDetailPage() {
   }
 
   const status = statusMap[novel.status] || statusMap[0]
-  const [sheetOpen, setSheetOpen] = useState(false)
 
   const sidebarContent = (
     <>
@@ -277,6 +278,18 @@ export default function NovelDetailPage() {
 
       {/* Mobile sidebar sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        {/* Mobile info toggle */}
+        <div className="md:hidden fixed bottom-4 left-4 z-40">
+          <SheetTrigger
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "shadow-lg"
+            )}
+          >
+            <PanelLeft className="w-4 h-4 mr-2" />
+            查看小说信息
+          </SheetTrigger>
+        </div>
         <SheetContent side="left" showCloseButton={true}>
           <SheetHeader>
             <SheetTitle>小说信息</SheetTitle>
@@ -289,19 +302,6 @@ export default function NovelDetailPage() {
 
       {/* Right content: chapter list */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        {/* Mobile info toggle */}
-        <div className="md:hidden mb-4">
-          <SheetTrigger
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "w-full"
-            )}
-          >
-            <PanelLeft className="w-4 h-4 mr-2" />
-            查看小说信息
-          </SheetTrigger>
-        </div>
-
         {chaptersLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-10 w-full" />
@@ -327,6 +327,15 @@ export default function NovelDetailPage() {
         onConfirm={confirmDeleteChapter}
         confirmText="删除"
         variant="destructive"
+      />
+
+      {/* AI Generate dialog */}
+      <GenerateDialog
+        open={generateOpen}
+        onOpenChange={setGenerateOpen}
+        novelId={id}
+        defaultChapterNum={generateChapterNum}
+        onComplete={() => mutateChapters()}
       />
     </div>
   )
