@@ -4,6 +4,7 @@ import com.novel.system.dto.genre.GenreInfo;
 import com.novel.system.dto.genre.GenreRhythmConfig;
 import com.novel.system.dto.genre.GenreTemplate;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,12 @@ public class GenreServiceImpl implements GenreService {
         "xuanyi", "rules-mystery",
         "lishi", "period-drama"
     );
+
+    @Value("${genre.guide.max-chars-per-file:2000}")
+    private int maxCharsPerFile;
+
+    @Value("${genre.guide.max-total-chars:8000}")
+    private int maxTotalChars;
 
     private final Map<String, GenreTemplate> templates = new HashMap<>();
 
@@ -114,8 +121,8 @@ public class GenreServiceImpl implements GenreService {
             Resource[] resources = resolver.getResources("classpath:genres/" + folder + "/*.md");
             StringBuilder sb = new StringBuilder();
             int totalChars = 0;
-            int maxPerFile = 2000;
-            int maxTotal = 8000;
+            int maxPerFile = maxCharsPerFile;
+            int maxTotal = maxTotalChars;
             for (Resource resource : resources) {
                 if (totalChars >= maxTotal) break;
                 String content = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
