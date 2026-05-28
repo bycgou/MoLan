@@ -12,6 +12,8 @@ export const useNovelStore = defineStore('novel', () => {
   const clues = ref<ClueVO[]>([])
   const loadingNovels = ref(false)
   const loadingNovel = ref(false)
+  const deletedNovels = ref<NovelVO[]>([])
+  const loadingDeletedNovels = ref(false)
 
   // ---- 计算属性 ----
   const novelCount = computed(() => novels.value.length)
@@ -28,6 +30,28 @@ export const useNovelStore = defineStore('novel', () => {
     } finally {
       loadingNovels.value = false
     }
+  }
+
+  async function fetchDeletedNovels() {
+    loadingDeletedNovels.value = true
+    try {
+      const res = await novelApi.getDeletedNovelList()
+      deletedNovels.value = res.data || []
+    } catch (e) {
+      console.error('加载回收站失败:', e)
+    } finally {
+      loadingDeletedNovels.value = false
+    }
+  }
+
+  async function restoreNovel(novelId: string) {
+    await novelApi.restoreNovel(novelId)
+    await fetchDeletedNovels()
+  }
+
+  async function hardDeleteNovel(novelId: string) {
+    await novelApi.hardDeleteNovel(novelId)
+    await fetchDeletedNovels()
   }
 
   async function fetchNovel(novelId: string) {
@@ -99,6 +123,15 @@ export const useNovelStore = defineStore('novel', () => {
     return false
   }
 
+  async function updateRelationship(novelId: string, characterId: string, targetCharacterId: string, value: number) {
+    await characterApi.updateRelationship(novelId, characterId, targetCharacterId, value)
+  }
+
+  async function fetchRelationshipGraph(novelId: string) {
+    const res = await characterApi.getRelationshipGraph(novelId)
+    return res.data
+  }
+
   // ---- 伏笔 ----
   async function fetchClues(novelId: string) {
     const res = await clueApi.getClueList(novelId)
@@ -125,6 +158,21 @@ export const useNovelStore = defineStore('novel', () => {
     return false
   }
 
+  async function batchRecycleClues(novelId: string, clueIds: string[], recycleChapter: number) {
+    await clueApi.batchRecycleClues(novelId, clueIds, recycleChapter)
+    await fetchClues(novelId)
+  }
+
+  async function fetchCluesByBuryChapter(novelId: string, chapterNum: number) {
+    const res = await clueApi.getCluesByBuryChapter(novelId, chapterNum)
+    return res.data || []
+  }
+
+  async function fetchCluesByRecycleChapter(novelId: string, chapterNum: number) {
+    const res = await clueApi.getCluesByRecycleChapter(novelId, chapterNum)
+    return res.data || []
+  }
+
   // ---- 重置 ----
   function $reset() {
     novels.value = []
@@ -132,29 +180,47 @@ export const useNovelStore = defineStore('novel', () => {
     chapters.value = []
     characters.value = []
     clues.value = []
+    deletedNovels.value = []
   }
 
   return {
+    // state
     novels,
     currentNovel,
     chapters,
     characters,
     clues,
+    deletedNovels,
     loadingNovels,
     loadingNovel,
+    loadingDeletedNovels,
+    // computed
     novelCount,
     currentNovelId,
+    // 小说
     fetchNovels,
     fetchNovel,
     deleteNovel,
+    fetchDeletedNovels,
+    restoreNovel,
+    hardDeleteNovel,
+    // 章节
     fetchChapters,
+    // 人物
     fetchCharacters,
     createCharacter,
     updateCharacter,
     addGrowthNode,
+    updateRelationship,
+    fetchRelationshipGraph,
+    // 伏笔
     fetchClues,
     createClue,
     recycleClue,
+    batchRecycleClues,
+    fetchCluesByBuryChapter,
+    fetchCluesByRecycleChapter,
+    // 重置
     $reset,
   }
 })
