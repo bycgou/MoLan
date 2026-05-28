@@ -123,6 +123,25 @@
               </el-collapse-item>
             </el-collapse>
           </div>
+          <!-- 写作指南 -->
+          <div v-if="guideFiles.length > 0" style="margin-top: 10px;">
+            <div style="font-weight: 500; margin-bottom: 8px;">写作指南</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <el-tag
+                v-for="file in guideFiles"
+                :key="file"
+                type="info"
+                style="cursor: pointer;"
+                @click="openGuideFile(file)"
+              >
+                {{ file.replace('.md', '') }}
+              </el-tag>
+            </div>
+          </div>
+          <!-- 指南内容对话框 -->
+          <el-dialog v-model="guideDialogVisible" :title="guideDialogTitle" width="60%">
+            <div style="white-space: pre-wrap; max-height: 60vh; overflow-y: auto;">{{ guideDialogContent }}</div>
+          </el-dialog>
         </el-form-item>
         
         <el-form-item label="核心创意" prop="prompt">
@@ -172,7 +191,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { novelApi, genreTemplateApi } from '@/api'
+import { novelApi, genreApi } from '@/api'
 import { styleApi } from '@/api/style'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -183,7 +202,7 @@ const route = useRoute()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const generating = ref(false)
-const genreTemplate = ref<any>(null)
+const genreTemplate = ref<import('@/types').GenreTemplate | null>(null)
 const activeCollapse = ref(['tropes'])
 
 const form = reactive({
@@ -212,13 +231,19 @@ const rules: FormRules = {
   ]
 }
 
+const guideFiles = ref<string[]>([])
+const guideDialogContent = ref('')
+const guideDialogVisible = ref(false)
+const guideDialogTitle = ref('')
+
 const onGenreChange = async (genreCode: string) => {
   if (!genreCode) {
     genreTemplate.value = null
+    guideFiles.value = []
     return
   }
   try {
-    const response = await genreTemplateApi.getTemplatesByGenre(genreCode)
+    const response = await genreApi.getGenreTemplate(genreCode)
     if (response.code === 200 && response.data) {
       genreTemplate.value = response.data
     } else {
@@ -226,6 +251,28 @@ const onGenreChange = async (genreCode: string) => {
     }
   } catch (error) {
     console.error('加载题材模板失败:', error)
+    genreTemplate.value = null
+  }
+  // 加载体裁指南文件列表
+  try {
+    const guideRes = await genreApi.getGuideList(genreCode)
+    guideFiles.value = guideRes.code === 200 ? (guideRes.data || []) : []
+  } catch {
+    guideFiles.value = []
+  }
+}
+
+const openGuideFile = async (filename: string) => {
+  if (!form.genre) return
+  try {
+    const res = await genreApi.getGuideFile(form.genre, filename)
+    if (res.code === 200) {
+      guideDialogContent.value = res.data || ''
+      guideDialogTitle.value = filename.replace('.md', '')
+      guideDialogVisible.value = true
+    }
+  } catch (error) {
+    console.error('加载指南文件失败:', error)
   }
 }
 
