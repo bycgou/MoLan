@@ -12,10 +12,27 @@
               :value="novel.novelId"
             />
           </el-select>
+          <el-button type="danger" text @click="toggleTrash" style="margin-left: 8px;">
+            {{ showTrash ? '返回列表' : '回收站' }}
+          </el-button>
         </div>
       </template>
       
-      <div v-if="loading" class="loading">
+      <!-- 回收站 -->
+      <div v-if="showTrash">
+        <el-table :data="deletedNovels" v-loading="loadingTrash" style="width: 100%">
+          <el-table-column prop="novelName" label="小说名称" />
+          <el-table-column prop="genre" label="体裁" width="120" />
+          <el-table-column label="操作" width="200">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" @click="handleRestore(row.novelId)">恢复</el-button>
+              <el-button type="danger" size="small" @click="handleHardDelete(row.novelId)">永久删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <div v-else-if="loading" class="loading">
         <el-loading :fullscreen="false" text="加载中..." />
       </div>
       
@@ -94,7 +111,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { novelApi, chapterApi, characterApi, rhythmApi, hookApi } from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { NovelVO, ReadPullTrendVO, CharacterVO, ChapterListItem } from '@/types'
 import * as echarts from 'echarts'
 
@@ -109,6 +126,11 @@ const novelData = ref<NovelVO | null>(null)
 const readPullTrend = ref<ReadPullTrendVO | null>(null)
 const characters = ref<CharacterVO[]>([])
 const recentChapters = ref<ChapterListItem[]>([])
+
+// 回收站状态
+const showTrash = ref(false)
+const deletedNovels = ref<NovelVO[]>([])
+const loadingTrash = ref(false)
 
 // 图表引用
 const readPullChartRef = ref<HTMLElement>()
@@ -132,6 +154,52 @@ const loadNovels = async () => {
   } catch (error) {
     console.error('加载小说列表失败', error)
     loading.value = false
+  }
+}
+
+// 回收站方法
+const loadTrash = async () => {
+  loadingTrash.value = true
+  try {
+    const res = await novelApi.getDeletedNovelList()
+    deletedNovels.value = res.data || []
+  } catch (e) {
+    console.error('加载回收站失败:', e)
+  } finally {
+    loadingTrash.value = false
+  }
+}
+
+const toggleTrash = () => {
+  showTrash.value = !showTrash.value
+  if (showTrash.value) {
+    loadTrash()
+  }
+}
+
+const handleRestore = async (novelId: string) => {
+  try {
+    await novelApi.restoreNovel(novelId)
+    ElMessage.success('恢复成功')
+    loadTrash()
+    loadNovels()
+  } catch {
+    ElMessage.error('恢复失败')
+  }
+}
+
+const handleHardDelete = async (novelId: string) => {
+  try {
+    await ElMessageBox.confirm('此操作将永久删除该小说，是否继续？', '警告', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await novelApi.hardDeleteNovel(novelId)
+    ElMessage.success('已永久删除')
+    loadTrash()
+  } catch {
+    // 用户取消或删除失败
   }
 }
 
