@@ -263,7 +263,10 @@ async function handleSaveCharacter() {
   try {
     let success: boolean
     if (editingChar.value) {
-      success = await novelStore.updateCharacter(novelId, editingChar.value.characterId, charForm)
+      success = await novelStore.updateCharacter(novelId, editingChar.value.characterId, {
+        currentStatus: {},
+        relationshipMap: {},
+      })
     } else {
       success = await novelStore.createCharacter(novelId, charForm)
     }

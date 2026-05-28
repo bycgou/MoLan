@@ -105,7 +105,7 @@ export const useNovelStore = defineStore('novel', () => {
     return false
   }
 
-  async function updateCharacter(novelId: string, characterId: string, data: import('@/types').UpdateCharacterRequest) {
+  async function updateCharacter(novelId: string, characterId: string, data: import('@/types').CharacterUpdatePayload) {
     const res = await characterApi.updateCharacter(novelId, characterId, data)
     if (res.code === 200) {
       await fetchCharacters(novelId)
