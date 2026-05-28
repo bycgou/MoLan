@@ -47,6 +47,23 @@
               </el-timeline>
             </div>
 
+            <!-- 关系管理 -->
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #ebeef5;">
+              <div style="font-size: 13px; color: #606266; margin-bottom: 8px;">关系管理</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <el-select v-model="relTargetId" placeholder="选择目标角色" size="small" style="width: 120px;">
+                  <el-option
+                    v-for="c in characters.filter(c => c.characterId !== char.characterId)"
+                    :key="c.characterId"
+                    :label="c.name"
+                    :value="c.characterId"
+                  />
+                </el-select>
+                <el-input-number v-model="relValue" :min="-100" :max="100" size="small" style="width: 120px;" />
+                <el-button size="small" type="primary" @click="handleUpdateRelationship(char.characterId)">更新关系</el-button>
+              </div>
+            </div>
+
             <el-divider />
             <div class="char-actions">
               <el-button size="small" @click="editCharacter(char)">编辑</el-button>
@@ -117,6 +134,13 @@
         <el-button type="primary" :loading="saving" @click="handleAddGrowth">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 角色关系图谱 -->
+    <el-collapse style="margin-top: 20px;">
+      <el-collapse-item title="角色关系图谱">
+        <CharacterGraph :graph="relationshipGraph" />
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
@@ -127,7 +151,8 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 import { useNovelStore } from '@/stores'
 import { getRoleType } from '@/utils/format'
-import type { CharacterVO, CreateCharacterRequest, AddGrowthNodeRequest } from '@/types'
+import CharacterGraph from '@/components/CharacterGraph.vue'
+import type { CharacterVO, CreateCharacterRequest, AddGrowthNodeRequest, CharacterGraph as CharacterGraphType } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -170,6 +195,33 @@ const growthRules: FormRules = {
   description: [{ required: true, message: '请输入描述', trigger: 'blur' }],
 }
 
+// 关系管理
+const relTargetId = ref('')
+const relValue = ref(0)
+const relationshipGraph = ref<CharacterGraphType | null>(null)
+
+const handleUpdateRelationship = async (characterId: string) => {
+  if (!relTargetId.value) {
+    ElMessage.warning('请选择目标角色')
+    return
+  }
+  try {
+    await novelStore.updateRelationship(novelId, characterId, relTargetId.value, relValue.value)
+    ElMessage.success('关系已更新')
+    loadRelationshipGraph()
+  } catch {
+    ElMessage.error('更新关系失败')
+  }
+}
+
+const loadRelationshipGraph = async () => {
+  try {
+    relationshipGraph.value = await novelStore.fetchRelationshipGraph(novelId)
+  } catch {
+    // 图谱加载失败不阻塞页面
+  }
+}
+
 onMounted(async () => {
   await loadCharacters()
 })
@@ -179,6 +231,7 @@ async function loadCharacters() {
   try {
     await novelStore.fetchCharacters(novelId)
     characters.value = novelStore.characters
+    loadRelationshipGraph()
   } finally {
     loading.value = false
   }

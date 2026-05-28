@@ -17,6 +17,8 @@
     "echarts": "^5.4.3",
     "element-plus": "^2.4.4",
     "pinia": "^2.1.7",
+    "vis-data": "^8.0.3",
+    "vis-network": "^10.1.0",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },
