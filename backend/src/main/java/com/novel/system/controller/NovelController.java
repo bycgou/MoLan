@@ -58,9 +58,10 @@ public class NovelController {
     }
 
     @GetMapping("/list")
-    public ApiResponse<List<NovelResponse>> getNovelList(HttpServletRequest httpRequest) {
+    public ApiResponse<List<NovelResponse>> getNovelList(HttpServletRequest httpRequest,
+                                                          @RequestParam(required = false) Boolean isDeleted) {
         String userId = (String) httpRequest.getAttribute("userId");
-        return ApiResponse.success(novelService.getNovelList(userId));
+        return ApiResponse.success(novelService.getNovelList(userId, isDeleted));
     }
 
     @GetMapping("/{novelId}")

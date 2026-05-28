@@ -122,10 +122,15 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public List<NovelResponse> getNovelList(String userId) {
+        return getNovelList(userId, false);
+    }
+
+    @Override
+    public List<NovelResponse> getNovelList(String userId, Boolean isDeleted) {
         if (userId == null) {
             throw new IllegalArgumentException("用户未认证");
         }
-        List<NovelBase> novels = novelBaseMapper.selectByUserId(userId);
+        List<NovelBase> novels = novelBaseMapper.selectByUserIdAndDeleted(userId, isDeleted);
         if (novels.isEmpty()) {
             return Collections.emptyList();
         }

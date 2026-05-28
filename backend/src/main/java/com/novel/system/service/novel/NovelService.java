@@ -25,6 +25,8 @@ public interface NovelService {
 
     List<NovelResponse> getNovelList(String userId);
 
+    List<NovelResponse> getNovelList(String userId, Boolean isDeleted);
+
     NovelResponse getNovel(String novelId);
 
     NovelResponse updateNovel(String novelId, UpdateNovelRequest request);

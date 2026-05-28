@@ -17,4 +17,6 @@ public interface NovelBaseMapper {
     int deleteById(@Param("novelId") String novelId);
     int softDeleteById(@Param("novelId") String novelId);
     int restoreById(@Param("novelId") String novelId);
+
+    List<NovelBase> selectByUserIdAndDeleted(@Param("userId") String userId, @Param("isDeleted") Boolean isDeleted);
 }
