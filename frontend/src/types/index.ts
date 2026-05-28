@@ -205,6 +205,42 @@ export interface UpdateCharacterRequest {
   background?: string
 }
 
+export interface CharacterCurrentStatus {
+  health?: number
+  emotion?: string
+  items?: string[]
+  location?: string
+  status?: string
+}
+
+export interface CharacterUpdatePayload {
+  currentStatus?: CharacterCurrentStatus
+  relationshipMap?: Record<string, number>
+}
+
+export interface CharacterGraphNode {
+  charId: string
+  charName: string
+  role: string
+  traits: string[]
+  attributes: Record<string, string>
+}
+
+export interface CharacterGraphEdge {
+  charId1: string
+  charId2: string
+  type: string
+  description: string
+  intimacyLevel: number
+  conflictLevel: number
+}
+
+export interface CharacterGraph {
+  novelId: string
+  nodes: CharacterGraphNode[]
+  edges: CharacterGraphEdge[]
+}
+
 export interface GrowthNode {
   nodeId: string
   chapterNum: number
@@ -260,9 +296,10 @@ export interface LlmConfigVO {
   temperature: number
   maxTokens: number
   topP: number
-  isActive: number // 0=禁用, 1=启用
-  usageType: string // all / outline / content / summary
-  userId: string
+  isActive: number
+  usageType: string
+  description?: string
+  embeddingModel?: string
   createTime: string
   updateTime: string
 }
@@ -322,20 +359,44 @@ export interface ReadPullTrendVO {
   readPullScores?: number[]
 }
 
+export interface RhythmViolation {
+  strandType: string
+  message: string
+  severity: string
+  chapterNum?: number
+  details?: string
+}
+
 // ============================================================
-// 题材模板相关
+// 体裁相关
 // ============================================================
 
-export interface GenreTemplateVO {
+export interface GenreInfo {
   code: string
   name: string
+  category: string
   description: string
+}
+
+export interface GenreRhythmConfig {
+  questRatio: number
+  fireRatio: number
+  constellationRatio: number
+  questMaxConsecutive: number
+  fireMaxGap: number
+  constellationMaxGap: number
+}
+
+export interface GenreTemplate {
+  code: string
+  name: string
+  category: string
+  description: string
+  writingStyle: string
   tropes: string[]
   pitfalls: string[]
-  coreThemes: string[]
   characterArchetypes: Record<string, string>
-  plotPatterns: string[]
-  status: number
+  rhythmConfig: GenreRhythmConfig
 }
 
 // ============================================================
