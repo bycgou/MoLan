@@ -79,7 +79,8 @@
       "Bash(cd *)",
       "Bash(./mvnw test *)",
       "Bash(mvn dependency:tree -pl .)",
-      "Bash(docker inspect redis-stack *)"
+      "Bash(docker inspect redis-stack *)",
+      "Bash(npx vite *)"
     ]
   }
 }

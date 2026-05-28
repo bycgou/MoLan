@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">墨织 MoZhi</h1>
+  <h1 align="center">墨澜 MoLan</h1>
   <p align="center">
     <strong>AI 驱动的百万字长篇小说创作引擎</strong>
   </p>
@@ -10,13 +10,13 @@
 
 ---
 
-## 墨织是什么
+## 墨澜是什么
 
-墨织是一个面向**百万字长篇网文**的 AI 创作系统。它不是简单的"prompt → LLM → 输出"单链路工具，而是一套**多 Agent 图编排引擎 + 六层记忆架构 + 五重校验体系**的完整创作流水线，让 AI 在写第 300 章时仍然精确记得第 3 章埋的伏笔、角色的性格底线、以及上一章结尾的悬念。
+墨澜是一个面向**百万字长篇网文**的 AI 创作系统。它不是简单的"prompt → LLM → 输出"单链路工具，而是一套**多 Agent 图编排引擎 + 六层记忆架构 + 五重校验体系**的完整创作流水线，让 AI 在写第 300 章时仍然精确记得第 3 章埋的伏笔、角色的性格底线、以及上一章结尾的悬念。
 
 ## 核心亮点
 
-### 🧠 多 Agent 图编排引擎 (GraphRunner)
+### 多 Agent 图编排引擎 (GraphRunner)
 
 自研的 DAG 执行引擎，不是简单的链式调用：
 
@@ -32,7 +32,7 @@ arc_check → outline → clue_planning ──┐
            character_planning ─────┘         → quality_check → audit_router → summary → post_process
 ```
 
-### 👤 AuthorAgent — "人类作者"在环
+### AuthorAgent — "人类作者"在环
 
 在关键决策点模拟人类作者的判断力：
 
@@ -45,7 +45,7 @@ arc_check → outline → clue_planning ──┐
 
 预筛优化：结构完整就跳过 LLM 调用，质量分够高就自动放行，**省 token 又不失把控**。
 
-### 🔍 五重并行校验 + 加权评分
+### 五重并行校验 + 加权评分
 
 | 维度 | 检查内容 |
 |------|----------|
@@ -57,7 +57,7 @@ arc_check → outline → clue_planning ──┐
 
 加权评分体系：每个维度可配权重和严重度（FATAL / WARNING / SKIP），FATAL 维度不过直接 REPLAN，加权分不够则 REWRITE。
 
-### 🚫 反 AI 味三道防线
+### 反 AI 味三道防线
 
 **第一道：生成时约束** — WritingAgent System Prompt 注入反 AI 味铁律
 
@@ -70,7 +70,7 @@ arc_check → outline → clue_planning ──┐
 
 **第三道：自动修正** — 不通过时自动修复或局部重写，最多 2 次，超过则标记人工审阅
 
-### 📚 六层记忆架构
+### 六层记忆架构
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -90,30 +90,38 @@ arc_check → outline → clue_planning ──┐
 - **渐进式记忆** — 近期精确（滑动窗口）、远期模糊（弧段摘要）、超远期压缩（每 20 章自动背景压缩）
 - **Push-Pull 二分** — 前四层 Push（自动注入），后两层 Pull（Agent 按需调用）
 
-### 🎭 六种体裁深度模板
+### 十二种体裁深度模板
 
-| 体裁 | 模板数 | 特色 |
-|------|--------|------|
-| 玄幻 | 4 | 修炼体系、爽点设计、情节模式 |
-| 狗血言情 | 7 | 虐点、甜点、套路、节奏、情感张力 |
-| 古言 | 5 | 宫斗、古风对话、历史设定 |
-| 悬疑推理 | 7 | 诡计设计、线索设计、嫌疑人管理、揭秘节奏 |
-| 知乎短篇 | 7 | 钩子技巧、情绪峰值、结尾模式、情节压缩 |
-| 现实主义 | 5 | 社会议题、对话真实感、现实锚定 |
+| 体裁 | 代码 | 特色 |
+|------|------|------|
+| 玄幻 | xuanhuan | 修炼体系、爽点设计、情节模式 |
+| 仙侠 | xianxia | 修仙体系、仙界设定、法宝丹药 |
+| 科幻 | kehuan | 科技设定、世界观构建、太空歌剧 |
+| 游戏 | youxi | 游戏系统设计、电竞描写、副本设计 |
+| 末世 | moshi | 末世生存、丧尸设定、基地建设 |
+| 都市 | dushi | 职场描写、商业博弈、都市异能 |
+| 狗血言情 | dog-blood-romance | 虐点、甜点、套路、节奏、情感张力 |
+| 古言 | period-drama | 宫斗、古风对话、历史设定 |
+| 悬疑推理 | rules-mystery | 诡计设计、线索设计、嫌疑人管理 |
+| 知乎短篇 | zhihu-short | 钩子技巧、情绪峰值、结尾模式 |
+| 现实主义 | realistic | 社会议题、对话真实感、现实锚定 |
+| 历史 | lishi | 争霸流、权谋流、种田流 |
 
-### 🎨 文风卡系统
+每个体裁包含 `index.md`（元数据 + 节奏配置）+ 5 个写作指南 Markdown 文件，支持热加载和智能截断。
+
+### 文风卡系统
 
 - 分析参考文本的节奏、对话、描写、禁用词、偏好词
 - 提取 11 类原文样本（悬疑 / 对话 / 战斗 / 心理 / 描写 / 场景过渡 / 沉默 / 细节 / 内心挣扎 / 幽默 / 反高潮）
 - 生成时注入文风规则，生成后量化检测偏离度
 
-### 📐 卷级编排 (Arc Orchestration)
+### 卷级编排 (Arc Orchestration)
 
 - 收集未回收伏笔 + 人物状态
 - LLM 规划整卷的章节大纲、伏笔节奏、人物动线
-- 幓等设计（已有编排不重复生成）
+- 幂等设计（已有编排不重复生成）
 
-### 🔌 MCP 协议集成
+### MCP 协议集成
 
 同时支持 MCP Client 和 MCP Server：
 
@@ -125,7 +133,7 @@ arc_check → outline → clue_planning ──┐
 ## 项目结构
 
 ```
-MoYun/
+MoLan/
 ├── backend/                    # Spring Boot 后端（Java 17）
 │   └── src/main/java/com/novel/system/
 │       ├── ai/
@@ -144,7 +152,7 @@ MoYun/
 │       │   ├── character/      # 角色状态管理
 │       │   ├── clue/           # 伏笔追踪
 │       │   ├── event/          # 事件图谱 + 规则驱动检索
-│       │   ├── genre/          # 体裁模板
+│       │   ├── genre/          # 体裁模板（12 种体裁 Markdown 指南）
 │       │   ├── llm/            # LLM 配置管理
 │       │   ├── novel/          # 小说管理 + 节奏分析
 │       │   ├── orchestration/  # 卷级编排
@@ -152,7 +160,7 @@ MoYun/
 │       │   ├── style/          # 文风卡 + AI 味检测
 │       │   └── wizard/         # 向导式创作流程
 │       └── resources/
-│           └── genres/         # 六种体裁 Markdown 模板
+│           └── genres/         # 12 种体裁 Markdown 模板
 │
 ├── frontend/                   # Vue 3 前端（Element Plus）
 │   └── src/
@@ -175,7 +183,8 @@ MoYun/
         │       ├── db/         # Drizzle ORM + SQLite
         │       ├── services/   # 业务服务
         │       └── types/      # 类型定义
-        └── cli/                # CLI 工具（commander）
+        ├── cli/                # CLI 工具（commander）
+        └── web/                # Web 前端（React + Vite）
 ```
 
 ---
@@ -208,9 +217,6 @@ MoYun/
 ### 1. 启动基础设施
 
 ```bash
-# 使用 Docker Compose 启动 MySQL + MongoDB + Redis Stack
-# (请自行准备 docker-compose.yml 或手动启动)
-
 # MySQL
 docker run -d --name mysql \
   -e MYSQL_ROOT_PASSWORD=123456 \
@@ -234,11 +240,6 @@ docker run -d --name redis-stack \
 
 ```bash
 cd backend
-
-# 修改配置（如需自定义数据库连接等）
-# 编辑 src/main/resources/application.yml
-
-# 构建并运行
 mvn clean package -DskipTests
 java -jar target/ai-novel-system-1.0.0.jar
 ```
@@ -254,8 +255,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-访问 `http://localhost:3000`
 
 **Next.js 版本 (frontend-v2/)**
 
@@ -284,86 +283,6 @@ pnpm dev
 4. 逐卷生成章纲 → 确认/修改
 5. 逐章生成正文（支持 SSE 流式输出）
 6. 查看角色面板、伏笔面板、节奏分析
-
----
-
-## Docker 部署
-
-```bash
-# 构建后端镜像
-cd backend
-docker build -t moyun-backend .
-
-# 构建前端镜像
-cd frontend
-docker build -t moyun-frontend .
-
-# 运行后端
-docker run -d --name moyun-backend \
-  -p 8080:8080 \
-  -e MYSQL_HOST=mysql \
-  -e MONGODB_HOST=mongodb \
-  -e REDIS_HOST=redis-stack \
-  -e JWT_SECRET=your-secret-key \
-  moyun-backend
-
-# 运行前端
-docker run -d --name moyun-frontend \
-  -p 80:80 \
-  moyun-frontend
-```
-
----
-
-## 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MYSQL_HOST` | localhost | MySQL 主机 |
-| `MYSQL_PORT` | 3306 | MySQL 端口 |
-| `MYSQL_DATABASE` | moyun_novel_system | 数据库名 |
-| `MYSQL_USERNAME` | root | MySQL 用户名 |
-| `MYSQL_PASSWORD` | 123456 | MySQL 密码 |
-| `MONGODB_HOST` | localhost | MongoDB 主机 |
-| `MONGODB_PORT` | 27017 | MongoDB 端口 |
-| `MONGODB_DATABASE` | moyun_novel_system | MongoDB 数据库名 |
-| `REDIS_HOST` | localhost | Redis 主机 |
-| `REDIS_PORT` | 6379 | Redis 端口 |
-| `REDIS_PASSWORD` | (空) | Redis 密码 |
-| `JWT_SECRET` | changeme_... | JWT 签名密钥（**生产环境必须修改**） |
-| `MCP_CLIENT_ENABLED` | false | 启用 MCP Client |
-| `MCP_SERVER_ENABLED` | false | 启用 MCP Server |
-
----
-
-## API 概览
-
-| 模块 | 端点 | 说明 |
-|------|------|------|
-| 认证 | `POST /api/auth/login` | 登录 |
-| | `POST /api/auth/register` | 注册 |
-| 小说 | `POST /api/novel` | 创建小说 |
-| | `GET /api/novel/list` | 小说列表 |
-| | `POST /api/novel/{id}/outline` | 生成章纲 |
-| | `POST /api/novel/{id}/chapter` | 生成章节 |
-| | `POST /api/novel/{id}/chapter/async` | 异步生成章节 |
-| | `GET /api/novel/{id}/export` | 导出 TXT |
-| 章节 | `GET /api/chapter/stream-write` | SSE 流式生成 |
-| | `GET /api/novel/{id}/chapter/{num}/versions` | 章节版本历史 |
-| | `POST /api/novel/{id}/chapter/{num}/rollback/{vid}` | 回滚版本 |
-| 角色 | `GET /api/novel/{id}/character/list` | 角色列表 |
-| | `POST /api/novel/{id}/character/{cid}/growth` | 添加成长节点 |
-| 伏笔 | `GET /api/novel/{id}/clue/unrecycled` | 未回收伏笔 |
-| | `PUT /api/novel/{id}/clue/{cid}/recycle` | 回收伏笔 |
-| 节奏 | `GET /api/novel/{id}/rhythm/status` | 节奏状态 |
-| | `GET /api/novel/{id}/rhythm/trend` | 追读力趋势 |
-| 文风 | `GET /api/style-card/list` | 文风卡列表 |
-| | `POST /api/style-card/analyze` | 分析文本风格 |
-| LLM | `GET /api/llm-config/list` | 模型配置列表 |
-| | `POST /api/llm-config/test` | 测试连接 |
-| 向导 | `POST /api/wizard/generate-volume-outlines` | 生成卷纲 |
-| | `POST /api/wizard/novel/{id}/batch-generate` | 批量生成 |
-| MCP | `GET /api/mcp/sse` | MCP Server SSE 端点 |
 
 ---
 
@@ -412,39 +331,70 @@ docker run -d --name moyun-frontend \
 
 ---
 
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MYSQL_HOST` | localhost | MySQL 主机 |
+| `MYSQL_PORT` | 3306 | MySQL 端口 |
+| `MYSQL_DATABASE` | moyun_novel_system | 数据库名 |
+| `MYSQL_USERNAME` | root | MySQL 用户名 |
+| `MYSQL_PASSWORD` | 123456 | MySQL 密码 |
+| `MONGODB_HOST` | localhost | MongoDB 主机 |
+| `MONGODB_PORT` | 27017 | MongoDB 端口 |
+| `MONGODB_DATABASE` | moyun_novel_system | MongoDB 数据库名 |
+| `REDIS_HOST` | localhost | Redis 主机 |
+| `REDIS_PORT` | 6379 | Redis 端口 |
+| `REDIS_PASSWORD` | (空) | Redis 密码 |
+| `JWT_SECRET` | changeme_... | JWT 签名密钥（**生产环境必须修改**） |
+| `MCP_CLIENT_ENABLED` | false | 启用 MCP Client |
+| `MCP_SERVER_ENABLED` | false | 启用 MCP Server |
+| `EMBEDDING_MAX_INPUT_CHARS` | 2000 | Embedding 输入截断长度 |
+
+---
+
+## API 概览
+
+| 模块 | 端点 | 说明 |
+|------|------|------|
+| 认证 | `POST /api/auth/login` | 登录 |
+| | `POST /api/auth/register` | 注册 |
+| 小说 | `POST /api/novel` | 创建小说 |
+| | `GET /api/novel/list` | 小说列表 |
+| | `POST /api/novel/{id}/outline` | 生成章纲 |
+| | `POST /api/novel/{id}/chapter` | 生成章节 |
+| | `GET /api/novel/{id}/export` | 导出 TXT |
+| 章节 | `GET /api/chapter/stream-write` | SSE 流式生成 |
+| | `GET /api/novel/{id}/chapter/{num}/versions` | 章节版本历史 |
+| 角色 | `GET /api/novel/{id}/character/list` | 角色列表 |
+| 伏笔 | `GET /api/novel/{id}/clue/unrecycled` | 未回收伏笔 |
+| 节奏 | `GET /api/novel/{id}/rhythm/status` | 节奏状态 |
+| 文风 | `GET /api/style-card/list` | 文风卡列表 |
+| | `POST /api/style-card/analyze` | 分析文本风格 |
+| 体裁 | `GET /api/genre/list` | 体裁列表 |
+| | `GET /api/genre/{code}` | 体裁详情 |
+| | `GET /api/genre/{code}/guides` | 体裁指南文件列表 |
+| | `GET /api/genre/{code}/guides/{filename}` | 单个指南文件 |
+| | `POST /api/genre/reload` | 热加载体裁数据 |
+| LLM | `GET /api/llm-config/list` | 模型配置列表 |
+| 向导 | `POST /api/wizard/generate-volume-outlines` | 生成卷纲 |
+| MCP | `GET /api/mcp/sse` | MCP Server SSE 端点 |
+
+---
+
 ## TypeScript 版本 (moyun-ts)
 
 项目正在用 TypeScript 重写核心引擎，目标是提供更轻量的部署方案（无需 Java / MySQL / MongoDB）：
 
 ```bash
 cd moyun-ts
-
-# 安装依赖
 pnpm install
-
-# 构建
 pnpm build
-
-# 运行 CLI
 pnpm cli dev
-
-# 运行测试
 pnpm core test
 ```
 
 TypeScript 版本使用 SQLite (better-sqlite3) + MiniSearch (BM25) 替代 MySQL + MongoDB + Redis Stack，适合本地使用和快速体验。
-
----
-
-## 贡献指南
-
-欢迎贡献！请遵循以下步骤：
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
 
 ---
 
