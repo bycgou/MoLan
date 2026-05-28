@@ -40,6 +40,32 @@
       
       <el-empty v-else description="暂无内容" />
     </el-card>
+
+    <!-- 本章伏笔 -->
+    <el-collapse style="margin-top: 20px;">
+      <el-collapse-item name="bury">
+        <template #title>
+          <span>本章埋设的伏笔 ({{ buryClues.length }})</span>
+        </template>
+        <el-table :data="buryClues" v-loading="loadingBuryClues" size="small">
+          <el-table-column prop="title" label="伏笔名称" />
+          <el-table-column prop="clueType" label="类型" width="100" />
+          <el-table-column prop="description" label="描述" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-if="buryClues.length === 0 && !loadingBuryClues" description="本章未埋设伏笔" :image-size="60" />
+      </el-collapse-item>
+      <el-collapse-item name="recycle">
+        <template #title>
+          <span>本章回收的伏笔 ({{ recycleClues.length }})</span>
+        </template>
+        <el-table :data="recycleClues" v-loading="loadingRecycleClues" size="small">
+          <el-table-column prop="title" label="伏笔名称" />
+          <el-table-column prop="clueType" label="类型" width="100" />
+          <el-table-column prop="description" label="描述" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-if="recycleClues.length === 0 && !loadingRecycleClues" description="本章未回收伏笔" :image-size="60" />
+      </el-collapse-item>
+    </el-collapse>
     <!-- AI 重写对话框 -->
     <RewriteChapterDialog
       v-model:visible="rewriteDialogVisible"
@@ -79,7 +105,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, RefreshLeft, MagicStick } from '@element-plus/icons-vue'
 import RewriteChapterDialog from '@/components/novel/RewriteChapterDialog.vue'
-import { chapterApi, novelApi } from '@/api'
+import { chapterApi, novelApi, clueApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
@@ -105,6 +131,31 @@ const loadingVersions = ref(false)
 const versionList = ref<any[]>([])
 const previewDialogVisible = ref(false)
 const previewContent = ref('')
+
+// 伏笔查询
+const buryClues = ref<import('@/types').ClueVO[]>([])
+const recycleClues = ref<import('@/types').ClueVO[]>([])
+const loadingBuryClues = ref(false)
+const loadingRecycleClues = ref(false)
+
+const loadChapterClues = async () => {
+  if (!novelId || !chapterNum.value) return
+  loadingBuryClues.value = true
+  loadingRecycleClues.value = true
+  try {
+    const [buryRes, recycleRes] = await Promise.all([
+      clueApi.getCluesByBuryChapter(novelId, chapterNum.value),
+      clueApi.getCluesByRecycleChapter(novelId, chapterNum.value),
+    ])
+    buryClues.value = buryRes.data || []
+    recycleClues.value = recycleRes.data || []
+  } catch {
+    // 伏笔查询失败不阻塞页面
+  } finally {
+    loadingBuryClues.value = false
+    loadingRecycleClues.value = false
+  }
+}
 
 const showVersions = async () => {
   versionDialogVisible.value = true
@@ -154,6 +205,7 @@ const loadChapter = async () => {
     const response = await chapterApi.getChapter(novelId, chapterNum.value)
     if (response.code === 200) {
       chapter.value = response.data
+      loadChapterClues()
     } else {
       ElMessage.error('加载章节失败')
     }
