@@ -1,0 +1,14 @@
+{
+  "name": "moyun-ts",
+  "private": true,
+  "scripts": {
+    "cli": "pnpm --filter @moyun/cli",
+    "web": "pnpm --filter @moyun/web",
+    "core": "pnpm --filter @moyun/core",
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
