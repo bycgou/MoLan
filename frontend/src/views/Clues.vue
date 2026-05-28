@@ -3,6 +3,13 @@
     <div class="page-header">
       <el-button @click="goBack" :icon="ArrowLeft">返回</el-button>
       <h2>伏笔管理</h2>
+      <el-button
+        v-if="selectedClueIds.length > 0"
+        type="warning"
+        @click="openBatchRecycle"
+      >
+        批量回收 ({{ selectedClueIds.length }})
+      </el-button>
       <el-button type="primary" @click="showCreateDialog" :icon="Plus">添加伏笔</el-button>
     </div>
 
@@ -29,6 +36,11 @@
       <el-empty v-if="filteredClues.length === 0 && !loading" description="暂无伏笔" />
 
       <el-card v-for="clue in filteredClues" :key="clue.clueId" class="clue-card" shadow="hover">
+        <el-checkbox
+          :model-value="selectedClueIds.includes(clue.clueId)"
+          @change="(checked: boolean) => toggleClueSelection(clue.clueId, checked)"
+          style="margin-right: 8px;"
+        />
         <div class="clue-header">
           <div class="clue-title-row">
             <h3>{{ clue.title }}</h3>
@@ -93,6 +105,19 @@
         <el-button type="primary" :loading="saving" @click="handleRecycle">确定回收</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量回收伏笔对话框 -->
+    <el-dialog v-model="batchRecycleDialogVisible" title="批量回收伏笔" width="400px">
+      <el-form label-width="100px">
+        <el-form-item label="回收章节号">
+          <el-input-number v-model="batchRecycleChapter" :min="1" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchRecycleDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmBatchRecycle">确定回收</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -137,6 +162,11 @@ const createRules: FormRules = {
 const recycleDialogVisible = ref(false)
 const recyclingClue = ref<ClueVO | null>(null)
 const recycleChapter = ref(1)
+
+// 批量回收
+const selectedClueIds = ref<string[]>([])
+const batchRecycleDialogVisible = ref(false)
+const batchRecycleChapter = ref(1)
 
 onMounted(async () => {
   await loadClues()
@@ -217,6 +247,35 @@ async function handleRecycle() {
     }
   } finally {
     saving.value = false
+  }
+}
+
+const toggleClueSelection = (clueId: string, checked: boolean) => {
+  if (checked) {
+    selectedClueIds.value.push(clueId)
+  } else {
+    selectedClueIds.value = selectedClueIds.value.filter(id => id !== clueId)
+  }
+}
+
+const openBatchRecycle = () => {
+  if (selectedClueIds.value.length === 0) {
+    ElMessage.warning('请先选择要回收的伏笔')
+    return
+  }
+  batchRecycleChapter.value = 1
+  batchRecycleDialogVisible.value = true
+}
+
+const confirmBatchRecycle = async () => {
+  try {
+    await novelStore.batchRecycleClues(novelId, selectedClueIds.value, batchRecycleChapter.value)
+    ElMessage.success(`已批量回收 ${selectedClueIds.value.length} 个伏笔`)
+    selectedClueIds.value = []
+    batchRecycleDialogVisible.value = false
+    loadClues()
+  } catch {
+    ElMessage.error('批量回收失败')
   }
 }
 
