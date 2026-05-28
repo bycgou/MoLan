@@ -353,7 +353,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onUnmounted, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { wizardApi, genreTemplateApi, llmConfigApi } from '@/api'
+import { wizardApi, llmConfigApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import StyleSelector from '@/components/StyleSelector.vue'
