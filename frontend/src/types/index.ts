@@ -197,13 +197,6 @@ export interface CreateCharacterRequest {
   background: string
 }
 
-export interface UpdateCharacterRequest {
-  name?: string
-  role?: string
-  description?: string
-  personality?: string
-  background?: string
-}
 
 export interface CharacterCurrentStatus {
   health?: number

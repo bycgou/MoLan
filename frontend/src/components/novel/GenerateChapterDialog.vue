@@ -90,6 +90,7 @@ export interface GenerateForm {
   configId: string
   strandType: string
   userIntent: string
+  styleCardId: string
 }
 
 const selectedIdeaIndex = ref(0)

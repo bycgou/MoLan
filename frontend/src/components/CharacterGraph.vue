@@ -48,7 +48,7 @@ const renderGraph = () => {
   const options = {
     physics: { enabled: true, stabilization: { iterations: 100 } },
     interaction: { hover: true },
-    edges: { smooth: { type: 'continuous' } },
+    edges: { smooth: { enabled: true, type: 'continuous', roundness: 0.5 } },
   }
 
   if (network) {
