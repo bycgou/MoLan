@@ -94,6 +94,12 @@ export const novelApi = {
     api.get<ApiResponse<import('@/types').TimelineVO>>(`/novel/${novelId}/timeline`).then(res => res.data),
   updateTimeline: (novelId: string, data: import('@/types').TimelineVO) =>
     api.put<ApiResponse<import('@/types').TimelineVO>>(`/novel/${novelId}/timeline`, data).then(res => res.data),
+  getDeletedNovelList: () =>
+    api.get<ApiResponse<import('@/types').NovelVO[]>>('/novel/list', { params: { isDeleted: true } }).then(res => res.data),
+  restoreNovel: (novelId: string) =>
+    api.post<ApiResponse<null>>(`/novel/${novelId}/restore`).then(res => res.data),
+  hardDeleteNovel: (novelId: string) =>
+    api.delete<ApiResponse<null>>(`/novel/${novelId}/hard`).then(res => res.data),
 }
 
 // ============================================================
@@ -135,7 +141,7 @@ export const chapterApi = {
    * 返回 fetch 请求体，前端需自行发送 POST 请求并监听 ReadableStream
    */
   getStreamWriteUrl: () => {
-    return '/api/chapter/stream-write'
+    return '/chapter/stream-write'
   },
 }
 
@@ -149,10 +155,14 @@ export const characterApi = {
     api.get<ApiResponse<import('@/types').CharacterVO[]>>(`/novel/${novelId}/character/list`).then(res => res.data),
   getCharacter: (novelId: string, characterId: string) =>
     api.get<ApiResponse<import('@/types').CharacterVO>>(`/novel/${novelId}/character/${characterId}`).then(res => res.data),
-  updateCharacter: (novelId: string, characterId: string, data: import('@/types').UpdateCharacterRequest) =>
+  updateCharacter: (novelId: string, characterId: string, data: import('@/types').CharacterUpdatePayload) =>
     api.put<ApiResponse<import('@/types').CharacterVO>>(`/novel/${novelId}/character/${characterId}`, data).then(res => res.data),
   addGrowthNode: (novelId: string, characterId: string, data: import('@/types').AddGrowthNodeRequest) =>
-    api.post<ApiResponse<import('@/types').GrowthNode>>(`/novel/${novelId}/character/${characterId}/growth`, data).then(res => res.data),
+    api.post<ApiResponse<null>>(`/novel/${novelId}/character/${characterId}/growth`, data).then(res => res.data),
+  updateRelationship: (novelId: string, characterId: string, targetCharacterId: string, value: number) =>
+    api.put<ApiResponse<null>>(`/novel/${novelId}/character/${characterId}/relationship`, null, { params: { targetCharacterId, value } }).then(res => res.data),
+  getRelationshipGraph: (novelId: string) =>
+    api.get<ApiResponse<import('@/types').CharacterGraph>>(`/novel/${novelId}/graph`).then(res => res.data),
 }
 
 // ============================================================
@@ -167,6 +177,12 @@ export const clueApi = {
     api.get<ApiResponse<import('@/types').ClueVO[]>>(`/novel/${novelId}/clue/unrecycled`).then(res => res.data),
   recycleClue: (novelId: string, clueId: string, recycleChapter: number) =>
     api.put<ApiResponse<null>>(`/novel/${novelId}/clue/${clueId}/recycle`, null, { params: { recycleChapter } }).then(res => res.data),
+  batchRecycleClues: (novelId: string, clueIds: string[], recycleChapter: number) =>
+    api.put<ApiResponse<null>>(`/novel/${novelId}/clue/batch-recycle`, clueIds, { params: { recycleChapter } }).then(res => res.data),
+  getCluesByBuryChapter: (novelId: string, chapterNum: number) =>
+    api.get<ApiResponse<import('@/types').ClueVO[]>>(`/novel/${novelId}/clue/bury/${chapterNum}`).then(res => res.data),
+  getCluesByRecycleChapter: (novelId: string, chapterNum: number) =>
+    api.get<ApiResponse<import('@/types').ClueVO[]>>(`/novel/${novelId}/clue/recycle/${chapterNum}`).then(res => res.data),
 }
 
 // ============================================================
@@ -184,9 +200,9 @@ export const llmConfigApi = {
   deleteConfig: (configId: string) =>
     api.delete<ApiResponse<null>>(`/llm-config/${configId}`).then(res => res.data),
   testConnection: (data: import('@/types').TestConnectionRequest) =>
-    api.post<ApiResponse<boolean>>('/llm-config/test', data).then(res => res.data),
+    api.post<ApiResponse<string>>('/llm-config/test', data).then(res => res.data),
   testSavedConfig: (configId: string) =>
-    api.post<ApiResponse<boolean>>(`/llm-config/test/${configId}`).then(res => res.data),
+    api.post<ApiResponse<string>>(`/llm-config/test/${configId}`).then(res => res.data),
   getActiveConfig: (usageType: string = 'all') =>
     api.get<ApiResponse<import('@/types').LlmConfigVO>>('/llm-config/active', { params: { usageType } }).then(res => res.data),
 }
@@ -200,13 +216,16 @@ export const rhythmApi = {
   getRecommendedStrand: (novelId: string) =>
     api.get<ApiResponse<string>>(`/novel/${novelId}/rhythm/recommend`).then(res => res.data),
   checkViolation: (novelId: string, strandType: string) =>
-    api.get<ApiResponse<boolean>>(`/novel/${novelId}/rhythm/check`, { params: { strandType } }).then(res => res.data),
+    api.get<ApiResponse<import('@/types').RhythmViolation | null>>(`/novel/${novelId}/rhythm/check`, { params: { strandType } }).then(res => res.data),
   getReadPullTrend: (novelId: string) =>
     api.get<ApiResponse<import('@/types').ReadPullTrendVO>>(`/novel/${novelId}/rhythm/trend`).then(res => res.data),
   getSuggestion: (novelId: string) =>
     api.get<ApiResponse<string>>(`/novel/${novelId}/rhythm/suggestion`).then(res => res.data),
-  analyzeReadPull: (novelId: string, data: unknown) =>
-    api.post<ApiResponse<unknown>>(`/novel/${novelId}/rhythm/read-pull`, data).then(res => res.data),
+  analyzeReadPull: (novelId: string, chapterNum: number, chapterContent: string) =>
+    api.post<ApiResponse<unknown>>(`/novel/${novelId}/rhythm/read-pull`, chapterContent, {
+      params: { chapterNum },
+      headers: { 'Content-Type': 'text/plain' },
+    }).then(res => res.data),
 }
 
 // ============================================================
@@ -220,13 +239,17 @@ export const hookApi = {
 // ============================================================
 // 题材模板 API
 // ============================================================
-export const genreTemplateApi = {
-  getTemplateList: () =>
-    api.get<ApiResponse<import('@/types').GenreTemplateVO[]>>('/genre-template/list').then(res => res.data),
-  getTemplatesByGenre: (genre: string) =>
-    api.get<ApiResponse<import('@/types').GenreTemplateVO[]>>('/genre-template/by-genre', { params: { genre } }).then(res => res.data),
-  getTemplate: (templateId: string) =>
-    api.get<ApiResponse<import('@/types').GenreTemplateVO>>(`/genre-template/${templateId}`).then(res => res.data),
+export const genreApi = {
+  getGenreList: () =>
+    api.get<ApiResponse<import('@/types').GenreInfo[]>>('/genre/list').then(res => res.data),
+  getGenreTemplate: (genreCode: string) =>
+    api.get<ApiResponse<import('@/types').GenreTemplate>>(`/genre/${genreCode}`).then(res => res.data),
+  getGenreRhythm: (genreCode: string) =>
+    api.get<ApiResponse<import('@/types').GenreRhythmConfig>>(`/genre/${genreCode}/rhythm`).then(res => res.data),
+  getGuideList: (genreCode: string) =>
+    api.get<ApiResponse<string[]>>(`/genre/${genreCode}/guides`).then(res => res.data),
+  getGuideFile: (genreCode: string, filename: string) =>
+    api.get<ApiResponse<string>>(`/genre/${genreCode}/guides/${filename}`).then(res => res.data),
 }
 
 // ============================================================
