@@ -51,3 +51,6 @@ frontend/pnpm-debug.log*
 # Claude Code 本地配置
 # ========================
 .claude/
+
+# Claude Code 开发计划/设计文档
+docs/superpowers/
