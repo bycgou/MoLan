@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
+import { Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowRight } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import type { CheckpointEvent } from "@/hooks/useSSE"
+
+const actionConfig: Record<string, { label: string; icon: typeof CheckCircle2; color: string }> = {
+  APPROVE: { label: "通过", icon: CheckCircle2, color: "text-green-600" },
+  REVISE: { label: "修订", icon: AlertTriangle, color: "text-amber-600" },
+  REJECT: { label: "驳回", icon: XCircle, color: "text-red-600" },
+  REDIRECT: { label: "重定向", icon: ArrowRight, color: "text-blue-600" },
+}
+
+const nodeLabels: Record<string, string> = {
+  outline: "章纲审查",
+  writing: "正文审查",
+  audit_router: "终审决策",
+}
 
 interface StreamViewerProps {
   open: boolean
@@ -16,6 +30,7 @@ interface StreamViewerProps {
   content: string
   isStreaming: boolean
   error?: string | null
+  checkpoints?: CheckpointEvent[]
   onSave?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -30,6 +45,7 @@ export function StreamViewer({
   content,
   isStreaming,
   error,
+  checkpoints = [],
   onSave,
   onEdit,
   onDelete,
@@ -49,6 +65,29 @@ export function StreamViewer({
             )}
           </DialogTitle>
         </DialogHeader>
+
+        {/* AuthorAgent 检查点时间线 */}
+        {checkpoints.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-1 py-2 border-b border-stone-200 dark:border-stone-700">
+            {checkpoints.map((cp, i) => {
+              const cfg = actionConfig[cp.action] ?? actionConfig.APPROVE
+              const Icon = cfg.icon
+              return (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 text-xs rounded-md px-2 py-1 bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700"
+                  title={cp.rationale}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
+                  <span className="text-stone-500 dark:text-stone-400">
+                    {nodeLabels[cp.node] ?? cp.node}
+                  </span>
+                  <span className={`font-medium ${cfg.color}`}>{cfg.label}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto min-h-[200px]">
           <div className="text-reading text-stone-800 dark:text-stone-200 whitespace-pre-wrap leading-relaxed">

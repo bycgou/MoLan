@@ -19,6 +19,14 @@ public final class JsonExtractor {
         } else if (trimmed.startsWith("```")) {
             trimmed = trimmed.replaceAll("^```\\s*", "").replaceAll("\\s*```$", "");
         }
+        // 删除中文装饰性引号，避免LLM输出中的非标准引号破坏JSON解析
+        // 注意：不能替换为ASCII双引号，否则会截断JSON字符串
+        trimmed = trimmed.replace('“', ' ')  // 左双引号 "
+                         .replace('”', ' ')  // 右双引号 "
+                         .replace('‘', ' ')  // 左单引号 '
+                         .replace('’', ' ')  // 右单引号 '
+                         .replace('＂', ' ')  // 全角双引号 ＂
+                         .replace('＇', ' '); // 全角单引号 ＇
         int start = trimmed.indexOf('[');
         int startObj = trimmed.indexOf('{');
         if (start < 0 || (startObj >= 0 && startObj < start)) {

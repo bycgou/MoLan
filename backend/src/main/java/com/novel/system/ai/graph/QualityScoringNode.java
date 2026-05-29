@@ -32,6 +32,12 @@ public class QualityScoringNode implements NovelGraphNode {
 
         NovelAgentState.AuditResult audit = state.getAuditResult();
         NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft == null || draft.getContent() == null) {
+            log.warn("[{}] draft 为空，跳过质量评分", nodeName());
+            return state.toBuilder()
+                    .currentPhase(NovelAgentState.GenerationPhase.QUALITY_CHECK.name())
+                    .build();
+        }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
         String cluePlanText = StateHelper.formatClueActions(plan.getClueActions());

@@ -31,6 +31,12 @@ public class SelfReviewNode implements NovelGraphNode {
         log.info("[{}] 自审修订", nodeName());
 
         NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft == null || draft.getContent() == null) {
+            log.warn("[{}] draft 为空，跳过自审", nodeName());
+            return state.toBuilder()
+                    .currentPhase(NovelAgentState.GenerationPhase.SELF_REVIEW.name())
+                    .build();
+        }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
         String prompt = String.format("""

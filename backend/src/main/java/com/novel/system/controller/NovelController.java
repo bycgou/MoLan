@@ -61,6 +61,9 @@ public class NovelController {
     public ApiResponse<List<NovelResponse>> getNovelList(HttpServletRequest httpRequest,
                                                           @RequestParam(required = false) Boolean isDeleted) {
         String userId = (String) httpRequest.getAttribute("userId");
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
         return ApiResponse.success(novelService.getNovelList(userId, isDeleted));
     }
 

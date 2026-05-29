@@ -32,6 +32,12 @@ public class SummaryNode implements NovelGraphNode {
         log.info("[{}] 生成摘要", nodeName());
 
         NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft == null || draft.getContent() == null) {
+            log.warn("[{}] draft 为空，跳过摘要生成", nodeName());
+            return state.toBuilder()
+                    .currentPhase(NovelAgentState.GenerationPhase.SUMMARY.name())
+                    .build();
+        }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
         String summaryJson = chain.executeSummaryChain(

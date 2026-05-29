@@ -32,6 +32,12 @@ public class PostProcessNode implements NovelGraphNode {
         log.info("[{}] 保存 + 后处理", nodeName());
 
         NovelAgentState.FinalResult result = state.getFinalResult();
+        if (result == null || result.getFinalContent() == null) {
+            log.warn("[{}] finalResult 为空，跳过保存", nodeName());
+            return state.toBuilder()
+                    .currentPhase(NovelAgentState.GenerationPhase.POST_PROCESS.name())
+                    .build();
+        }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
         // 保存章节（带重试）

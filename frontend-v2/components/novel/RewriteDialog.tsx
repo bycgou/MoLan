@@ -45,7 +45,7 @@ export function RewriteDialog({
   const [showViewer, setShowViewer] = useState(false)
 
   const streamUrl = chapterApi.streamWriteUrl()
-  const { content, isStreaming, error, start, cancel, reset } = useSSE(streamUrl)
+  const { content, isStreaming, error, checkpoints, start, cancel, reset } = useSSE(streamUrl)
 
   // Load LLM configs on open
   useEffect(() => {
@@ -171,6 +171,7 @@ export function RewriteDialog({
         content={content}
         isStreaming={isStreaming}
         error={error}
+        checkpoints={checkpoints}
         onSave={handleSave}
         onCancel={cancel}
         onRegenerate={!isStreaming ? handleRegenerate : undefined}

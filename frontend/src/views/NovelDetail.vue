@@ -354,6 +354,15 @@
 
     <!-- 流式生成对话框 -->
     <el-dialog v-model="streamDialogVisible" :title="streamingStatus === 'generating' ? 'AI 正在流式生成...' : streamingStatus === 'completed' ? '生成完成' : '已取消'" width="800px" :close-on-click-modal="streamingStatus !== 'generating'" :close-on-press-escape="streamingStatus !== 'generating'" :show-close="streamingStatus !== 'generating'">
+      <!-- AuthorAgent 检查点时间线 -->
+      <div v-if="streamCheckpoints.length > 0" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; margin-bottom: 8px; border-bottom: 1px solid #e4e7ed;">
+        <div v-for="(cp, i) in streamCheckpoints" :key="i" style="display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: #f5f7fa; border: 1px solid #e4e7ed;" :title="cp.rationale">
+          <span style="color: #909399;">{{ { outline: '章纲审查', writing: '正文审查', audit_router: '终审决策' }[cp.node] || cp.node }}</span>
+          <span :style="{ color: { APPROVE: '#67c23a', REVISE: '#e6a23c', REJECT: '#f56c6c', REDIRECT: '#409eff' }[cp.action] || '#909399', fontWeight: 600 }">
+            {{ { APPROVE: '通过', REVISE: '修订', REJECT: '驳回', REDIRECT: '重定向' }[cp.action] || cp.action }}
+          </span>
+        </div>
+      </div>
       <div style="white-space: pre-wrap; line-height: 2; font-size: 16px; max-height: 500px; overflow-y: auto; padding: 16px; background: #f5f7fa; border-radius: 8px;">
         {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
       </div>
@@ -506,6 +515,7 @@ const streamingStatus = ref<'generating' | 'completed' | 'error'>('generating')
 let streamAbortController: AbortController | null = null
 const streamChapterNum = ref(0)
 const streamValidationSummary = ref('')
+const streamCheckpoints = ref<Array<{ node: string; action: string; rationale: string }>>([])
 const timelineForm = reactive({ currentTime: '', season: '', weather: '', chapterDay: 0, totalDays: 0 })
 
 // ---- 富文本编辑器 ----
@@ -731,6 +741,7 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
   streamingStatus.value = 'generating'
   streamChapterNum.value = form.chapterNum
   streamValidationSummary.value = ''
+  streamCheckpoints.value = []
 
   // 创建 AbortController，支持客户端取消和超时
   streamAbortController = new AbortController()
@@ -783,7 +794,13 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
         const data = line.slice(5).trim()
         if (!data) return
 
-        if (currentEventName === 'complete') {
+        if (currentEventName === 'checkpoint') {
+          try {
+            const cp = JSON.parse(data)
+            streamCheckpoints.value.push(cp)
+          } catch { /* ignore */ }
+          currentEventName = ''
+        } else if (currentEventName === 'complete') {
           // complete 事件的 data 是校验摘要
           streamValidationSummary.value = data
           receivedComplete = true

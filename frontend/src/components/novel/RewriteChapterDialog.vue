@@ -22,6 +22,15 @@
 
     <!-- 流式展示区域 -->
     <div v-if="streamingStatus !== 'idle'" class="rewrite-content">
+      <!-- AuthorAgent 检查点时间线 -->
+      <div v-if="streamCheckpoints.length > 0" class="rewrite-checkpoints">
+        <div v-for="(cp, i) in streamCheckpoints" :key="i" class="rewrite-checkpoint-item" :title="cp.rationale">
+          <span class="rewrite-cp-node">{{ { outline: '章纲审查', writing: '正文审查', audit_router: '终审决策' }[cp.node] || cp.node }}</span>
+          <span class="rewrite-cp-action" :class="'cp-' + cp.action.toLowerCase()">
+            {{ { APPROVE: '通过', REVISE: '修订', REJECT: '驳回', REDIRECT: '重定向' }[cp.action] || cp.action }}
+          </span>
+        </div>
+      </div>
       <div class="rewrite-stream">
         {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
       </div>
@@ -70,6 +79,7 @@ const userInstruction = ref('')
 const streamingContent = ref('')
 const streamingStatus = ref<'idle' | 'generating' | 'completed' | 'error'>('idle')
 const streamValidationSummary = ref('')
+const streamCheckpoints = ref<Array<{ node: string; action: string; rationale: string }>>([])
 const starting = ref(false)
 let streamAbortController: AbortController | null = null
 
@@ -79,6 +89,7 @@ watch(() => props.visible, (val) => {
     streamingContent.value = ''
     streamingStatus.value = 'idle'
     streamValidationSummary.value = ''
+    streamCheckpoints.value = []
     starting.value = false
   }
 })
@@ -88,6 +99,7 @@ async function startRewrite() {
   streamingContent.value = ''
   streamingStatus.value = 'generating'
   streamValidationSummary.value = ''
+  streamCheckpoints.value = []
 
   streamAbortController = new AbortController()
   const timeoutId = setTimeout(() => streamAbortController?.abort(), 10 * 60 * 1000)
@@ -135,7 +147,13 @@ async function startRewrite() {
         const data = line.slice(5).trim()
         if (!data) return
 
-        if (currentEventName === 'complete') {
+        if (currentEventName === 'checkpoint') {
+          try {
+            const cp = JSON.parse(data)
+            streamCheckpoints.value.push(cp)
+          } catch { /* ignore */ }
+          currentEventName = ''
+        } else if (currentEventName === 'complete') {
           streamValidationSummary.value = data
           receivedComplete = true
           currentEventName = ''
@@ -302,4 +320,33 @@ function onClosed() {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+.rewrite-checkpoints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.rewrite-checkpoint-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+}
+
+.rewrite-cp-node {
+  color: #909399;
+}
+
+.cp-approve { color: #67c23a; font-weight: 600; }
+.cp-revise { color: #e6a23c; font-weight: 600; }
+.cp-reject { color: #f56c6c; font-weight: 600; }
+.cp-redirect { color: #409eff; font-weight: 600; }
 </style>

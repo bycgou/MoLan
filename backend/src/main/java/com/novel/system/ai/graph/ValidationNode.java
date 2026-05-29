@@ -36,6 +36,12 @@ public class ValidationNode implements NovelGraphNode {
         log.info("[{}] 五重并行校验", nodeName());
 
         NovelAgentState.DraftContent draft = state.getDraftContent();
+        if (draft == null || draft.getContent() == null) {
+            log.warn("[{}] draft 为空，跳过校验", nodeName());
+            return state.toBuilder()
+                    .currentPhase(NovelAgentState.GenerationPhase.VALIDATION.name())
+                    .build();
+        }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
         // 查询校验所需的完整上下文

@@ -2,10 +2,17 @@
 
 import { useState, useCallback, useRef } from "react"
 
+export interface CheckpointEvent {
+  node: string
+  action: string
+  rationale: string
+}
+
 interface UseSSEReturn {
   content: string
   isStreaming: boolean
   error: string | null
+  checkpoints: CheckpointEvent[]
   start: (body: Record<string, unknown>) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -15,6 +22,7 @@ export function useSSE(url: string): UseSSEReturn {
   const [content, setContent] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [checkpoints, setCheckpoints] = useState<CheckpointEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
   const cancel = useCallback(() => {
@@ -26,6 +34,7 @@ export function useSSE(url: string): UseSSEReturn {
     setContent("")
     setError(null)
     setIsStreaming(false)
+    setCheckpoints([])
   }, [])
 
   const start = useCallback(
@@ -33,6 +42,7 @@ export function useSSE(url: string): UseSSEReturn {
       cancel()
       reset()
       setIsStreaming(true)
+      setCheckpoints([])
       abortRef.current = new AbortController()
 
       try {
@@ -56,6 +66,7 @@ export function useSSE(url: string): UseSSEReturn {
 
         const decoder = new TextDecoder()
         let buffer = ""
+        let currentEvent = ""
 
         while (true) {
           const { done, value } = await reader.read()
@@ -66,9 +77,26 @@ export function useSSE(url: string): UseSSEReturn {
           buffer = lines.pop() || ""
 
           for (const line of lines) {
+            if (line.startsWith("event:")) {
+              currentEvent = line.slice(6).trim()
+              continue
+            }
             if (line.startsWith("data:")) {
               const data = line.slice(5).trim()
               if (data === "[DONE]") continue
+
+              if (currentEvent === "checkpoint") {
+                try {
+                  const cp = JSON.parse(data) as CheckpointEvent
+                  setCheckpoints((prev) => [...prev, cp])
+                } catch {
+                  // ignore parse errors
+                }
+                currentEvent = ""
+                continue
+              }
+              currentEvent = ""
+
               try {
                 const parsed = JSON.parse(data)
                 if (parsed.content) {
@@ -96,5 +124,5 @@ export function useSSE(url: string): UseSSEReturn {
     [url, cancel, reset],
   )
 
-  return { content, isStreaming, error, start, cancel, reset }
+  return { content, isStreaming, error, checkpoints, start, cancel, reset }
 }

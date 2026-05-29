@@ -88,11 +88,7 @@
 
     <select id="selectByUserIdAndDeleted" resultMap="NovelBaseResult">
         SELECT * FROM novel_base WHERE user_id = #{userId}
-        <choose>
-            <when test="isDeleted != null">
-                AND is_deleted = <choose><when test="isDeleted">1</when><otherwise>0</otherwise></choose>
-            </when>
-        </choose>
+        AND is_deleted = <choose><when test="isDeleted != null and isDeleted">1</when><otherwise>0</otherwise></choose>
         ORDER BY update_time DESC
     </select>
 
