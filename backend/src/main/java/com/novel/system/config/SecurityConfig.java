@@ -31,7 +31,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/auth/**", "/genre-template/**", "/genre/**").permitAll()
+                .requestMatchers("/auth/login", "/auth/register", "/genre-template/**", "/genre/**").permitAll()
                 .requestMatchers("/mcp/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/admin/**").hasRole("admin")

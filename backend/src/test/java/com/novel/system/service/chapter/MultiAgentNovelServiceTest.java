@@ -47,10 +47,12 @@ class MultiAgentNovelServiceTest {
         when(auditRouter.nodeName()).thenReturn("audit_router");
         when(summary.nodeName()).thenReturn("summary");
         when(postProcess.nodeName()).thenReturn("post_process");
+        ContinuityValidationNode continuityValidation = mock(ContinuityValidationNode.class);
+        when(continuityValidation.nodeName()).thenReturn("continuity_validation");
 
         service = new MultiAgentNovelService(
                 arcCheck, outline, cluePlan, charPlan, worldValidate,
-                ideaSelect, writing, selfReview, validation,
+                ideaSelect, writing, selfReview, continuityValidation, validation,
                 qualityScoring, auditRouter, summary, postProcess, authorAgent, null);
     }
 

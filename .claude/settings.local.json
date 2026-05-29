@@ -80,7 +80,11 @@
       "Bash(./mvnw test *)",
       "Bash(mvn dependency:tree -pl .)",
       "Bash(docker inspect redis-stack *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(echo \"\")",
+      "Bash(echo \"# ========================\")",
+      "Bash(echo \"# Claude Code 本地配置\")",
+      "Bash(echo \".claude/\")"
     ]
   }
 }

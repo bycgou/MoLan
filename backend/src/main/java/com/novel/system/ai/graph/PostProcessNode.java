@@ -1,5 +1,6 @@
 package com.novel.system.ai.graph;
 
+import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.service.chapter.ChapterPostProcessService;
 import com.novel.system.service.chapter.ChapterSaveService;
 import lombok.RequiredArgsConstructor;
@@ -7,13 +8,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-/**
- * 后处理节点 — 保存章节 + 人物/伏笔/时间线提取 + 清除缓存
- */
+import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PostProcessNode implements NovelGraphNode {
+
+    private static final long SAVE_WAIT_TIMEOUT_SECONDS = 60;
 
     private final ChapterSaveService chapterSaveService;
     private final ChapterPostProcessService postProcessService;
@@ -40,16 +44,19 @@ public class PostProcessNode implements NovelGraphNode {
         }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
-        // 保存章节（带重试）
+        ChapterSummary chapterSummary = buildChapterSummary(state, plan);
+        String plotFingerprint = result.getSummary();
+
         boolean saved = false;
+        CompletableFuture<Void> memoryCommitFuture = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                chapterSaveService.saveGenerationResult(
+                memoryCommitFuture = chapterSaveService.saveGenerationResultAsync(
                         state.getNovelId(), state.getChapterNum(),
-                        "第" + state.getChapterNum() + "章 " + plan.getTitle(),
+                        "第" + state.getChapterNum() + "章" + plan.getTitle(),
                         plan.getSummary(), result.getFinalContent(),
                         result.getWordCount(),
-                        state.getUserIntent(), result.getSummary(), null);
+                        state.getUserIntent(), plotFingerprint, chapterSummary);
                 saved = true;
                 break;
             } catch (Exception e) {
@@ -60,8 +67,8 @@ public class PostProcessNode implements NovelGraphNode {
             }
         }
 
-        // 后处理（非关键，失败不阻断）
         if (saved) {
+            waitForMemoryCommit(memoryCommitFuture);
             try {
                 postProcessService.postProcess(
                         state.getNovelId(), state.getChapterNum(),
@@ -71,7 +78,6 @@ public class PostProcessNode implements NovelGraphNode {
             }
         }
 
-        // 清除缓存（非关键，失败不阻断）
         try {
             String cacheKey = "novel:context:" + state.getNovelId() + ":" + state.getChapterNum();
             redisTemplate.delete(cacheKey);
@@ -84,5 +90,33 @@ public class PostProcessNode implements NovelGraphNode {
                 .build();
 
         return StateHelper.appendTrace(updated, nodeName());
+    }
+
+    private ChapterSummary buildChapterSummary(NovelAgentState state, NovelAgentState.ChapterPlan plan) {
+        try {
+            ChapterSummary summary = new ChapterSummary();
+            summary.setNovelId(state.getNovelId());
+            summary.setChapterNum(state.getChapterNum());
+            summary.setContent(plan.getSummary());
+            summary.setKeywords(Collections.emptyList());
+            summary.setCharacters(Collections.emptyList());
+            summary.setLocations(Collections.emptyList());
+            summary.setRelations(Collections.emptyList());
+            return summary;
+        } catch (Exception e) {
+            log.warn("构建 ChapterSummary 失败，回退到 null: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void waitForMemoryCommit(CompletableFuture<Void> future) {
+        if (future == null) {
+            return;
+        }
+        try {
+            future.get(SAVE_WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("等待记忆提交超时或中断: {}", e.getMessage());
+        }
     }
 }

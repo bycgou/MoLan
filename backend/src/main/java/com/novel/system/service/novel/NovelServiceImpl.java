@@ -177,6 +177,7 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public NovelResponse getNovel(String novelId) {
+        requireNovelOwner(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel != null) {
             NovelResponse resp = convertToNovelResponse(novel);
@@ -203,6 +204,7 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public NovelResponse updateNovel(String novelId, UpdateNovelRequest request) {
+        requireNovelOwner(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel == null) {
             throw new NoSuchElementException("小说不存在");
@@ -224,6 +226,7 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public void deleteNovel(String novelId) {
+        requireNovelOwner(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel != null) {
             novelBaseMapper.softDeleteById(novelId);
@@ -234,6 +237,7 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public void restoreNovel(String novelId) {
+        requireNovelOwner(novelId);
         int result = novelBaseMapper.restoreById(novelId);
         if (result <= 0) {
             throw new NoSuchElementException("小说不存在");
@@ -242,11 +246,13 @@ public class NovelServiceImpl implements NovelService {
 
     @Override
     public void hardDeleteNovel(String novelId) {
+        requireNovelOwner(novelId);
         novelBaseMapper.deleteById(novelId);
     }
 
     @Override
     public ResponseEntity<byte[]> exportNovelTxt(String novelId) {
+        requireNovelOwner(novelId);
         NovelBase novel = novelBaseMapper.selectById(novelId);
         if (novel == null) {
             return ResponseEntity.notFound().build();
@@ -425,7 +431,27 @@ public class NovelServiceImpl implements NovelService {
         return (novel != null ? novel.getChapterCount() : 0) + 1;
     }
 
-    private NovelResponse convertToNovelResponse(NovelBase novel) {
+        private String getCurrentUserId() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof String principal) {
+            if (!"anonymousUser".equals(principal)) {
+                return principal;
+            }
+        }
+        return null;
+    }
+
+    private void requireNovelOwner(String novelId) {
+        NovelBase novel = novelBaseMapper.selectById(novelId);
+        if (novel == null) {
+            throw new java.util.NoSuchElementException("小说不存在");
+        }
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || !currentUserId.equals(novel.getUserId())) {
+            throw new org.springframework.security.access.AccessDeniedException("无权访问该小说资源");
+        }
+    }
+private NovelResponse convertToNovelResponse(NovelBase novel) {
         NovelResponse response = new NovelResponse();
         response.setNovelId(novel.getNovelId());
         response.setNovelName(novel.getNovelName());

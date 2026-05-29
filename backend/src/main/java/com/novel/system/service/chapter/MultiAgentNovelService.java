@@ -23,6 +23,7 @@ public class MultiAgentNovelService {
             IdeaSelectionNode ideaSelect,
             WritingNode writing,
             SelfReviewNode selfReview,
+            ContinuityValidationNode continuityValidation,
             ValidationNode validation,
             QualityScoringNode qualityScoring,
             AuditRouterNode auditRouter,
@@ -45,7 +46,8 @@ public class MultiAgentNovelService {
                                 && s.getDraftContent().getSeverity() == NovelAgentState.Severity.HIGH
                                 && s.getWriteRetryCount() < 2)
                 .conditionalEdge("self_review", "summary", s -> s.getMode() == Mode.FAST)
-                .conditionalEdge("self_review", "validation", s -> s.getMode() == Mode.FULL)
+                .conditionalEdge("self_review", "continuity_validation", s -> s.getMode() == Mode.FULL)
+                .edge("continuity_validation", "validation", Mode.FULL)
                 .edge("validation", "quality_scoring", Mode.FULL)
                 .edge("quality_scoring", "audit_router", Mode.FULL)
                 .conditionalEdge("audit_router", "summary",
@@ -72,6 +74,7 @@ public class MultiAgentNovelService {
         runner.register(ideaSelect);
         runner.register(writing);
         runner.register(selfReview);
+        runner.register(continuityValidation);
         runner.register(validation);
         runner.register(qualityScoring);
         runner.register(auditRouter);

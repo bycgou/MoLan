@@ -166,7 +166,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
 
             // 10.1 持久化章纲到数据库（防止Redis缓存丢失）
             persistOutlineToDatabase(request.getNovelId(), request.getChapterNum(),
-                    outlineResponse.getOutline(), outlineResponse.getImplementationIdeas(), request.getUserIntent());
+                    outlineResponse.getOutline(), outlineResponse.getImplementationIdeas(), request.getUserIntent(), outlineResponse.getHook());
             
             // 11. 构建响应
             ChapterGenerationResponse response = new ChapterGenerationResponse();
@@ -692,7 +692,8 @@ private List<String> getUnrecycledClues(String novelId) {
      * 防止Redis缓存丢失后章纲无法恢复
      */
     private void persistOutlineToDatabase(String novelId, int chapterNum, String outline,
-                                          List<String> implementationIdeas, String userIntent) {
+                                          List<String> implementationIdeas, String userIntent,
+                                          String hook) {
         try {
             NovelChapter chapter = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
             if (chapter == null) {
@@ -706,6 +707,7 @@ private List<String> getUnrecycledClues(String novelId) {
                 chapter.setImplementationIdea(implementationIdeas != null && !implementationIdeas.isEmpty()
                         ? implementationIdeas.get(0) : null);
                 chapter.setUserIntent(userIntent);
+                chapter.setHook(hook);
                 chapter.setGenerationStatus(0); // 待生成
                 chapter.setCreateTime(LocalDateTime.now());
                 chapter.setUpdateTime(LocalDateTime.now());
@@ -716,6 +718,7 @@ private List<String> getUnrecycledClues(String novelId) {
                 chapter.setChapterOutline(outline);
                 chapter.setImplementationIdea(implementationIdeas != null && !implementationIdeas.isEmpty()
                         ? implementationIdeas.get(0) : chapter.getImplementationIdea());
+                chapter.setHook(hook);
                 chapter.setUpdateTime(LocalDateTime.now());
                 novelChapterMapper.updateById(chapter);
                 log.info("更新章节章纲: novelId={}, chapterNum={}", novelId, chapterNum);
