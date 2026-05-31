@@ -14,6 +14,36 @@
 
 墨澜是一个面向**百万字长篇网文**的 AI 创作系统。它不是简单的"prompt → LLM → 输出"单链路工具，而是一套**多 Agent 图编排引擎 + 六层记忆架构 + 五重校验体系**的完整创作流水线，让 AI 在写第 300 章时仍然精确记得第 3 章埋的伏笔、角色的性格底线、以及上一章结尾的悬念。
 
+## 快速启动
+
+### 前置条件
+- Docker & Docker Compose
+- Java 17+（或使用 Maven wrapper，无需全局安装）
+- Node.js 18+（前端开发）
+
+### 1. 启动基础设施
+```bash
+cp .env.example .env    # 编辑填入密码和 JWT_SECRET
+docker-compose up -d    # 启动 MySQL + MongoDB + Redis
+```
+
+### 2. 启动后端
+```bash
+cd backend
+./mvnw spring-boot:run  # Linux/macOS
+# 或
+mvnw.cmd spring-boot:run  # Windows
+```
+
+### 3. 启动前端
+```bash
+cd frontend-v2
+npm install
+npm run dev
+```
+
+访问 http://localhost:5173
+
 ## 核心亮点
 
 ### 多 Agent 图编排引擎 (GraphRunner)
