@@ -46,6 +46,11 @@ public class PostProcessNode implements NovelGraphNode {
 
         ChapterSummary chapterSummary = buildChapterSummary(state, plan);
         String plotFingerprint = result.getSummary();
+        String hook = plan.getHook() != null ? plan.getHook() : "";
+        String content = result.getFinalContent();
+        String actualEndingHook = content != null && content.length() > 200
+                ? content.substring(content.length() - 200)
+                : (content != null ? content : "");
 
         boolean saved = false;
         CompletableFuture<Void> memoryCommitFuture = null;
@@ -56,7 +61,8 @@ public class PostProcessNode implements NovelGraphNode {
                         "第" + state.getChapterNum() + "章" + plan.getTitle(),
                         plan.getSummary(), result.getFinalContent(),
                         result.getWordCount(),
-                        state.getUserIntent(), plotFingerprint, chapterSummary);
+                        state.getUserIntent(), plotFingerprint, chapterSummary,
+                        hook, actualEndingHook);
                 saved = true;
                 break;
             } catch (Exception e) {

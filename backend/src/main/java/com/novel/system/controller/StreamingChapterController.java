@@ -213,7 +213,7 @@ public class StreamingChapterController {
                 novelId, chapterNum,
                 "第" + chapterNum + "章",
                 outline, content, wordCount,
-                "", summaryContent, null);
+                "", summaryContent, null, "", "");
 
         log.info("流式内容手动保存成功, 小说ID: {}, 章节号: {}, 字数: {}", novelId, chapterNum, wordCount);
         return ResponseEntity.ok(Map.of("success", true, "wordCount", wordCount));

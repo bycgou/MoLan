@@ -316,7 +316,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
                 request.getNovelId(), request.getChapterNum(), chapter.getChapterTitle(),
                 context.getOutline(), chapterContent,
                 chapterContent.replaceAll("\\s+", "").length(),
-                request.getUserIntent(), summary.getContent(), summary)
+                request.getUserIntent(), summary.getContent(), summary, "", "")
                 .thenRun(() -> {
                     // 9. 在MongoDB写入完成后执行后处理（提取人物、伏笔、时间线）
                     try {
@@ -508,7 +508,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             request.getNovelId(), request.getChapterNum(), chapter.getChapterTitle(),
             "手动撰写", content, wordCount,
             request.getUserIntent() != null ? request.getUserIntent() : "手动撰写",
-            fingerprint, summary);
+            fingerprint, summary, "", "");
         
         // 清除可能存在的缓存
         String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());

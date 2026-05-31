@@ -49,10 +49,11 @@ public class ChapterSaveService {
     public void saveGenerationResult(String novelId, int chapterNum, String chapterTitle,
                                      String chapterOutline, String chapterContent,
                                      int wordCount, String userIntent, String plotFingerprint,
-                                     ChapterSummary summary) {
+                                     ChapterSummary summary,
+                                     String hook, String actualEndingHook) {
         // 阶段1: MySQL事务写入
         saveToMySQL(novelId, chapterNum, chapterTitle, chapterOutline, chapterContent,
-                   wordCount, userIntent, plotFingerprint);
+                   wordCount, userIntent, plotFingerprint, hook, actualEndingHook);
 
         // 阶段2: 异步写入（向量化、知识图谱、故事状态）
         saveToMongoAsync(novelId, chapterNum, chapterTitle, chapterContent, wordCount, summary);
@@ -68,10 +69,11 @@ public class ChapterSaveService {
     public CompletableFuture<Void> saveGenerationResultAsync(String novelId, int chapterNum, String chapterTitle,
                                      String chapterOutline, String chapterContent,
                                      int wordCount, String userIntent, String plotFingerprint,
-                                     ChapterSummary summary) {
+                                     ChapterSummary summary,
+                                     String hook, String actualEndingHook) {
         // 阶段1: MySQL事务写入（同步）
         saveToMySQL(novelId, chapterNum, chapterTitle, chapterOutline, chapterContent,
-                   wordCount, userIntent, plotFingerprint);
+                   wordCount, userIntent, plotFingerprint, hook, actualEndingHook);
 
         // 阶段2: 异步写入（向量化、知识图谱、故事状态），使用指定线程池
         // 传播 SecurityContext 以便异步线程中能获取当前用户ID
@@ -89,7 +91,8 @@ public class ChapterSaveService {
     @Transactional
     public void saveToMySQL(String novelId, int chapterNum, String chapterTitle,
                                String chapterOutline, String chapterContent,
-                               int wordCount, String userIntent, String plotFingerprint) {
+                               int wordCount, String userIntent, String plotFingerprint,
+                               String hook, String actualEndingHook) {
         // 保存章节内容
         NovelChapter chapter = new NovelChapter();
         chapter.setNovelId(novelId);
@@ -101,6 +104,8 @@ public class ChapterSaveService {
         chapter.setGenerationStatus(2);
         chapter.setUserIntent(userIntent);
         chapter.setPlotFingerprint(plotFingerprint);
+        chapter.setHook(hook);
+        chapter.setActualEndingHook(actualEndingHook);
         chapter.setCreateTime(LocalDateTime.now());
         chapter.setUpdateTime(LocalDateTime.now());
 
