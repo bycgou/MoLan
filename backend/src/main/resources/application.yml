@@ -86,7 +86,7 @@ embedding:
 jwt:
   # 必须配置！至少32字节的随机密钥，不可使用默认值
   # 生成方式: openssl rand -base64 48
-  secret: ${JWT_SECRET:changeme_generate_with_openssl_rand_base64_48}
+  secret: ${JWT_SECRET}
   expiration: 86400000
 
 generation:

@@ -37,6 +37,9 @@ public class JwtConfig {
         if (secret.contains("aibook") || secret.contains("default") || secret.contains("123456")) {
             throw new IllegalStateException("jwt.secret 使用了不安全的默认值，请更换为随机生成的高强度密钥");
         }
+        if (secret.contains("changeme") || secret.contains("generate_with")) {
+            throw new IllegalStateException("jwt.secret 使用了占位符默认值，请通过 JWT_SECRET 环境变量提供真实密钥（openssl rand -base64 48）");
+        }
         log.info("JWT密钥校验通过（长度: {} 字节）", secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
     }
     
