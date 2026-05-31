@@ -112,6 +112,17 @@ public class ContextBuilderService {
                 "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n",
                 prevChapter.getHook()));
         }
+        // 注入上一章正文结尾（强制承接）
+        if (prevChapter != null && prevChapter.getContent() != null && !prevChapter.getContent().isEmpty()) {
+            String ending = truncateEnding(prevChapter.getContent(), 800);
+            sb.append("【上一章最后 800 字（本章开头必须直接承接）】\n");
+            sb.append(ending).append("\n\n");
+        }
+        // 注入上一章实际结尾钩子
+        if (prevChapter != null && prevChapter.getActualEndingHook() != null && !prevChapter.getActualEndingHook().isEmpty()) {
+            sb.append("【上一章结尾钩子】\n");
+            sb.append(prevChapter.getActualEndingHook()).append("\n\n");
+        }
 
         // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
@@ -326,6 +337,17 @@ public class ContextBuilderService {
                 "【上一章结尾钩子（本章开头必须直接承接这个悬念）】\n%s\n\n",
                 prevChapter.getHook()));
         }
+        // 注入上一章正文结尾（强制承接）
+        if (prevChapter != null && prevChapter.getContent() != null && !prevChapter.getContent().isEmpty()) {
+            String ending = truncateEnding(prevChapter.getContent(), 800);
+            sb.append("【上一章最后 800 字（本章开头必须直接承接）】\n");
+            sb.append(ending).append("\n\n");
+        }
+        // 注入上一章实际结尾钩子
+        if (prevChapter != null && prevChapter.getActualEndingHook() != null && !prevChapter.getActualEndingHook().isEmpty()) {
+            sb.append("【上一章结尾钩子】\n");
+            sb.append(prevChapter.getActualEndingHook()).append("\n\n");
+        }
 
         // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
@@ -512,6 +534,15 @@ public class ContextBuilderService {
             return str;
         }
         return str.substring(0, maxLength) + "...";
+    }
+
+    private String truncateEnding(String content, int maxChars) {
+        if (content == null || content.length() <= maxChars) {
+            return content;
+        }
+        String tail = content.substring(content.length() - maxChars);
+        int firstNewline = tail.indexOf('\n');
+        return firstNewline > 0 ? tail.substring(firstNewline + 1) : tail;
     }
     
     /**

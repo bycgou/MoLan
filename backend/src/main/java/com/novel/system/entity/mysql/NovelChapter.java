@@ -73,4 +73,10 @@ public class NovelChapter {
      * 指向 chapter_synopses 表的 ID
      */
     private Long synopsisId;
+
+    /**
+     * 实际结尾钩子
+     * 正文生成后提取的实际结尾悬念，区别于计划中的hook字段
+     */
+    private String actualEndingHook;
 }
