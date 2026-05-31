@@ -45,8 +45,16 @@ public class LlmConfigController {
         if (userId == null) {
             return ApiResponse.error(401, "未登录或Token已过期");
         }
+        // 校验归属：只能修改自己的配置
+        LlmConfig existing = llmConfigService.getConfigById(configId);
+        if (existing == null) {
+            return ApiResponse.error(404, "配置不存在");
+        }
+        if (!userId.equals(existing.getUserId())) {
+            return ApiResponse.error(403, "无权修改该配置");
+        }
         config.setConfigId(configId);
-        config.setUserId(userId);
+        config.setUserId(existing.getUserId()); // 保持原 owner，不允许篡改
         LlmConfig updated = llmConfigService.updateConfig(config);
         return ApiResponse.success("更新成功", updated);
     }
