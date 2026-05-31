@@ -98,6 +98,7 @@ public class StreamingChapterController {
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
         CompletableFuture.runAsync(() -> {
+            SecurityContextHolder.setContext(securityContext);
             try {
                 redisTemplate.delete(cancelKey);
 
