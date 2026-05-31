@@ -65,7 +65,11 @@ public class AuthFilter extends OncePerRequestFilter {
                     }
                 }
             } catch (Exception e) {
-                log.error("Token验证失败", e);
+                log.warn("Token验证失败: {}", e.getMessage());
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write("{\"code\":401,\"message\":\"Token无效或已过期\",\"data\":null}");
+                return;
             }
         }
 
