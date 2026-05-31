@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 章节后处理服务
@@ -59,21 +60,24 @@ public class ChapterPostProcessService {
      * 异步后处理：从章节内容中提取人物、伏笔、时间线
      */
     @Async("postProcessExecutor")
-    public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline) {
-        postProcess(novelId, chapterNum, chapterContent, chapterOutline, null);
+    public CompletableFuture<Void> postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline) {
+        return postProcess(novelId, chapterNum, chapterContent, chapterOutline, null);
     }
 
     /**
      * 异步后处理（带 LLM 提供的人物 JSON）
      */
     @Async("postProcessExecutor")
-    public void postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline, String characterJson) {
+    public CompletableFuture<Void> postProcess(String novelId, int chapterNum, String chapterContent, String chapterOutline, String characterJson) {
         log.info("开始后处理章节: 小说ID={}, 章节号={}", novelId, chapterNum);
 
-        String idempotentKey = novelId + ":" + chapterNum;
+        String contentHash = chapterContent != null
+                ? org.springframework.util.DigestUtils.md5DigestAsHex(chapterContent.getBytes()).substring(0, 8)
+                : "null";
+        String idempotentKey = novelId + ":" + chapterNum + ":" + contentHash;
         if (!processedChapters.add(idempotentKey)) {
             log.info("章节后处理已执行，跳过: novelId={}, chapter={}", novelId, chapterNum);
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         long start = System.currentTimeMillis();
@@ -86,7 +90,7 @@ public class ChapterPostProcessService {
                 model = llmService.getModelForUsage("all", userId, LangChainConfig.TaskType.STRUCTURED);
             } catch (RuntimeException e) {
                 log.warn("无活跃LLM配置，跳过后处理: {}", e.getMessage());
-                return;
+                return CompletableFuture.completedFuture(null);
             }
 
             // 获取已有数据（用于去重）
@@ -134,6 +138,7 @@ public class ChapterPostProcessService {
             processedChapters.remove(idempotentKey);
             log.error("后处理失败: 小说ID={}, 章节号={}, 错误: {}", novelId, chapterNum, e.getMessage(), e);
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     /**

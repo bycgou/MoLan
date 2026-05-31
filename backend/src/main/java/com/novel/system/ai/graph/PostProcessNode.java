@@ -76,9 +76,17 @@ public class PostProcessNode implements NovelGraphNode {
         if (saved) {
             waitForMemoryCommit(memoryCommitFuture);
             try {
-                postProcessService.postProcess(
-                        state.getNovelId(), state.getChapterNum(),
-                        result.getFinalContent(), plan.getSummary());
+                CompletableFuture<Void> postProcessFuture =
+                        postProcessService.postProcess(
+                                state.getNovelId(), state.getChapterNum(),
+                                result.getFinalContent(), plan.getSummary());
+                try {
+                    postProcessFuture.get(120, TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    log.warn("后处理超时，继续: chapter={}", state.getChapterNum());
+                } catch (Exception e) {
+                    log.warn("后处理异常: chapter={}, error={}", state.getChapterNum(), e.getMessage());
+                }
             } catch (Exception e) {
                 log.error("后处理失败: {}", e.getMessage());
             }
