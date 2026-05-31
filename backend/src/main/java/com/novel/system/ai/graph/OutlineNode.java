@@ -1,12 +1,15 @@
 package com.novel.system.ai.graph;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.ai.chain.ChapterGenerationChain;
 import com.novel.system.entity.mysql.NovelArc;
 import com.novel.system.entity.mysql.NovelBase;
+import com.novel.system.entity.mysql.NovelChapter;
 import com.novel.system.mapper.NovelArcMapper;
 import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.service.chapter.ContextBuilderService;
 import com.novel.system.util.JsonExtractor;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+
+import static org.springframework.util.StringUtils.hasText;
 
 /**
  * 章纲生成节点 — 生成章纲 + 构建六层记忆上下文（存入 state）
@@ -28,6 +34,7 @@ public class OutlineNode implements NovelGraphNode {
     private final ContextBuilderService contextBuilderService;
     private final NovelBaseMapper novelBaseMapper;
     private final NovelArcMapper novelArcMapper;
+    private final NovelChapterMapper chapterMapper;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -62,6 +69,18 @@ public class OutlineNode implements NovelGraphNode {
         NovelBase novel = novelBaseMapper.selectById(state.getNovelId());
         NovelArc arc = novelArcMapper.findByChapterNum(state.getNovelId(), state.getChapterNum());
 
+        // 优先使用已确认的章纲
+        NovelChapter existing = chapterMapper.selectByNovelIdAndChapterNum(
+                state.getNovelId(), state.getChapterNum());
+        if (existing != null && hasText(existing.getChapterOutline())) {
+            log.info("使用已确认章纲: novelId={}, chapter={}", state.getNovelId(), state.getChapterNum());
+            NovelAgentState.ChapterPlan plan = parseConfirmedOutline(existing.getChapterOutline());
+            return state.toBuilder()
+                    .chapterPlan(plan)
+                    .currentPhase(NovelAgentState.GenerationPhase.OUTLINE.name())
+                    .build();
+        }
+
         String arcName = arc != null ? arc.getArcName() : null;
         String arcOutline = arc != null ? arc.getArcOutline() : null;
 
@@ -83,6 +102,23 @@ public class OutlineNode implements NovelGraphNode {
                 .build();
 
         return updated;
+    }
+
+    private NovelAgentState.ChapterPlan parseConfirmedOutline(String outlineText) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            return mapper.readValue(outlineText, NovelAgentState.ChapterPlan.class);
+        } catch (Exception e) {
+            log.debug("章纲非 JSON 格式，按纯文本处理: {}", e.getMessage());
+        }
+        return NovelAgentState.ChapterPlan.builder()
+                .title("")
+                .summary(outlineText)
+                .hook("")
+                .keyPoints(Collections.emptyList())
+                .implementationIdeas(Collections.emptyList())
+                .build();
     }
 
     private NovelAgentState.ChapterPlan parseOutline(String json) {
