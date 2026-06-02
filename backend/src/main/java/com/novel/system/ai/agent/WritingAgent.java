@@ -113,6 +113,15 @@ public interface WritingAgent {
         定律一：大纲即法律 — 严格遵循章纲内容
         定律二：设定即物理 — 人物言行必须符合设定
         定律三：发明需识别 — 创造新元素必须标注[新设定：XXX]
+
+        【历史回忆工具——必须主动使用】
+        当你遇到以下情况，必须先调用 recallHistory 工具回忆相关历史，再开始写作：
+        1. 章纲提到一个超过5章未出场的人物 — 调用 recallHistory 搜索该人物上次出场
+        2. 场景发生在一个有历史事件的地点 — 调用 recallHistory 搜索该地点的历史
+        3. 需要回收一个埋设超过10章的伏笔 — 调用 recallHistory 搜索伏笔埋设章节
+        4. 涉及早期章节的关键情节细节 — 调用 recallHistory 确认细节
+        调用后，将返回的历史信息融入当前写作，确保前后一致。
+        如果工具返回"未找到相关内容"，则根据上下文信息继续创作。
         """)
     String generateChapter(@UserMessage String userPrompt);
 }
