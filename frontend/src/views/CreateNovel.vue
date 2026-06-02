@@ -79,7 +79,6 @@
             <el-option label="降智" value="降智" />
             <el-option label="后宫起火" value="后宫起火" />
             <el-option label="烂尾" value="烂尾" />
-            <el-option label="太监（断更）" value="太监" />
           </el-select>
           <div class="form-tip">AI生成时会严格避免这些内容</div>
         </el-form-item>
