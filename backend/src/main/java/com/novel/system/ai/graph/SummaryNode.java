@@ -8,6 +8,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * 摘要生成节点 — 复用 SummaryAgent
  */
@@ -67,38 +72,40 @@ public class SummaryNode implements NovelGraphNode {
         return StateHelper.appendTrace(updated, nodeName());
     }
 
-    private String parseFingerprint(String json) {
+    private JsonNode parseJsonRoot(String json) {
+        if (json == null || json.isEmpty()) return null;
         try {
             String cleaned = JsonExtractor.extractJson(json);
-            JsonNode node = objectMapper.readTree(cleaned);
-            return node.path("fingerprint").asText("");
+            return objectMapper.readTree(cleaned);
         } catch (Exception e) {
-            if (json == null) return "摘要生成异常";
-            return json.substring(0, Math.min(200, json.length()));
+            return null;
         }
     }
 
-    public java.util.Map<String, Object> parseStructuredSummary(String json) {
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
-        if (json == null || json.isEmpty()) return result;
-        try {
-            String cleaned = JsonExtractor.extractJson(json);
-            JsonNode node = objectMapper.readTree(cleaned);
-            result.put("fingerprint", node.path("fingerprint").asText(""));
-            result.put("strand_type", node.path("strand_type").asText(""));
-            result.put("hook_level", node.path("hook_level").asText(""));
-            result.put("core_events", parseStringArray(node.path("core_events")));
-            result.put("characters", parseStringArray(node.path("characters")));
-            result.put("locations", parseStringArray(node.path("locations")));
-            result.put("keywords", parseStringArray(node.path("keywords")));
-        } catch (Exception e) {
-            log.warn("解析结构化摘要失败: {}", e.getMessage());
+    private String parseFingerprint(String json) {
+        JsonNode node = parseJsonRoot(json);
+        if (node == null) {
+            return json == null ? "摘要生成异常" : json.substring(0, Math.min(200, json.length()));
         }
+        return node.path("fingerprint").asText("");
+    }
+
+    public Map<String, Object> parseStructuredSummary(String json) {
+        Map<String, Object> result = new HashMap<>();
+        JsonNode node = parseJsonRoot(json);
+        if (node == null) return result;
+        result.put("fingerprint", node.path("fingerprint").asText(""));
+        result.put("strand_type", node.path("strand_type").asText(""));
+        result.put("hook_level", node.path("hook_level").asText(""));
+        result.put("core_events", parseStringArray(node.path("core_events")));
+        result.put("characters", parseStringArray(node.path("characters")));
+        result.put("locations", parseStringArray(node.path("locations")));
+        result.put("keywords", parseStringArray(node.path("keywords")));
         return result;
     }
 
-    private java.util.List<String> parseStringArray(JsonNode arrayNode) {
-        java.util.List<String> list = new java.util.ArrayList<>();
+    private List<String> parseStringArray(JsonNode arrayNode) {
+        List<String> list = new ArrayList<>();
         if (arrayNode != null && arrayNode.isArray()) {
             arrayNode.forEach(item -> list.add(item.asText("")));
         }
