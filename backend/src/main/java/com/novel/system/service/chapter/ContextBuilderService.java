@@ -10,7 +10,9 @@ import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.story.StoryStateService;
 import com.novel.system.entity.mongo.ArcOrchestration;
+import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.entity.mongo.StoryState;
+import com.novel.system.ai.rag.RagService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +33,7 @@ import java.util.List;
  *   - 子层4b：近章大纲（微观衔接）
  *   - 子层4c：上一章结尾钩子（本章开头必须承接）
  * 第五层：事件图谱 + 规则驱动检索（EventGraph + RuleDrivenRetrieval）— 按规则自动触发历史事件检索
- * 第六层：RAG向量检索 — Agent @Tool 按需调用，回忆早期章节细节（当前仍为Push模式，待改为Pull）
+ * 第六层：RAG向量检索 — Push 自动注入（hybridSearch）+ Pull 按需调用（WritingAgent recallHistory 工具）
  */
 @Slf4j
 @Service
@@ -48,6 +50,7 @@ public class ContextBuilderService {
     private final ArcOrchestrationService arcOrchestrationService;
     private final com.novel.system.service.event.RuleDrivenRetrievalService ruleDrivenRetrievalService;
     private final com.novel.system.service.event.EventGraphService eventGraphService;
+    private final RagService ragService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -138,6 +141,28 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
+        }
+
+        // === 第六层：RAG 向量检索 — 自动注入相关历史 ===
+        try {
+            String queryText = arcOutline;
+            if (queryText != null && !queryText.isEmpty()) {
+                List<ChapterSummary> ragResults = ragService.hybridSearch(novelId, queryText, 5);
+                if (ragResults != null && !ragResults.isEmpty()) {
+                    sb.append("【相关历史剧情（RAG 自动检索，写作时必须保持一致）】\n");
+                    for (ChapterSummary cs : ragResults) {
+                        sb.append("- 第").append(cs.getChapterNum()).append("章: ");
+                        String content = cs.getContent();
+                        if (content != null && content.length() > 200) {
+                            content = content.substring(0, 200) + "...";
+                        }
+                        sb.append(content).append("\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("RAG 自动检索失败（不影响生成）: {}", e.getMessage());
         }
 
         // === 第一层：故事状态（核心枢纽，第一优先级数据源）===
@@ -363,6 +388,28 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
+        }
+
+        // === 第六层：RAG 向量检索 — 自动注入相关历史 ===
+        try {
+            String queryText = chapter.getChapterOutline();
+            if (queryText != null && !queryText.isEmpty()) {
+                List<ChapterSummary> ragResults = ragService.hybridSearch(novelId, queryText, 5);
+                if (ragResults != null && !ragResults.isEmpty()) {
+                    sb.append("【相关历史剧情（RAG 自动检索，写作时必须保持一致）】\n");
+                    for (ChapterSummary cs : ragResults) {
+                        sb.append("- 第").append(cs.getChapterNum()).append("章: ");
+                        String content = cs.getContent();
+                        if (content != null && content.length() > 200) {
+                            content = content.substring(0, 200) + "...";
+                        }
+                        sb.append(content).append("\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("RAG 自动检索失败（不影响生成）: {}", e.getMessage());
         }
 
         // === 第一层：故事状态（核心枢纽）===
