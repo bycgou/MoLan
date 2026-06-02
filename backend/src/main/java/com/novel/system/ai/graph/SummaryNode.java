@@ -56,6 +56,7 @@ public class SummaryNode implements NovelGraphNode {
                 .wordCount(draft.getWordCount())
                 .qualityScore(qualityScore)
                 .summary(fingerprint)
+                .structuredSummaryJson(summaryJson)
                 .build();
 
         NovelAgentState updated = state.toBuilder()
@@ -75,5 +76,32 @@ public class SummaryNode implements NovelGraphNode {
             if (json == null) return "摘要生成异常";
             return json.substring(0, Math.min(200, json.length()));
         }
+    }
+
+    public java.util.Map<String, Object> parseStructuredSummary(String json) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        if (json == null || json.isEmpty()) return result;
+        try {
+            String cleaned = JsonExtractor.extractJson(json);
+            JsonNode node = objectMapper.readTree(cleaned);
+            result.put("fingerprint", node.path("fingerprint").asText(""));
+            result.put("strand_type", node.path("strand_type").asText(""));
+            result.put("hook_level", node.path("hook_level").asText(""));
+            result.put("core_events", parseStringArray(node.path("core_events")));
+            result.put("characters", parseStringArray(node.path("characters")));
+            result.put("locations", parseStringArray(node.path("locations")));
+            result.put("keywords", parseStringArray(node.path("keywords")));
+        } catch (Exception e) {
+            log.warn("解析结构化摘要失败: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    private java.util.List<String> parseStringArray(JsonNode arrayNode) {
+        java.util.List<String> list = new java.util.ArrayList<>();
+        if (arrayNode != null && arrayNode.isArray()) {
+            arrayNode.forEach(item -> list.add(item.asText("")));
+        }
+        return list;
     }
 }

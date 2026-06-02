@@ -215,5 +215,7 @@ public class NovelAgentState {
         private double qualityScore;
         private String chapterId;
         private String summary;
+        /** LLM 返回的完整结构化摘要 JSON，包含 core_events/characters/locations/keywords 等字段 */
+        private String structuredSummaryJson;
     }
 }

@@ -6,6 +6,7 @@ import com.novel.system.entity.mysql.NovelArc;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.mapper.NovelArcMapper;
 import com.novel.system.mapper.NovelBaseMapper;
+import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.service.chapter.ContextBuilderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,13 +25,14 @@ class OutlineNodeTest {
     @Mock private ContextBuilderService contextBuilderService;
     @Mock private NovelBaseMapper novelBaseMapper;
     @Mock private NovelArcMapper novelArcMapper;
+    @Mock private NovelChapterMapper chapterMapper;
 
     private OutlineNode node;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        node = new OutlineNode(chain, contextBuilderService, novelBaseMapper, novelArcMapper, objectMapper);
+        node = new OutlineNode(chain, contextBuilderService, novelBaseMapper, novelArcMapper, chapterMapper, objectMapper);
     }
 
     @Test
