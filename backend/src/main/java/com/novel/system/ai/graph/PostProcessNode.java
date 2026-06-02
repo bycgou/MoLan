@@ -22,6 +22,7 @@ public class PostProcessNode implements NovelGraphNode {
     private final ChapterSaveService chapterSaveService;
     private final ChapterPostProcessService postProcessService;
     private final StringRedisTemplate redisTemplate;
+    private final SummaryNode summaryNode;
 
     @Override
     public String nodeName() { return "post_process"; }
@@ -111,16 +112,37 @@ public class PostProcessNode implements NovelGraphNode {
             ChapterSummary summary = new ChapterSummary();
             summary.setNovelId(state.getNovelId());
             summary.setChapterNum(state.getChapterNum());
-            summary.setContent(plan.getSummary());
-            summary.setKeywords(Collections.emptyList());
-            summary.setCharacters(Collections.emptyList());
-            summary.setLocations(Collections.emptyList());
+
+            NovelAgentState.FinalResult finalResult = state.getFinalResult();
+            if (finalResult != null && finalResult.getStructuredSummaryJson() != null) {
+                java.util.Map<String, Object> meta = summaryNode.parseStructuredSummary(
+                        finalResult.getStructuredSummaryJson());
+                String fingerprint = (String) meta.get("fingerprint");
+                summary.setContent(fingerprint != null && !fingerprint.isEmpty()
+                        ? fingerprint : plan.getSummary());
+                summary.setKeywords(getStringList(meta.get("keywords")));
+                summary.setCharacters(getStringList(meta.get("characters")));
+                summary.setLocations(getStringList(meta.get("locations")));
+            } else {
+                summary.setContent(plan.getSummary());
+                summary.setKeywords(Collections.emptyList());
+                summary.setCharacters(Collections.emptyList());
+                summary.setLocations(Collections.emptyList());
+            }
             summary.setRelations(Collections.emptyList());
             return summary;
         } catch (Exception e) {
             log.warn("构建 ChapterSummary 失败，回退到 null: {}", e.getMessage());
             return null;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.List<String> getStringList(Object obj) {
+        if (obj instanceof java.util.List) {
+            return (java.util.List<String>) obj;
+        }
+        return Collections.emptyList();
     }
 
     private void waitForMemoryCommit(CompletableFuture<Void> future) {
