@@ -308,15 +308,33 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             // 7. 构建临时实体并生成摘要
             NovelChapter chapter = createChapterEntity(request, context, chapterContent);
             ChapterSummary summary = generateSummary(request, context, chapter);
-            
+
+            // 读取 outline 阶段保存的 hook，并提取实际结尾
+            String existingHook = "";
+            String actualEnding = "";
+            try {
+                NovelChapter savedChapter = novelChapterMapper.selectByNovelIdAndChapterNum(
+                        request.getNovelId(), request.getChapterNum());
+                if (savedChapter != null && savedChapter.getHook() != null) {
+                    existingHook = savedChapter.getHook();
+                }
+                if (chapterContent != null && chapterContent.length() > 200) {
+                    actualEnding = chapterContent.substring(chapterContent.length() - 200);
+                }
+            } catch (Exception e) {
+                log.warn("读取 hook 失败: {}", e.getMessage());
+            }
+
             // 8. 事务保存所有结果（MySQL同步 + MongoDB异步）+ 后处理链式调用
             final String finalChapterContent = chapterContent;
             final String finalOutline = context.getOutline();
+            final String finalHook = existingHook;
+            final String finalActualEnding = actualEnding;
             this.postProcessFuture = chapterSaveService.saveGenerationResultAsync(
                 request.getNovelId(), request.getChapterNum(), chapter.getChapterTitle(),
                 context.getOutline(), chapterContent,
                 chapterContent.replaceAll("\\s+", "").length(),
-                request.getUserIntent(), summary.getContent(), summary, "", "")
+                request.getUserIntent(), summary.getContent(), summary, finalHook, finalActualEnding)
                 .thenRun(() -> {
                     // 9. 在MongoDB写入完成后执行后处理（提取人物、伏笔、时间线）
                     try {
