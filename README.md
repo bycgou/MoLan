@@ -23,26 +23,30 @@
 
 ### 1. 启动基础设施
 ```bash
-cp .env.example .env    # 编辑填入密码和 JWT_SECRET
-docker-compose up -d    # 启动 MySQL + MongoDB + Redis
+cp backend/.env.example backend/.env   # 编辑填入密码和 JWT_SECRET（本地开发可跳过，有默认值）
+docker-compose up -d                   # 启动 MySQL + MongoDB + Redis Stack
 ```
+
+> **注意**：RAG 向量检索功能需要 **Redis Stack**（不是普通 Redis）。Docker Compose 已配置 `redis-stack` 镜像。
 
 ### 2. 启动后端
 ```bash
 cd backend
-./mvnw spring-boot:run  # Linux/macOS
+./mvnw spring-boot:run       # Linux/macOS
 # 或
-mvnw.cmd spring-boot:run  # Windows
+mvnw.cmd spring-boot:run     # Windows
 ```
+
+后端启动在 `http://localhost:8080/api`。首次启动需要下载 Maven 依赖，请耐心等待。
 
 ### 3. 启动前端
 ```bash
 cd frontend-v2
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-访问 http://localhost:5173
+访问 http://localhost:3000
 
 ## 核心亮点
 
@@ -58,8 +62,9 @@ npm run dev
 
 ```
 arc_check → outline → clue_planning ──┐
-                                  ──→ writing → self_review → validation
-           character_planning ─────┘         → quality_check → audit_router → summary → post_process
+                                  ──→ writing → self_review → continuity_validation
+           character_planning ─────┘         → validation → quality_scoring → audit_router
+                                              → summary → post_process
 ```
 
 ### AuthorAgent — "人类作者"在环
@@ -109,16 +114,17 @@ arc_check → outline → clue_planning ──┐
 │  第三层：角色档案 (CharacterState)  ← 按出场角色注入    │
 │  第四层：滑动窗口                  ← 近章大纲+摘要+钩子  │
 │  第五层：事件图谱 + 规则驱动检索    ← 自动触发历史事件   │
-│  第六层：RAG 向量检索              ← Agent @Tool 按需   │
+│  第六层：RAG 向量检索              ← Push 自动注入      │
+│                                  + Pull 按需调用       │
 └─────────────────────────────────────────────────────┘
 ```
 
 设计哲学：
 
 - **精确查询优先，语义检索兜底** — 结构化数据用 SQL / MongoDB 精确查，只有"回忆早期细节"才用 RAG
-- **写时更新，读时组装** — 每章生成后自动更新所有状态
+- **写时更新，读时组装** — 每章生成后自动更新所有状态，摘要元数据（关键词/角色/地点）存入 MongoDB 供检索
 - **渐进式记忆** — 近期精确（滑动窗口）、远期模糊（弧段摘要）、超远期压缩（每 20 章自动背景压缩）
-- **Push-Pull 二分** — 前四层 Push（自动注入），后两层 Pull（Agent 按需调用）
+- **Push-Pull 双层** — 前五层 Push（自动注入），第六层同时支持 Push（ContextBuilderService 自动检索相关历史）+ Pull（WritingAgent 主动调用 recallHistory 工具回忆远距离事件）
 
 ### 十二种体裁深度模板
 
@@ -205,16 +211,11 @@ MoLan/
 │   ├── hooks/                  # useAuth / useSSE
 │   └── lib/                    # API 层 + 工具函数
 │
-└── moyun-ts/                   # TypeScript 重写（monorepo）
+└── moyun-ts/                   # TypeScript 重写（monorepo，早期实验阶段）
     └── packages/
-        ├── core/               # 核心引擎（LangChain.js + GraphRunner + RAG + 风格检查）
-        │   └── src/
-        │       ├── ai/         # 图节点 + Chain + Prompt + RAG + 风格检查
-        │       ├── db/         # Drizzle ORM + SQLite
-        │       ├── services/   # 业务服务
-        │       └── types/      # 类型定义
-        ├── cli/                # CLI 工具（commander）
-        └── web/                # Web 前端（React + Vite）
+        ├── core/               # 核心引擎（LangChain.js + GraphRunner + RAG）
+        ├── cli/                # CLI 工具
+        └── web/                # Web 前端
 ```
 
 ---
@@ -247,46 +248,28 @@ MoLan/
 ### 1. 启动基础设施
 
 ```bash
-# MySQL
-docker run -d --name mysql \
-  -e MYSQL_ROOT_PASSWORD=123456 \
-  -e MYSQL_DATABASE=moyun_novel_system \
-  -p 3306:3306 \
-  mysql:8
+# 方式 1：使用 Docker Compose（推荐）
+cp backend/.env.example backend/.env
+docker-compose up -d
 
-# MongoDB
-docker run -d --name mongodb \
-  -p 27017:27017 \
-  mongo:7
-
-# Redis Stack (含向量搜索)
-docker run -d --name redis-stack \
-  -p 6379:6379 \
-  -p 8001:8001 \
-  redis/redis-stack-server:latest
+# 方式 2：手动启动容器
+docker run -d --name mysql -e MYSQL_ROOT_PASSWORD=123456 -e MYSQL_DATABASE=moyun_novel_system -p 3306:3306 mysql:8
+docker run -d --name mongodb -p 27017:27017 mongo:7
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server:latest
 ```
 
 ### 2. 启动后端
 
 ```bash
 cd backend
-mvn clean package -DskipTests
-java -jar target/ai-novel-system-1.0.0.jar
+./mvnw spring-boot:run
 ```
 
 后端启动在 `http://localhost:8080/api`
 
 ### 3. 启动前端
 
-**Vue 3 版本 (frontend/)**
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-**Next.js 版本 (frontend-v2/)**
+**Next.js 版本 (frontend-v2/) — 推荐**
 
 ```bash
 cd frontend-v2
@@ -295,6 +278,14 @@ pnpm dev
 ```
 
 访问 `http://localhost:3000`
+
+**Vue 3 版本 (frontend/) — 旧版**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ### 4. 配置 LLM
 
@@ -335,6 +326,9 @@ pnpm dev
   │                writing ──→ self_review                   │
   │                     │                                    │
   │                     ▼                                    │
+  │         continuity_validation（跨章连续性校验）            │
+  │                     │                                    │
+  │                     ▼                                    │
   │    validation(5维并行) ──→ quality_scoring                │
   │                     │                                    │
   │                     ▼                                    │
@@ -344,6 +338,7 @@ pnpm dev
   │              summary ──→ post_process                    │
   │                                                          │
   │  AuthorAgent 在 outline / writing / audit_router 拦截     │
+  │  ContinuityValidation 在 self_review 后校验章间承接     │
   └──────────────────────────────────────────────────────────┘
        │
        ▼
@@ -376,7 +371,7 @@ pnpm dev
 | `REDIS_HOST` | localhost | Redis 主机 |
 | `REDIS_PORT` | 6379 | Redis 端口 |
 | `REDIS_PASSWORD` | (空) | Redis 密码 |
-| `JWT_SECRET` | changeme_... | JWT 签名密钥（**生产环境必须修改**） |
+| `JWT_SECRET` | dev-only-... | JWT 签名密钥（本地开发有默认值，**生产环境必须设置**） |
 | `MCP_CLIENT_ENABLED` | false | 启用 MCP Client |
 | `MCP_SERVER_ENABLED` | false | 启用 MCP Server |
 | `EMBEDDING_MAX_INPUT_CHARS` | 2000 | Embedding 输入截断长度 |
@@ -414,17 +409,34 @@ pnpm dev
 
 ## TypeScript 版本 (moyun-ts)
 
-项目正在用 TypeScript 重写核心引擎，目标是提供更轻量的部署方案（无需 Java / MySQL / MongoDB）：
+项目正在用 TypeScript 重写核心引擎（早期实验阶段），目标是提供更轻量的部署方案：
 
 ```bash
 cd moyun-ts
 pnpm install
 pnpm build
-pnpm cli dev
-pnpm core test
 ```
 
-TypeScript 版本使用 SQLite (better-sqlite3) + MiniSearch (BM25) 替代 MySQL + MongoDB + Redis Stack，适合本地使用和快速体验。
+---
+
+## 已知问题与改进方向
+
+### 已修复（feat/p0-comprehensive-fix 分支）
+
+- ✅ **确认章纲优先使用** — OutlineNode 优先读取数据库已确认章纲，不重复生成
+- ✅ **Hook 持久化** — 章纲 hook + 实际结尾 hook 全链路保存到 MySQL
+- ✅ **上一章结尾注入** — ContextBuilderService 注入上一章最后 800 字正文
+- ✅ **RAG Layer 6 激活** — Push 自动注入（hybridSearch）+ Pull 按需调用（recallHistory 工具）
+- ✅ **摘要元数据恢复** — ChapterSummary 不再空 keywords/characters/locations，RAG 检索质量提升
+- ✅ **跨章连续性校验** — ContinuityValidationNode 校验章间承接
+- ✅ **安全加固** — JWT 强制校验、资源归属拦截、.env 配置
+
+### 待改进
+
+- **Redis Stack 依赖** — RAG 向量搜索需要 Redis Stack（含 RediSearch 模块），普通 Redis 不支持
+- **AuthorAgent 过于苛刻** — writing 检查点几乎总是 REVISE，建议提高 auto-approve 阈值
+- **角色 ID 匹配** — CharacterPlanningNode 的 LLM 可能生成与数据库不一致的角色 ID 格式
+- **Token 成本** — FULL 模式每章约 70k-120k tokens，建议根据章节重要性选择生成档位
 
 ---
 
