@@ -32,7 +32,7 @@ services:
       retries: 5
 
   redis:
-    image: redis/redis-stack:latest
+    image: redis:7-alpine
     container_name: moyun-redis
     restart: unless-stopped
     ports:
@@ -45,7 +45,27 @@ services:
       timeout: 5s
       retries: 5
 
+  milvus:
+    image: milvusdb/milvus:v2.5.4
+    container_name: moyun-milvus
+    restart: unless-stopped
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    environment:
+      ETCD_USE_EMBED: "true"
+      COMMON_STORAGETYPE: "local"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    command: ["milvus", "run", "standalone"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   mysql-data:
   mongo-data:
   redis-data:
+  milvus-data:
