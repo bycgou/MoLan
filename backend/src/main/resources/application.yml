@@ -71,12 +71,18 @@ mybatis-plus:
 # LLM配置（全部由用户在前端配置）
 # 不再使用默认配置，所有模型配置存储在数据库 llm_config 表中
 
-# Redis Stack向量数据库配置
-redis-stack:
-  vector:
-    index-name: novel_summary_idx
-    dimension: 1024
-    distance-metric: cosine
+# Milvus 向量数据库配置
+milvus:
+  uri: http://localhost:19530
+  collection-name: novel_summary
+  dimension: 1024
+  metric-type: COSINE
+  hnsw-m: 16
+  hnsw-ef-construction: 256
+  connect-timeout-ms: 10000
+  keep-alive-time-ms: 55000
+  max-idle-connections: 10
+  max-connection-pool-size: 60
 
 # Embedding配置
 embedding:
