@@ -4,7 +4,7 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import com.novel.system.config.LangChainConfig;
-import com.novel.system.config.RedisVectorConfig;
+import com.novel.system.config.MilvusVectorConfig;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.service.llm.LlmConfigService;
 import jakarta.annotation.PostConstruct;
@@ -27,7 +27,7 @@ public class EmbeddingService {
     
     private final LangChainConfig langChainConfig;
     private final LlmConfigService llmConfigService;
-    private final RedisVectorConfig vectorConfig;
+    private final MilvusVectorConfig vectorConfig;
 
     @Value("${embedding.max-input-chars:2000}")
     private int maxInputChars;
