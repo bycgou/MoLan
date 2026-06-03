@@ -6,7 +6,7 @@ import com.novel.system.repository.mongo.ChapterSummaryRepository;
 import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.story.StoryStateService;
 import com.novel.system.ai.rag.RagService;
-import com.novel.system.ai.rag.RedisVectorService;
+import com.novel.system.ai.rag.VectorStoreService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +36,7 @@ public class RagServiceImpl implements RagService {
     private final ChapterSummaryRepository chapterSummaryRepository;
     private final MongoTemplate mongoTemplate;
     private final LlmService llmService;
-    private final RedisVectorService redisVectorService;
+    private final VectorStoreService vectorStoreService;
     private final StoryStateService storyStateService;
 
     // RRF融合参数
@@ -126,12 +126,12 @@ public class RagServiceImpl implements RagService {
             String filter = "@novelId:{" + novelId + "}";
             
             // 执行向量搜索
-            List<RedisVectorService.VectorSearchResult> results = 
-                redisVectorService.search(queryVector, topK, filter);
+            List<VectorStoreService.VectorSearchResult> results =
+                vectorStoreService.search(queryVector, topK, filter);
             
             // 获取对应的ChapterSummary
             List<ChapterSummary> summaries = new ArrayList<>();
-            for (RedisVectorService.VectorSearchResult result : results) {
+            for (VectorStoreService.VectorSearchResult result : results) {
                 Map<String, Object> metadata = result.getMetadata();
                 if (metadata != null && metadata.containsKey("chapterNum")) {
                     int chapterNum = ((Number) metadata.get("chapterNum")).intValue();
@@ -366,7 +366,7 @@ public class RagServiceImpl implements RagService {
             try {
                 float[] embedding = llmService.getEmbedding(summary.getContent());
                 
-                // 保存到Redis Stack向量数据库
+                // 保存到向量数据库
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("novelId", summary.getNovelId());
                 metadata.put("chapterNum", summary.getChapterNum());
@@ -375,7 +375,7 @@ public class RagServiceImpl implements RagService {
                 metadata.put("priority", summary.getPriority() != null ? summary.getPriority() : 3);
                 
                 String key = summary.getNovelId() + ":ch" + summary.getChapterNum();
-                redisVectorService.saveVector(key, embedding, metadata);
+                vectorStoreService.saveVector(key, embedding, metadata);
                 
                 // 同时保存到MongoDB
                 List<Float> embeddingList = new ArrayList<>();
@@ -387,7 +387,7 @@ public class RagServiceImpl implements RagService {
                 log.info("向量保存成功: {}", key);
                 
             } catch (Exception e) {
-                log.error("向量化失败，跳过Redis向量保存（摘要仍会保存到MongoDB）: {}", e.getMessage());
+                log.error("向量化失败，跳过向量保存（摘要仍会保存到MongoDB）: {}", e.getMessage());
                 summary.setEmbedding(null);
             }
         }
