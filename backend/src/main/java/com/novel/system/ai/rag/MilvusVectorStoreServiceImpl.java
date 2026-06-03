@@ -1,17 +1,21 @@
 package com.novel.system.ai.rag;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.novel.system.config.MilvusVectorConfig;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.repository.mongo.ChapterSummaryRepository;
-import io.milvus.client.MilvusClientV2;
-import io.milvus.param.ConnectParam;
-import io.milvus.param.IndexType;
-import io.milvus.param.MetricType;
-import io.milvus.param.collection.*;
-import io.milvus.param.control.QueryCountParam;
-import io.milvus.param.dml.*;
-import io.milvus.param.index.CreateIndexParam;
-import io.milvus.response.SearchResultsWrapper;
+import io.milvus.v2.client.ConnectConfig;
+import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.common.DataType;
+import io.milvus.v2.common.IndexParam;
+import io.milvus.v2.service.collection.request.*;
+import io.milvus.v2.service.index.request.CreateIndexReq;
+import io.milvus.v2.service.vector.request.DeleteReq;
+import io.milvus.v2.service.vector.request.InsertReq;
+import io.milvus.v2.service.vector.request.SearchReq;
+import io.milvus.v2.service.vector.request.data.FloatVec;
+import io.milvus.v2.service.vector.response.SearchResp;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +25,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 
 /**
- * Milvus 向量存储服务实现
+ * Milvus 向量存储服务实现（使用 Milvus SDK v2 API）
  */
 @Slf4j
 @Service
@@ -31,6 +35,7 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     private final ChapterSummaryRepository chapterSummaryRepository;
     private final MongoTemplate mongoTemplate;
     private MilvusClientV2 client;
+    private final Gson gson = new Gson();
 
     public MilvusVectorStoreServiceImpl(MilvusVectorConfig config,
                                          ChapterSummaryRepository chapterSummaryRepository,
@@ -43,14 +48,12 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     @PostConstruct
     public void init() {
         try {
-            ConnectParam connectParam = ConnectParam.newBuilder()
-                .withUri(config.getUri())
-                .withConnectTimeoutMs(config.getConnectTimeoutMs())
-                .withKeepAliveTimeMs(config.getKeepAliveTimeMs())
-                .withMaxIdleConnectionCount(config.getMaxIdleConnections())
-                .withMaxConnectionPoolSize(config.getMaxConnectionPoolSize())
+            ConnectConfig connectConfig = ConnectConfig.builder()
+                .uri(config.getUri())
+                .connectTimeoutMs(config.getConnectTimeoutMs())
+                .keepAliveTimeMs(config.getKeepAliveTimeMs())
                 .build();
-            this.client = new MilvusClientV2(connectParam);
+            this.client = new MilvusClientV2(connectConfig);
             log.info("Milvus 客户端连接成功: {}", config.getUri());
             ensureCollection();
         } catch (Exception e) {
@@ -79,10 +82,10 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
 
         try {
             Boolean hasCollection = client.hasCollection(
-                HasCollectionParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
+                HasCollectionReq.builder()
+                    .collectionName(config.getCollectionName())
                     .build()
-            ).getData();
+            );
 
             if (Boolean.TRUE.equals(hasCollection)) {
                 log.debug("Milvus collection 已存在: {}", config.getCollectionName());
@@ -90,90 +93,87 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
                 return;
             }
 
-            List<FieldType> fieldTypes = new ArrayList<>();
-
-            FieldType idField = FieldType.newBuilder()
-                .withName("id")
-                .withDataType(io.milvus.common.DataType.VarChar)
-                .withMaxLength(256)
-                .withPrimaryKey(true)
-                .withAutoID(false)
-                .build();
-            fieldTypes.add(idField);
-
-            FieldType novelIdField = FieldType.newBuilder()
-                .withName("novelId")
-                .withDataType(io.milvus.common.DataType.VarChar)
-                .withMaxLength(128)
-                .withPartitionKey(true)
-                .build();
-            fieldTypes.add(novelIdField);
-
-            FieldType chapterNumField = FieldType.newBuilder()
-                .withName("chapterNum")
-                .withDataType(io.milvus.common.DataType.Int64)
-                .build();
-            fieldTypes.add(chapterNumField);
-
-            FieldType contentField = FieldType.newBuilder()
-                .withName("content")
-                .withDataType(io.milvus.common.DataType.VarChar)
-                .withMaxLength(65535)
-                .build();
-            fieldTypes.add(contentField);
-
-            FieldType keywordsField = FieldType.newBuilder()
-                .withName("keywords")
-                .withDataType(io.milvus.common.DataType.VarChar)
-                .withMaxLength(1024)
-                .build();
-            fieldTypes.add(keywordsField);
-
-            FieldType priorityField = FieldType.newBuilder()
-                .withName("priority")
-                .withDataType(io.milvus.common.DataType.Int64)
-                .build();
-            fieldTypes.add(priorityField);
-
-            FieldType embeddingField = FieldType.newBuilder()
-                .withName("embedding")
-                .withDataType(io.milvus.common.DataType.FloatVector)
-                .withDimension(config.getDimension())
-                .build();
-            fieldTypes.add(embeddingField);
-
-            CollectionSchemaParam schemaParam = CollectionSchemaParam.newBuilder()
-                .withFieldTypes(fieldTypes)
-                .enableDynamicField(false)
+            // 构建 collection schema
+            CreateCollectionReq.CollectionSchema schema = CreateCollectionReq.CollectionSchema.builder()
                 .build();
 
-            CreateCollectionParam collectionParam = CreateCollectionParam.newBuilder()
-                .withCollectionName(config.getCollectionName())
-                .withSchema(schemaParam)
-                .withShardsNum(1)
+            // 主键字段
+            schema.addField(AddFieldReq.builder()
+                .fieldName("id")
+                .dataType(DataType.VarChar)
+                .maxLength(256)
+                .isPrimaryKey(true)
+                .autoID(false)
+                .build());
+
+            // novelId - Partition Key
+            schema.addField(AddFieldReq.builder()
+                .fieldName("novelId")
+                .dataType(DataType.VarChar)
+                .maxLength(128)
+                .isPartitionKey(true)
+                .build());
+
+            // chapterNum
+            schema.addField(AddFieldReq.builder()
+                .fieldName("chapterNum")
+                .dataType(DataType.Int64)
+                .build());
+
+            // content
+            schema.addField(AddFieldReq.builder()
+                .fieldName("content")
+                .dataType(DataType.VarChar)
+                .maxLength(65535)
+                .build());
+
+            // keywords
+            schema.addField(AddFieldReq.builder()
+                .fieldName("keywords")
+                .dataType(DataType.VarChar)
+                .maxLength(1024)
+                .build());
+
+            // priority
+            schema.addField(AddFieldReq.builder()
+                .fieldName("priority")
+                .dataType(DataType.Int64)
+                .build());
+
+            // embedding 向量字段
+            schema.addField(AddFieldReq.builder()
+                .fieldName("embedding")
+                .dataType(DataType.FloatVector)
+                .dimension(config.getDimension())
+                .build());
+
+            // 创建 HNSW 索引参数
+            Map<String, Object> extraParams = new HashMap<>();
+            extraParams.put("M", config.getHnswM());
+            extraParams.put("efConstruction", config.getHnswEfConstruction());
+
+            IndexParam indexParam = IndexParam.builder()
+                .fieldName("embedding")
+                .indexType(IndexParam.IndexType.HNSW)
+                .metricType(IndexParam.MetricType.COSINE)
+                .extraParams(extraParams)
                 .build();
 
-            client.createCollection(collectionParam);
+            // 创建 collection
+            CreateCollectionReq createReq = CreateCollectionReq.builder()
+                .collectionName(config.getCollectionName())
+                .collectionSchema(schema)
+                .indexParams(List.of(indexParam))
+                .numShards(1)
+                .build();
+
+            client.createCollection(createReq);
             log.info("Milvus collection 创建成功: {}", config.getCollectionName());
 
-            client.createIndex(
-                CreateIndexParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
-                    .withFieldName("embedding")
-                    .withIndexType(IndexType.HNSW)
-                    .withMetricType(MetricType.COSINE)
-                    .withExtraParam(String.format("{\"M\":%d,\"efConstruction\":%d}",
-                        config.getHnswM(), config.getHnswEfConstruction()))
-                    .withSyncMode(Boolean.TRUE)
-                    .build()
-            );
-            log.info("Milvus HNSW 索引创建成功");
-
-            client.loadCollection(
-                LoadCollectionParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
-                    .build()
-            );
+            // 加载 collection 到内存
+            client.loadCollection(LoadCollectionReq.builder()
+                .collectionName(config.getCollectionName())
+                .build());
             log.info("Milvus collection 已加载到内存");
 
             migrateFromMongoDbIfNeeded();
@@ -187,11 +187,9 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     public void dropCollection() {
         if (client == null) return;
         try {
-            client.dropCollection(
-                DropCollectionParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
-                    .build()
-            );
+            client.dropCollection(DropCollectionReq.builder()
+                .collectionName(config.getCollectionName())
+                .build());
             log.info("Milvus collection 已删除: {}", config.getCollectionName());
         } catch (Exception e) {
             log.error("删除 Milvus collection 失败: {}", e.getMessage());
@@ -207,27 +205,27 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         }
 
         try {
-            List<InsertParam.Field> fields = new ArrayList<>();
-            fields.add(new InsertParam.Field("id", List.of(key)));
-            fields.add(new InsertParam.Field("novelId",
-                List.of(metadata.getOrDefault("novelId", "").toString())));
-            fields.add(new InsertParam.Field("chapterNum",
-                List.of(((Number) metadata.getOrDefault("chapterNum", 0)).longValue())));
-            fields.add(new InsertParam.Field("content",
-                List.of(metadata.getOrDefault("content", "").toString())));
-            fields.add(new InsertParam.Field("keywords",
-                List.of(metadata.getOrDefault("keywords", "").toString())));
-            fields.add(new InsertParam.Field("priority",
-                List.of(((Number) metadata.getOrDefault("priority", 3)).longValue())));
-            fields.add(new InsertParam.Field("embedding", List.of(vector)));
+            JsonObject data = new JsonObject();
+            data.addProperty("id", key);
+            data.addProperty("novelId", metadata.getOrDefault("novelId", "").toString());
+            data.addProperty("chapterNum", ((Number) metadata.getOrDefault("chapterNum", 0)).longValue());
+            data.addProperty("content", metadata.getOrDefault("content", "").toString());
+            data.addProperty("keywords", metadata.getOrDefault("keywords", "").toString());
+            data.addProperty("priority", ((Number) metadata.getOrDefault("priority", 3)).longValue());
 
-            client.insert(
-                InsertParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
-                    .withFields(fields)
-                    .build()
-            );
+            // Gson 不直接支持 float[]，需要转换为 JsonArray
+            com.google.gson.JsonArray embeddingArray = new com.google.gson.JsonArray(vector.length);
+            for (float f : vector) {
+                embeddingArray.add(f);
+            }
+            data.add("embedding", embeddingArray);
 
+            InsertReq insertReq = InsertReq.builder()
+                .collectionName(config.getCollectionName())
+                .data(List.of(data))
+                .build();
+
+            client.insert(insertReq);
             log.info("Milvus 向量保存成功: key={}, dimension={}", key, vector.length);
 
         } catch (Exception e) {
@@ -247,38 +245,44 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         try {
             String expr = buildFilterExpr(filter);
 
-            List<String> outputFields = List.of("novelId", "chapterNum", "content", "keywords", "priority");
-            String searchParams = "{\"ef\":" + Math.max(topK * 2, 64) + "}";
+            Map<String, Object> searchParams = new HashMap<>();
+            searchParams.put("ef", Math.max(topK * 2, 64));
 
-            SearchParam searchParam = SearchParam.newBuilder()
-                .withCollectionName(config.getCollectionName())
-                .withVectors(List.of(queryVector))
-                .withVectorFieldName("embedding")
-                .withExpr(expr)
-                .withTopK(topK)
-                .withMetricType(MetricType.COSINE)
-                .withOutFields(outputFields)
-                .withParams(searchParams)
+            SearchReq searchReq = SearchReq.builder()
+                .collectionName(config.getCollectionName())
+                .data(List.of(new FloatVec(queryVector)))
+                .annsField("embedding")
+                .topK(topK)
+                .metricType(IndexParam.MetricType.COSINE)
+                .outputFields(List.of("novelId", "chapterNum", "content", "keywords", "priority"))
+                .filter(expr)
+                .searchParams(searchParams)
                 .build();
 
-            var response = client.search(searchParam);
-            SearchResultsWrapper wrapper = new SearchResultsWrapper(response.getData().getResults());
-
+            SearchResp response = client.search(searchReq);
             List<VectorSearchResult> results = new ArrayList<>();
-            List<SearchResultsWrapper.IDScore> scores = wrapper.getIDScore(0);
 
-            for (SearchResultsWrapper.IDScore score : scores) {
-                String id = score.get("id").toString();
-                double distance = score.getScore();
-                double similarity = 1.0 - distance;
+            List<List<SearchResp.SearchResult>> searchResults = response.getSearchResults();
+            if (searchResults != null && !searchResults.isEmpty()) {
+                for (SearchResp.SearchResult result : searchResults.get(0)) {
+                    String id = result.getId() != null ? result.getId().toString() : "";
+                    // Milvus COSINE 距离: 0=完全相同, 2=完全相反
+                    // 转换为相似度: similarity = 1 - distance, 范围 [-1, 1]
+                    float score = result.getScore();
+                    double similarity = 1.0 - score;
 
-                Map<String, Object> resultMetadata = new HashMap<>();
-                resultMetadata.put("novelId", score.get("novelId") != null ? score.get("novelId").toString() : "");
-                resultMetadata.put("chapterNum", score.get("chapterNum") != null ? ((Number) score.get("chapterNum")).intValue() : 0);
-                resultMetadata.put("content", score.get("content") != null ? score.get("content").toString() : "");
-                resultMetadata.put("keywords", score.get("keywords") != null ? score.get("keywords").toString() : "");
+                    Map<String, Object> resultMetadata = new HashMap<>();
+                    Map<String, Object> entity = result.getEntity();
+                    if (entity != null) {
+                        resultMetadata.put("novelId", entity.getOrDefault("novelId", ""));
+                        Object chapterNum = entity.get("chapterNum");
+                        resultMetadata.put("chapterNum", chapterNum instanceof Number ? ((Number) chapterNum).intValue() : 0);
+                        resultMetadata.put("content", entity.getOrDefault("content", ""));
+                        resultMetadata.put("keywords", entity.getOrDefault("keywords", ""));
+                    }
 
-                results.add(new VectorSearchResult(id, similarity, resultMetadata));
+                    results.add(new VectorSearchResult(id, similarity, resultMetadata));
+                }
             }
 
             log.info("Milvus 搜索完成: filter={}, topK={}, 返回数={}", filter, topK, results.size());
@@ -294,12 +298,11 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     public void deleteVector(String key) {
         if (client == null) return;
         try {
-            client.delete(
-                DeleteParam.newBuilder()
-                    .withCollectionName(config.getCollectionName())
-                    .withExpr("id == \"" + key.replace("\"", "\\\"") + "\"")
-                    .build()
-            );
+            DeleteReq deleteReq = DeleteReq.builder()
+                .collectionName(config.getCollectionName())
+                .filter("id == \"" + key.replace("\"", "\\\"") + "\"")
+                .build();
+            client.delete(deleteReq);
             log.debug("Milvus 向量删除成功: {}", key);
         } catch (Exception e) {
             log.error("Milvus 删除向量失败: key={}, error={}", key, e.getMessage());
@@ -328,12 +331,17 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         if (client == null) return;
 
         try {
-            QueryCountParam countParam = QueryCountParam.newBuilder()
-                .withCollectionName(config.getCollectionName())
+            // 查询 Milvus 中已有数据量（通过 query 获取）
+            io.milvus.v2.service.vector.request.QueryReq countReq = io.milvus.v2.service.vector.request.QueryReq.builder()
+                .collectionName(config.getCollectionName())
+                .filter("id != \"\"")
+                .outputFields(List.of("id"))
+                .limit(1)
                 .build();
-            long count = client.queryCount(countParam).getData();
-            if (count > 0) {
-                log.info("Milvus collection 已有 {} 条数据，跳过迁移", count);
+            var countResp = client.query(countReq);
+            // 如果能查到数据，说明已有数据，跳过迁移
+            if (countResp != null && countResp.getQueryResults() != null && !countResp.getQueryResults().isEmpty()) {
+                log.info("Milvus collection 已有数据，跳过迁移");
                 return;
             }
 
@@ -344,13 +352,7 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
             int skipped = 0;
             int batchSize = 100;
 
-            List<String> batchIds = new ArrayList<>();
-            List<String> batchNovelIds = new ArrayList<>();
-            List<Long> batchChapterNums = new ArrayList<>();
-            List<String> batchContents = new ArrayList<>();
-            List<String> batchKeywords = new ArrayList<>();
-            List<Long> batchPriorities = new ArrayList<>();
-            List<float[]> batchEmbeddings = new ArrayList<>();
+            List<JsonObject> batchData = new ArrayList<>();
 
             for (ChapterSummary summary : allSummaries) {
                 if (summary.getEmbedding() == null || summary.getEmbedding().isEmpty()) {
@@ -361,33 +363,34 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
                 String key = summary.getNovelId() + ":ch" + summary.getChapterNum();
                 float[] vector = floatListToArray(summary.getEmbedding());
 
-                batchIds.add(key);
-                batchNovelIds.add(summary.getNovelId() != null ? summary.getNovelId() : "");
-                batchChapterNums.add(summary.getChapterNum() != null ? summary.getChapterNum().longValue() : 0L);
-                batchContents.add(summary.getContent() != null ? summary.getContent() : "");
-                batchKeywords.add(summary.getKeywords() != null ? String.join(",", summary.getKeywords()) : "");
-                batchPriorities.add(summary.getPriority() != null ? summary.getPriority().longValue() : 3L);
-                batchEmbeddings.add(vector);
+                JsonObject data = new JsonObject();
+                data.addProperty("id", key);
+                data.addProperty("novelId", summary.getNovelId() != null ? summary.getNovelId() : "");
+                data.addProperty("chapterNum", summary.getChapterNum() != null ? summary.getChapterNum().longValue() : 0L);
+                data.addProperty("content", summary.getContent() != null ? summary.getContent() : "");
+                data.addProperty("keywords", summary.getKeywords() != null ? String.join(",", summary.getKeywords()) : "");
+                data.addProperty("priority", summary.getPriority() != null ? summary.getPriority().longValue() : 3L);
 
-                if (batchIds.size() >= batchSize) {
-                    insertBatch(batchIds, batchNovelIds, batchChapterNums, batchContents,
-                               batchKeywords, batchPriorities, batchEmbeddings);
-                    migrated += batchIds.size();
+                com.google.gson.JsonArray embeddingArray = new com.google.gson.JsonArray(vector.length);
+                for (float f : vector) {
+                    embeddingArray.add(f);
+                }
+                data.add("embedding", embeddingArray);
+
+                batchData.add(data);
+
+                if (batchData.size() >= batchSize) {
+                    insertBatch(batchData);
+                    migrated += batchData.size();
                     log.info("迁移进度: {}/{}", migrated, allSummaries.size() - skipped);
-                    batchIds.clear();
-                    batchNovelIds.clear();
-                    batchChapterNums.clear();
-                    batchContents.clear();
-                    batchKeywords.clear();
-                    batchPriorities.clear();
-                    batchEmbeddings.clear();
+                    batchData.clear();
                 }
             }
 
-            if (!batchIds.isEmpty()) {
-                insertBatch(batchIds, batchNovelIds, batchChapterNums, batchContents,
-                           batchKeywords, batchPriorities, batchEmbeddings);
-                migrated += batchIds.size();
+            // 处理剩余数据
+            if (!batchData.isEmpty()) {
+                insertBatch(batchData);
+                migrated += batchData.size();
             }
 
             log.info("数据迁移完成: 迁移 {} 条, 跳过 {} 条（无 embedding）", migrated, skipped);
@@ -397,24 +400,12 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         }
     }
 
-    private void insertBatch(List<String> ids, List<String> novelIds, List<Long> chapterNums,
-                             List<String> contents, List<String> keywords, List<Long> priorities,
-                             List<float[]> embeddings) {
-        List<InsertParam.Field> fields = new ArrayList<>();
-        fields.add(new InsertParam.Field("id", new ArrayList<>(ids)));
-        fields.add(new InsertParam.Field("novelId", new ArrayList<>(novelIds)));
-        fields.add(new InsertParam.Field("chapterNum", new ArrayList<>(chapterNums)));
-        fields.add(new InsertParam.Field("content", new ArrayList<>(contents)));
-        fields.add(new InsertParam.Field("keywords", new ArrayList<>(keywords)));
-        fields.add(new InsertParam.Field("priority", new ArrayList<>(priorities)));
-        fields.add(new InsertParam.Field("embedding", new ArrayList<>(embeddings)));
-
-        client.insert(
-            InsertParam.newBuilder()
-                .withCollectionName(config.getCollectionName())
-                .withFields(fields)
-                .build()
-        );
+    private void insertBatch(List<JsonObject> batchData) {
+        InsertReq insertReq = InsertReq.builder()
+            .collectionName(config.getCollectionName())
+            .data(batchData)
+            .build();
+        client.insert(insertReq);
     }
 
     private float[] floatListToArray(List<Float> floatList) {
