@@ -53,6 +53,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { chapterApi } from '@/api'
+import { useAutoSave } from '@/utils/autoSave'
 import type { ChapterVO } from '@/types'
 import '@wangeditor/editor/dist/css/style.css'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
@@ -72,6 +73,18 @@ const form = reactive({
   chapterTitle: '',
   content: '',
   plotFingerprint: '',
+})
+
+const chapterData = computed(() => ({
+  chapterTitle: form.chapterTitle,
+  content: form.content,
+  plotFingerprint: form.plotFingerprint,
+}))
+
+const autoSave = useAutoSave({
+  key: `chapter_edit_${route.params.novelId}_${route.params.chapterNum}`,
+  data: chapterData,
+  delay: 3000,
 })
 
 const currentWordCount = computed(() => form.content ? form.content.replaceAll(/\s+/g, '').length : 0)
@@ -108,6 +121,14 @@ onMounted(async () => {
       form.chapterTitle = res.data.chapterTitle || ''
       form.content = res.data.content || ''
       form.plotFingerprint = res.data.plotFingerprint || ''
+
+      if (await autoSave.promptRestore()) {
+        const draft = autoSave.load()
+        if (draft) {
+          Object.assign(form, draft)
+          ElMessage.success('已恢复未保存的编辑')
+        }
+      }
     }
   } finally {
     loading.value = false
@@ -136,6 +157,7 @@ async function handleSave() {
     })
     if (res.code === 200) {
       ElMessage.success('保存成功')
+      autoSave.clear()
       router.push(`/novel/${novelId}/chapter/${chapterNum}`)
     } else {
       ElMessage.error(res.message || '保存失败')
