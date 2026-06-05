@@ -3,6 +3,14 @@
     <el-form :model="form" label-width="100px" v-loading="generating && !taskId" element-loading-text="正在生成章纲...">
       <el-form-item label="章节号">
         <el-input-number v-model="form.chapterNum" :min="1" />
+        <el-alert
+          v-if="isConflict"
+          title="该章节号已存在，提交将覆盖现有章节"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 4px;"
+        />
       </el-form-item>
       <el-form-item label="选择模型">
         <el-select v-model="form.configId" placeholder="选择要使用的模型" style="width: 100%">
@@ -62,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import type { LlmConfigVO } from '@/types'
 import { formatStrand } from '@/utils/format'
 import StyleSelector from '@/components/StyleSelector.vue'
@@ -75,6 +83,7 @@ const props = defineProps<{
   taskId: string
   defaultChapterNum: number
   outlineData?: { outline: string; implementationIdeas: string[] } | null
+  existingChapterNums?: number[]
 }>()
 
 defineEmits<{
@@ -105,6 +114,11 @@ const form = reactive<GenerateForm>({
 watch(() => props.defaultChapterNum, (val) => {
   form.chapterNum = val
 }, { immediate: true })
+
+const isConflict = computed(() => {
+  if (!props.existingChapterNums?.length) return false
+  return props.existingChapterNums.includes(form.chapterNum)
+})
 </script>
 
 <style scoped>
