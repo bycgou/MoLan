@@ -155,7 +155,7 @@
                 </div>
               </template>
 
-              <el-form label-width="90px" class="arc-form">
+              <el-form label-width="90px" class="arc-form" @input="hasEditedArcs = true">
                 <el-form-item label="卷名">
                   <el-input v-model="arc.arcName" placeholder="卷名称" />
                 </el-form-item>
@@ -354,9 +354,10 @@
 import { ref, reactive, computed, onUnmounted, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { wizardApi, llmConfigApi } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import StyleSelector from '@/components/StyleSelector.vue'
+import { createSSEStream, type SSEError } from '@/utils/sse'
 import type { FormRules } from 'element-plus'
 import type { ArcOutlineDTO, ArcChapterOutlineDTO, BatchGenerationProgress } from '@/types'
 
@@ -374,6 +375,7 @@ const llmConfigList = ref<{ configId: string; configName: string }[]>([])
 
 const novelId = ref('')
 const arcs = ref<ArcOutlineDTO[]>([])
+const hasEditedArcs = ref(false)
 const currentArcIndex = ref(0)
 const currentChapterOutlines = ref<ArcChapterOutlineDTO[]>([])
 const outlineGenerationProgress = ref(0)
@@ -464,6 +466,7 @@ const handleGenerateVolumes = async () => {
     })
     if (response.code === 200 && response.data) {
       arcs.value = response.data
+      hasEditedArcs.value = false
       // 自动填充总纲和世界观（如果为空）
       if (!form.totalOutline) {
         form.totalOutline = `全书共${arcs.value.length}卷：` +
@@ -546,6 +549,8 @@ const startChapterOutlineGeneration = () => {
   generateCurrentArcOutlines()
 }
 
+let arcSseHandle: { cancel: () => void } | null = null
+
 const generateCurrentArcOutlines = async () => {
   if (currentArcIndex.value >= arcs.value.length) {
     goToStep(4)
@@ -559,57 +564,36 @@ const generateCurrentArcOutlines = async () => {
   outlineGenerationTotal.value = 0
   outlineGenerationCurrentChapter.value = 0
 
-  try {
-    const response = await wizardApi.generateArcChapterOutlinesStream(
-      novelId.value, currentArcIndex.value
-    )
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('无法读取响应流')
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEventType = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          currentEventType = line.substring(6).trim()
-          continue
-        }
-        if (line.startsWith('data:')) {
-          const data = line.substring(5).trim()
-          try {
-            const parsed = JSON.parse(data)
-            handleSSEEvent(currentEventType || 'unknown', parsed)
-          } catch (e) {
-            console.warn('解析 SSE 数据失败:', data, e)
-          }
-        }
+  arcSseHandle = createSSEStream({
+    url: `/api/wizard/novel/${novelId.value}/arc/${currentArcIndex.value}/chapter-outlines/stream`,
+    body: {},
+    onMessage: (data) => {
+      try {
+        const parsed = JSON.parse(data)
+        handleSSEEvent('unknown', parsed)
+      } catch {
+        // 非 JSON data，忽略
       }
-    }
-
-    ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
-  } catch (error) {
-    console.error('章纲生成失败:', error)
-    ElMessage.error('章纲生成失败，请重试')
-    generationFailed.value = true
-  } finally {
-    generatingChapterOutlines.value = false
-  }
+    },
+    onEvent: (event, data) => {
+      try {
+        const parsed = JSON.parse(data)
+        handleSSEEvent(event, parsed)
+      } catch {
+        console.warn('解析 SSE 数据失败:', data)
+      }
+    },
+    onError: (err: SSEError) => {
+      ElMessage.error(err.message || '章纲生成失败')
+      generationFailed.value = true
+      generatingChapterOutlines.value = false
+    },
+    onDone: () => {
+      generatingChapterOutlines.value = false
+      ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
+    },
+    maxRetries: 2,
+  })
 }
 
 const handleSSEEvent = (type: string, data: any) => {
@@ -749,12 +733,25 @@ const handleCancelBatch = async () => {
   }
 }
 
-const goToStep = (step: number) => {
+const goToStep = async (step: number) => {
+  // 从步骤2回退到步骤0时，如果编辑过卷纲，提示确认
+  if (currentStep.value === 1 && step === 0 && hasEditedArcs.value) {
+    try {
+      await ElMessageBox.confirm(
+        '返回修改设定后，如果重新生成卷纲，当前对卷纲的编辑将被覆盖。确定返回？',
+        '确认返回',
+        { confirmButtonText: '返回', cancelButtonText: '留在当前', type: 'warning' }
+      )
+    } catch {
+      return // 用户取消
+    }
+  }
   currentStep.value = step
 }
 
 onUnmounted(() => {
   stopPolling()
+  arcSseHandle?.cancel()
 })
 </script>
 
