@@ -57,12 +57,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { novelApi } from '@/api'
 import type { NovelVO } from '@/types'
+import { useAutoSave } from '@/utils/autoSave'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,6 +80,20 @@ const form = reactive({
   status: 0,
   totalOutline: '',
   worldSetting: '',
+})
+
+const novelData = computed(() => ({
+  novelName: form.novelName,
+  genre: form.genre,
+  status: form.status,
+  totalOutline: form.totalOutline,
+  worldSetting: form.worldSetting,
+}))
+
+const autoSave = useAutoSave({
+  key: `novel_edit_${route.params.novelId}`,
+  data: novelData,
+  delay: 2000,
 })
 
 const rules: FormRules = {
@@ -100,6 +115,14 @@ onMounted(async () => {
       form.status = res.data.status
       form.totalOutline = res.data.totalOutline || ''
       form.worldSetting = res.data.worldSetting || ''
+
+      if (await autoSave.promptRestore()) {
+        const draft = autoSave.load()
+        if (draft) {
+          Object.assign(form, draft)
+          ElMessage.success('已恢复未保存的编辑')
+        }
+      }
     }
   } finally {
     loading.value = false
@@ -115,6 +138,7 @@ async function handleSave() {
     const res = await novelApi.updateNovel(novelId, form)
     if (res.code === 200) {
       ElMessage.success('保存成功')
+      autoSave.clear()
       router.push(`/novel/${novelId}`)
     } else {
       ElMessage.error(res.message || '保存失败')
