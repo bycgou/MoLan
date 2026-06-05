@@ -53,17 +53,29 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // 验证时间缓存（供路由守卫使用）
+  const lastVerifiedAt = ref(0)
+
   async function fetchUser() {
     if (!token.value) return
     try {
       const res = await authApi.getCurrentUser()
       if (res.code === 200) {
         user.value = res.data
+        lastVerifiedAt.value = Date.now()
       }
-    } catch {
-      // token 过期，清除
-      logout()
+    } catch (err: any) {
+      // 仅对 401 清除 token，网络错误保留
+      if (err?.response?.status === 401) {
+        logout()
+        lastVerifiedAt.value = 0
+      }
+      // 网络错误不清除 token，下次请求会重试
     }
+  }
+
+  function resetVerifyCache() {
+    lastVerifiedAt.value = 0
   }
 
   function logout() {
@@ -79,9 +91,11 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     username,
     role,
+    lastVerifiedAt,
     login,
     register,
     fetchUser,
     logout,
+    resetVerifyCache,
   }
 })
