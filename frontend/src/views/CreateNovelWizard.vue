@@ -339,7 +339,7 @@
             </div>
 
             <div v-if="batchProgress.status === 'COMPLETED' || batchProgress.status === 'CANCELLED'" class="step-actions">
-              <el-button type="primary" @click="router.push(`/novel/${novelId}`)">
+              <el-button type="primary" @click="autoSave.clear(); router.push(`/novel/${novelId}`)">
                 进入小说详情页
               </el-button>
             </div>
@@ -358,6 +358,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import StyleSelector from '@/components/StyleSelector.vue'
 import { createSSEStream, type SSEError } from '@/utils/sse'
+import { useAutoSave } from '@/utils/autoSave'
 import type { FormRules } from 'element-plus'
 import type { ArcOutlineDTO, ArcChapterOutlineDTO, BatchGenerationProgress } from '@/types'
 
@@ -432,6 +433,23 @@ const batchStatusText = computed(() => {
   }
 })
 
+// 向导状态持久化
+const wizardDraft = computed(() => ({
+  currentStep: currentStep.value,
+  form: { ...form },
+  arcs: arcs.value,
+  novelId: novelId.value,
+  currentArcIndex: currentArcIndex.value,
+  currentChapterOutlines: currentChapterOutlines.value,
+  hasEditedArcs: hasEditedArcs.value,
+}))
+
+const autoSave = useAutoSave({
+  key: 'wizard_draft',
+  data: wizardDraft,
+  delay: 2000,
+})
+
 onMounted(async () => {
   try {
     const res = await llmConfigApi.getConfigList()
@@ -440,6 +458,21 @@ onMounted(async () => {
     }
   } catch (e) {
     console.warn('加载LLM配置列表失败:', e)
+  }
+
+  // 检查并恢复草稿
+  if (await autoSave.promptRestore()) {
+    const draft = autoSave.load()
+    if (draft) {
+      currentStep.value = draft.currentStep || 0
+      Object.assign(form, draft.form || {})
+      arcs.value = draft.arcs || []
+      novelId.value = draft.novelId || ''
+      currentArcIndex.value = draft.currentArcIndex || 0
+      currentChapterOutlines.value = draft.currentChapterOutlines || []
+      hasEditedArcs.value = draft.hasEditedArcs || false
+      ElMessage.success('已恢复向导进度')
+    }
   }
 })
 
