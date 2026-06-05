@@ -83,36 +83,50 @@ const router = createRouter({
 })
 
 // 路由守卫
-let isVerifying = false
+const VERIFY_CACHE_TTL = 60_000 // 60秒内不重复验证
 
 router.beforeEach(async (to, _from, next) => {
   const token = localStorage.getItem('token')
   const isGuestRoute = to.meta.guest
 
   if (!token && !isGuestRoute) {
-    // 未登录 → 跳转 /login
     next('/login')
-  } else if (token && isGuestRoute) {
-    // 已登录访问登录页 → 跳转 /novels
+    return
+  }
+
+  if (token && isGuestRoute) {
     next('/novels')
-  } else if (token && !isGuestRoute && !isVerifying) {
-    // 有Token但需验证有效性
-    isVerifying = true
+    return
+  }
+
+  if (token && !isGuestRoute) {
     try {
       const { useAuthStore } = await import('@/stores/authStore')
       const authStore = useAuthStore()
+
+      // 60秒缓存内跳过验证
+      const now = Date.now()
+      if (now - authStore.lastVerifiedAt < VERIFY_CACHE_TTL) {
+        next()
+        return
+      }
+
       await authStore.fetchUser()
-      // fetchUser失败会logout并抛异常，走到catch
-      isVerifying = false
+
+      if (!authStore.isLoggedIn) {
+        // fetchUser 中 401 已触发 logout，跳转登录页并携带 redirect
+        next({ path: '/login', query: { redirect: to.fullPath } })
+        return
+      }
+
       next()
     } catch {
-      isVerifying = false
-      localStorage.removeItem('token')
-      next('/login')
+      next({ path: '/login', query: { redirect: to.fullPath } })
     }
-  } else {
-    next()
+    return
   }
+
+  next()
 })
 
 export default router
