@@ -31,7 +31,7 @@
           </span>
         </div>
       </div>
-      <div class="rewrite-stream">
+      <div class="rewrite-stream" ref="contentRef">
         {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
       </div>
       <div v-if="streamValidationSummary" class="rewrite-validation">
@@ -60,8 +60,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, watch, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { createSSEStream, type SSEError } from '@/utils/sse'
 
 const props = defineProps<{
   visible: boolean
@@ -83,6 +84,16 @@ const streamCheckpoints = ref<Array<{ node: string; action: string; rationale: s
 const starting = ref(false)
 let streamAbortController: AbortController | null = null
 
+const contentRef = ref<HTMLDivElement | null>(null)
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (contentRef.value) {
+      contentRef.value.scrollTop = contentRef.value.scrollHeight
+    }
+  })
+}
+
 watch(() => props.visible, (val) => {
   if (val) {
     userInstruction.value = ''
@@ -94,6 +105,8 @@ watch(() => props.visible, (val) => {
   }
 })
 
+let sseHandle: { cancel: () => void } | null = null
+
 async function startRewrite() {
   starting.value = true
   streamingContent.value = ''
@@ -101,148 +114,90 @@ async function startRewrite() {
   streamValidationSummary.value = ''
   streamCheckpoints.value = []
 
-  streamAbortController = new AbortController()
-  const timeoutId = setTimeout(() => streamAbortController?.abort(), 10 * 60 * 1000)
-
-  try {
-    const token = localStorage.getItem('token') || ''
-    const body = JSON.stringify({
+  sseHandle = createSSEStream({
+    url: '/api/chapter/stream-write',
+    body: {
       novelId: props.novelId,
       chapterNum: props.chapterNum,
       outline: props.chapterOutline,
       userInstruction: userInstruction.value.trim() || undefined,
-    })
-
-    const response = await fetch('/api/chapter/stream-write', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body,
-      signal: streamAbortController.signal,
-    })
-
-    if (!response.ok) {
-      const errText = await response.text()
-      ElMessage.error(`重写失败: ${errText}`)
-      streamingStatus.value = 'error'
-      return
-    }
-
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-    if (!reader) { streamingStatus.value = 'error'; return }
-
-    let receivedComplete = false
-    let currentEventName = ''
-    let reachedCharactersMarker = false
-
-    function processSSELine(line: string) {
-      if (line.startsWith('event:')) {
-        currentEventName = line.slice(6).trim()
-        return
+    },
+    onOpen: () => {
+      starting.value = false
+    },
+    onMessage: (data) => {
+      if (data.includes('---CHARACTERS---')) {
+        const before = data.substring(0, data.indexOf('---CHARACTERS---'))
+        if (before) streamingContent.value += before
+      } else {
+        streamingContent.value += data
       }
-      if (line.startsWith('data:')) {
-        const data = line.slice(5).trim()
-        if (!data) return
-
-        if (currentEventName === 'checkpoint') {
-          try {
-            const cp = JSON.parse(data)
-            streamCheckpoints.value.push(cp)
-          } catch { /* ignore */ }
-          currentEventName = ''
-        } else if (currentEventName === 'complete') {
+      scrollToBottom()
+    },
+    onEvent: (event, data) => {
+      if (event === 'checkpoint') {
+        try {
+          streamCheckpoints.value.push(JSON.parse(data))
+        } catch { /* ignore */ }
+      } else if (event === 'complete') {
+        streamValidationSummary.value = data
+      } else if (event === 'validation_result') {
+        try {
+          const parsed = JSON.parse(data)
+          if (parsed.summary) streamValidationSummary.value = parsed.summary
+        } catch {
           streamValidationSummary.value = data
-          receivedComplete = true
-          currentEventName = ''
-        } else if (currentEventName === 'validation_result') {
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.summary) streamValidationSummary.value = parsed.summary
-          } catch {
-            streamValidationSummary.value = data
-          }
-          currentEventName = ''
-        } else {
-          if (!reachedCharactersMarker) {
-            const markerIdx = data.indexOf('---CHARACTERS---')
-            if (markerIdx >= 0) {
-              const before = data.substring(0, markerIdx)
-              if (before) streamingContent.value += before
-              reachedCharactersMarker = true
-            } else {
-              streamingContent.value += data
-            }
-          }
-          currentEventName = ''
         }
       }
-    }
-
-    let buffer = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (buffer.trim()) processSSELine(buffer.trim())
-        break
-      }
-      const chunk = decoder.decode(value, { stream: true })
-      buffer += chunk
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        processSSELine(line)
-      }
-    }
-
-    clearTimeout(timeoutId)
-
-    if (receivedComplete || streamingContent.value) {
-      streamingStatus.value = 'completed'
-      starting.value = false
-      emit('rewritten')
-    } else {
-      streamingStatus.value = 'error'
-      starting.value = false
-      ElMessage.error('重写失败: 未收到任何内容')
-    }
-  } catch (error: any) {
-    clearTimeout(timeoutId)
-    if (error.name === 'AbortError') {
-      streamingStatus.value = 'error'
-      starting.value = false
-      ElMessage.info('已取消重写')
-    } else {
+    },
+    onError: (err: SSEError) => {
       if (streamingContent.value) {
         streamingStatus.value = 'completed'
-        starting.value = false
         emit('rewritten')
       } else {
         streamingStatus.value = 'error'
-        starting.value = false
-        ElMessage.error('重写失败: ' + (error.message || '未知错误'))
+        ElMessage.error(err.message)
       }
-    }
-  } finally {
-    streamAbortController = null
-  }
+      starting.value = false
+    },
+    onDone: () => {
+      if (streamingContent.value) {
+        streamingStatus.value = 'completed'
+        emit('rewritten')
+      } else {
+        streamingStatus.value = 'error'
+        ElMessage.error('重写失败: 未收到任何内容')
+      }
+      starting.value = false
+    },
+    signal: streamAbortController?.signal,
+    maxRetries: 2,
+  })
 }
 
 async function cancelRewrite() {
+  sseHandle?.cancel()
   try {
     await fetch(`/api/chapter/cancel?novelId=${props.novelId}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     })
-    streamAbortController?.abort()
-    ElMessage.info('已发送取消请求')
-  } catch { ElMessage.error('取消失败') }
+  } catch { /* ignore */ }
+  streamingStatus.value = 'error'
+  ElMessage.info('已取消重写')
 }
 
 async function savePartial() {
   if (!streamingContent.value) return
+  try {
+    await ElMessageBox.confirm(
+      '改写后的内容将覆盖原章节，原内容会保留在版本历史中。确定保存？',
+      '确认保存改写',
+      { confirmButtonText: '保存', cancelButtonText: '再想想', type: 'warning' }
+    )
+  } catch {
+    return
+  }
   try {
     const token = localStorage.getItem('token') || ''
     const res = await fetch('/api/chapter/stream-save', {
@@ -276,6 +231,8 @@ function onClose() {
 }
 
 function onClosed() {
+  sseHandle?.cancel()
+  sseHandle = null
   if (streamAbortController) {
     streamAbortController.abort()
     streamAbortController = null
