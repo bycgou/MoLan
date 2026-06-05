@@ -1,6 +1,31 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ApiResponse } from '@/types'
+
+// 错误消息映射
+const ERROR_MESSAGES: Record<number, string> = {
+  400: '请求参数有误，请检查输入',
+  401: '登录已过期，请重新登录',
+  403: '没有权限执行此操作',
+  404: '请求的资源不存在',
+  408: '请求超时，请稍后重试',
+  429: '请求过于频繁，请稍后重试',
+  500: '服务器内部错误，请稍后重试',
+  502: '服务暂时不可用，请稍后重试',
+  503: '服务暂时不可用，请稍后重试',
+}
+
+// 并发 401 全局锁
+let isHandling401 = false
+
+// 重试延迟工具函数
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isRetryableError(status?: number): boolean {
+  return status === 502 || status === 503 || status === 504 || status === undefined
+}
 
 const api = axios.create({
   baseURL: '/api',
@@ -22,33 +47,59 @@ api.interceptors.request.use(
   (error) => Promise.reject(error),
 )
 
-// ========== 响应拦截器：统一错误处理 ==========
+// ========== 响应拦截器：统一错误处理 + 重试 ==========
 api.interceptors.response.use(
   (response) => {
+    // ApiResponse.code 业务码校验
+    const data = response.data
+    if (data && typeof data.code === 'number' && data.code !== 200 && data.code !== 0) {
+      const msg = data.message || '操作失败'
+      ElMessage.error(msg)
+      return Promise.reject(new Error(msg))
+    }
     return response
   },
-  (error) => {
+  async (error) => {
+    const config = error.config
     const status = error.response?.status
-    const msg = error.response?.data?.message
 
-    if (status === 401) {
-      // 清除本地 token 并跳转登录
-      localStorage.removeItem('token')
-      ElMessage.error('登录已过期，请重新登录')
-      window.location.href = '/login'
-    } else if (status === 500) {
-      ElMessage.error(msg || '服务器内部错误')
-    } else if (status === 403) {
-      ElMessage.error('没有权限访问该资源')
-    } else if (status === 404) {
-      ElMessage.error(msg || '请求的资源不存在')
-    } else if (status === 400) {
-      ElMessage.error(msg || '请求参数错误')
-    } else if (!error.response) {
-      ElMessage.error('网络连接失败，请检查网络')
-    } else {
-      ElMessage.error(msg || `请求失败 (${status})`)
+    // GET 请求自动重试（5xx / 网络无响应）
+    if (
+      config?.method?.toUpperCase() === 'GET' &&
+      isRetryableError(status) &&
+      (config.__retryCount || 0) < 2
+    ) {
+      config.__retryCount = (config.__retryCount || 0) + 1
+      await delay(1000 * config.__retryCount)
+      return api(config)
     }
+
+    // 401 非破坏性处理（并发锁）
+    if (status === 401) {
+      if (!isHandling401) {
+        isHandling401 = true
+        localStorage.removeItem('token')
+        try {
+          await ElMessageBox.confirm(
+            '登录已过期，是否跳转到登录页重新登录？',
+            '登录过期',
+            { confirmButtonText: '去登录', cancelButtonText: '留在当前', type: 'warning' }
+          )
+          const { useAuthStore } = await import('@/stores/authStore')
+          useAuthStore().logout()
+          window.location.href = '/login'
+        } catch {
+          // 用户选择留在当前页
+        } finally {
+          isHandling401 = false
+        }
+      }
+      return Promise.reject(error)
+    }
+
+    // 其他错误友好化提示
+    const msg = ERROR_MESSAGES[status || 0] || error.response?.data?.message || `请求失败 (${status})`
+    ElMessage.error(msg)
 
     return Promise.reject(error)
   },
