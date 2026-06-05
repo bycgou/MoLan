@@ -306,8 +306,8 @@ const handleSubmit = async () => {
       ElMessage.error(response.message || '创建失败')
     }
   } catch (error) {
+    // Axios 拦截器已显示友好错误消息，此处不再重复提示
     console.error('创建小说失败:', error)
-    ElMessage.error('创建失败，请检查输入')
   } finally {
     submitting.value = false
   }
@@ -347,7 +347,6 @@ const handleAutoGenerate = async () => {
     }
   } catch (error) {
     console.error('自动生成大纲失败:', error)
-    ElMessage.error('网络请求失败，请稍后重试')
   } finally {
     generating.value = false
   }
