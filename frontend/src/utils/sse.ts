@@ -15,6 +15,8 @@ export interface SSEOptions {
   token?: string
   /** POST body，存在时使用 POST，否则 GET */
   body?: object
+  /** 正在建立连接（首次连接或重连时触发） */
+  onConnecting?: () => void
   /** 连接建立后回调 */
   onOpen?: () => void
   /** 收到纯 data 消息时回调 */
@@ -55,6 +57,7 @@ export function createSSEStream(options: SSEOptions): { cancel: () => void } {
     url,
     token,
     body,
+    onConnecting,
     onOpen,
     onMessage,
     onEvent,
@@ -79,6 +82,7 @@ export function createSSEStream(options: SSEOptions): { cancel: () => void } {
 
     while (!cancelled) {
       internalAbort = new AbortController()
+      onConnecting?.()
 
       // 如果外部 signal 已 abort，直接退出
       if (signal?.aborted) {

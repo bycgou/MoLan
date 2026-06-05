@@ -2,11 +2,11 @@
   <el-dialog
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
-    :title="streamingStatus === 'generating' ? 'AI 正在重写...' : streamingStatus === 'completed' ? '重写完成' : 'AI 重写章节'"
+    :title="streamingStatus === 'connecting' ? '正在连接...' : streamingStatus === 'generating' ? 'AI 正在重写...' : streamingStatus === 'completed' ? '重写完成' : 'AI 重写章节'"
     width="800px"
-    :close-on-click-modal="streamingStatus !== 'generating'"
-    :close-on-press-escape="streamingStatus !== 'generating'"
-    :show-close="streamingStatus !== 'generating'"
+    :close-on-click-modal="streamingStatus !== 'generating' && streamingStatus !== 'connecting'"
+    :close-on-press-escape="streamingStatus !== 'generating' && streamingStatus !== 'connecting'"
+    :show-close="streamingStatus !== 'generating' && streamingStatus !== 'connecting'"
     @closed="onClosed"
   >
     <!-- 输入区域：仅在 idle 状态显示 -->
@@ -24,15 +24,25 @@
     <div v-if="streamingStatus !== 'idle'" class="rewrite-content">
       <!-- AuthorAgent 检查点时间线 -->
       <div v-if="streamCheckpoints.length > 0" class="rewrite-checkpoints">
-        <div v-for="(cp, i) in streamCheckpoints" :key="i" class="rewrite-checkpoint-item" :title="cp.rationale">
+        <div v-for="(cp, i) in streamCheckpoints" :key="i" class="rewrite-checkpoint-item">
           <span class="rewrite-cp-node">{{ { outline: '章纲审查', writing: '正文审查', audit_router: '终审决策' }[cp.node] || cp.node }}</span>
           <span class="rewrite-cp-action" :class="'cp-' + cp.action.toLowerCase()">
             {{ { APPROVE: '通过', REVISE: '修订', REJECT: '驳回', REDIRECT: '重定向' }[cp.action] || cp.action }}
           </span>
+          <el-popover v-if="cp.rationale" placement="top" :width="300" trigger="click">
+            <template #reference>
+              <el-button text size="small" type="info">详情</el-button>
+            </template>
+            <p style="margin: 0; font-size: 13px; line-height: 1.6;">{{ cp.rationale }}</p>
+          </el-popover>
         </div>
       </div>
       <div class="rewrite-stream" ref="contentRef">
         {{ streamingContent }}<span v-if="streamingStatus === 'generating'" class="cursor-blink">▌</span>
+      </div>
+      <div v-if="streamingContent" class="rewrite-actions-bar">
+        <el-button size="small" @click="copyContent" :icon="DocumentCopy">复制全部</el-button>
+        <span class="rewrite-word-count">{{ streamingContent.length }} 字</span>
       </div>
       <div v-if="streamValidationSummary" class="rewrite-validation">
         校验提示：{{ streamValidationSummary }}
@@ -44,7 +54,7 @@
         <el-button @click="$emit('update:visible', false)">取消</el-button>
         <el-button type="warning" @click="startRewrite" :loading="starting">开始重写</el-button>
       </template>
-      <template v-else-if="streamingStatus === 'generating'">
+      <template v-else-if="streamingStatus === 'connecting' || streamingStatus === 'generating'">
         <el-button type="danger" @click="cancelRewrite">取消重写</el-button>
       </template>
       <template v-else-if="streamingStatus === 'completed'">
@@ -63,6 +73,7 @@
 import { ref, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createSSEStream, type SSEError } from '@/utils/sse'
+import { DocumentCopy } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   visible: boolean
@@ -78,7 +89,7 @@ const emit = defineEmits<{
 
 const userInstruction = ref('')
 const streamingContent = ref('')
-const streamingStatus = ref<'idle' | 'generating' | 'completed' | 'error'>('idle')
+const streamingStatus = ref<'idle' | 'connecting' | 'generating' | 'completed' | 'error'>('idle')
 const streamValidationSummary = ref('')
 const streamCheckpoints = ref<Array<{ node: string; action: string; rationale: string }>>([])
 const starting = ref(false)
@@ -92,6 +103,15 @@ function scrollToBottom() {
       contentRef.value.scrollTop = contentRef.value.scrollHeight
     }
   })
+}
+
+async function copyContent() {
+  try {
+    await navigator.clipboard.writeText(streamingContent.value)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
 }
 
 watch(() => props.visible, (val) => {
@@ -110,7 +130,7 @@ let sseHandle: { cancel: () => void } | null = null
 async function startRewrite() {
   starting.value = true
   streamingContent.value = ''
-  streamingStatus.value = 'generating'
+  streamingStatus.value = 'connecting'
   streamValidationSummary.value = ''
   streamCheckpoints.value = []
 
@@ -122,7 +142,11 @@ async function startRewrite() {
       outline: props.chapterOutline,
       userInstruction: userInstruction.value.trim() || undefined,
     },
+    onConnecting: () => {
+      streamingStatus.value = 'connecting'
+    },
     onOpen: () => {
+      streamingStatus.value = 'generating'
       starting.value = false
     },
     onMessage: (data) => {
@@ -306,4 +330,17 @@ function onClosed() {
 .cp-revise { color: #e6a23c; font-weight: 600; }
 .cp-reject { color: #f56c6c; font-weight: 600; }
 .cp-redirect { color: #409eff; font-weight: 600; }
+
+.rewrite-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 8px 0;
+}
+
+.rewrite-word-count {
+  font-size: 12px;
+  color: #909399;
+}
 </style>
