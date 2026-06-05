@@ -110,12 +110,13 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, UserFilled, Lock, Message } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const activeTab = ref('login')
@@ -144,7 +145,8 @@ async function handleLogin() {
   const result = await authStore.login(loginForm)
   if (result.success) {
     ElMessage.success('登录成功')
-    router.push('/novels')
+    const redirect = route.query.redirect as string
+    router.push(redirect || '/novels')
   } else {
     ElMessage.error(result.message || '登录失败')
   }
@@ -198,7 +200,8 @@ async function handleRegister() {
   const result = await authStore.register({ username, nickname, email, password })
   if (result.success) {
     ElMessage.success('注册成功')
-    router.push('/novels')
+    const redirect = route.query.redirect as string
+    router.push(redirect || '/novels')
   } else {
     ElMessage.error(result.message || '注册失败')
   }
