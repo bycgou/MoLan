@@ -43,7 +43,7 @@
           <el-button size="small" @click="$emit('edit-chapter', chapter.chapterNum)">编辑</el-button>
           <el-button size="small" type="warning" plain @click="$emit('rewrite-chapter', chapter.chapterNum)">重写</el-button>
           <el-button size="small" @click="$emit('analyze-hook', chapter.chapterNum)">钩子</el-button>
-          <el-button size="small" type="danger" plain @click="$emit('delete-chapter', chapter.chapterNum)">删除</el-button>
+          <el-button size="small" type="danger" plain @click="confirmDelete(chapter.chapterNum)">删除</el-button>
         </div>
       </div>
       <el-empty v-if="chapters.length === 0" description="暂无章节，点击生成开始创作！" />
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { Edit, Monitor, MagicStick, Delete, Download, Connection, Calendar } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
 import type { ChapterListItem } from '@/types'
 import { getStrandType, formatStrand } from '@/utils/format'
 
@@ -60,7 +61,7 @@ defineProps<{
   chapters: ChapterListItem[]
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'recycle-bin': []
   export: []
   'geek-mode': []
@@ -74,6 +75,19 @@ defineEmits<{
   'analyze-hook': [chapterNum: number]
   'delete-chapter': [chapterNum: number]
 }>()
+
+async function confirmDelete(chapterNum: number) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除第 ${chapterNum} 章吗？删除后可在回收站中恢复。`,
+      '确认删除',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    emit('delete-chapter', chapterNum)
+  } catch {
+    // 用户取消
+  }
+}
 </script>
 
 <style scoped>
