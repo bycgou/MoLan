@@ -195,6 +195,8 @@ import { styleApi } from '@/api/style'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import StyleSelector from '@/components/StyleSelector.vue'
+import { useAutoSave } from '@/utils/autoSave'
+import { computed as vueComputed } from 'vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -214,6 +216,13 @@ const form = reactive({
   totalOutline: '',
   worldSetting: '',
   styleCardId: ''  // 文风卡片ID
+})
+
+const formData = vueComputed(() => ({ ...form }))
+const autoSave = useAutoSave({
+  key: 'create_novel',
+  data: formData,
+  delay: 2000,
 })
 
 const rules: FormRules = {
@@ -301,6 +310,7 @@ const handleSubmit = async () => {
         }
       }
       ElMessage.success('小说创建成功！')
+      autoSave.clear()
       router.push(`/novel/${response.data.novelId}`)
     } else {
       ElMessage.error(response.message || '创建失败')
@@ -352,10 +362,19 @@ const handleAutoGenerate = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   const styleCardId = route.query.styleCardId as string
   if (styleCardId) {
     form.styleCardId = styleCardId
+  }
+
+  // 检查并恢复草稿
+  if (await autoSave.promptRestore()) {
+    const draft = autoSave.load()
+    if (draft) {
+      Object.assign(form, draft)
+      ElMessage.success('已恢复草稿')
+    }
   }
 })
 </script>
