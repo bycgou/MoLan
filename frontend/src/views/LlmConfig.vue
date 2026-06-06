@@ -115,7 +115,7 @@
           <div class="form-tip">Embedding 模型用于文本向量化（如 qwen3-embedding、nomic-embed-text）</div>
         </el-form-item>
         
-        <el-form-item label="API地址">
+        <el-form-item label="API地址" prop="baseUrl">
           <el-input 
             v-model="form.baseUrl" 
             type="textarea"
@@ -243,6 +243,10 @@ const rules: FormRules = {
   ],
   apiKey: [
     { required: true, message: '请输入API Key', trigger: 'blur' }
+  ],
+  baseUrl: [
+    { required: true, message: '请输入API地址', trigger: 'blur' },
+    { pattern: /^https?:\/\/.+/, message: '请输入有效的URL地址', trigger: 'blur' }
   ]
 }
 

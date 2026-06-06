@@ -155,7 +155,7 @@ const createRules: FormRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
   clueType: [{ required: true, message: '请选择类型', trigger: 'change' }],
   description: [{ required: true, message: '请输入描述', trigger: 'blur' }],
-  plantedChapter: [{ required: true, message: '请输入埋设章节', trigger: 'blur' }],
+  plantedChapter: [{ required: true, message: '请输入埋设章节', trigger: 'change' }],
 }
 
 // 回收对话框

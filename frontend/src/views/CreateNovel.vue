@@ -236,6 +236,10 @@ const rules: FormRules = {
   totalOutline: [
     { required: true, message: '请输入小说总纲', trigger: 'blur' },
     { min: 50, message: '总纲至少50个字符', trigger: 'blur' }
+  ],
+  worldSetting: [
+    { required: true, message: '请输入世界观设定', trigger: 'blur' },
+    { min: 10, message: '世界观设定至少10个字符', trigger: 'blur' }
   ]
 }
 
