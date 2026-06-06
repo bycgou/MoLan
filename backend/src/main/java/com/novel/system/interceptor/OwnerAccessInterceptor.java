@@ -1,5 +1,7 @@
 package com.novel.system.interceptor;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.StyleCard;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Slf4j
@@ -24,6 +27,11 @@ public class OwnerAccessInterceptor implements HandlerInterceptor {
     private final NovelBaseMapper novelBaseMapper;
     private final LlmConfigMapper llmConfigMapper;
     private final StyleCardMapper styleCardMapper;
+
+    private final Cache<String, Boolean> ownershipCache = Caffeine.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(Duration.ofMinutes(5))
+            .build();
 
     @Override
     @SuppressWarnings("unchecked")
@@ -70,18 +78,27 @@ public class OwnerAccessInterceptor implements HandlerInterceptor {
         return true;
     }
 
-    private boolean checkNovelOwnership(String novelId, String userId) {
-        NovelBase novel = novelBaseMapper.selectById(novelId);
-        return novel != null && userId.equals(novel.getUserId());
+    boolean checkNovelOwnership(String novelId, String userId) {
+        String cacheKey = "novel:" + userId + ":" + novelId;
+        return ownershipCache.get(cacheKey, key -> {
+            NovelBase novel = novelBaseMapper.selectById(novelId);
+            return novel != null && userId.equals(novel.getUserId());
+        });
     }
 
-    private boolean checkConfigOwnership(String configId, String userId) {
-        LlmConfig config = llmConfigMapper.selectById(configId);
-        return config != null && userId.equals(config.getUserId());
+    boolean checkConfigOwnership(String configId, String userId) {
+        String cacheKey = "config:" + userId + ":" + configId;
+        return ownershipCache.get(cacheKey, key -> {
+            LlmConfig config = llmConfigMapper.selectById(configId);
+            return config != null && userId.equals(config.getUserId());
+        });
     }
 
-    private boolean checkStyleCardOwnership(String cardId, String userId) {
-        StyleCard card = styleCardMapper.selectById(cardId);
-        return card != null && userId.equals(card.getCreatedBy());
+    boolean checkStyleCardOwnership(String cardId, String userId) {
+        String cacheKey = "card:" + userId + ":" + cardId;
+        return ownershipCache.get(cacheKey, key -> {
+            StyleCard card = styleCardMapper.selectById(cardId);
+            return card != null && userId.equals(card.getCreatedBy());
+        });
     }
 }
