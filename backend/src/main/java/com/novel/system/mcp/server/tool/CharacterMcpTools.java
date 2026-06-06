@@ -119,7 +119,7 @@ public class CharacterMcpTools extends BaseMcpTools {
     private String createCharacter(String novelId, String characterName,
                                     String coreTraits, String voiceStyle, String background) {
         CharacterState character = new CharacterState();
-        character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+        character.setCharacterId(UUID.randomUUID().toString().replace("-", ""));
         character.setNovelId(novelId);
         character.setCharacterName(characterName);
         if (coreTraits != null && !coreTraits.isEmpty()) {

@@ -58,11 +58,19 @@ public class CharacterController {
      * 获取小说所有人物
      */
     @GetMapping("/list")
-    public ApiResponse<List<CharacterResponse>> getCharacters(@PathVariable String novelId) {
+    public ApiResponse<List<CharacterResponse>> getCharacters(
+            @PathVariable String novelId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") int size) {
         List<CharacterState> characters = characterStateService.getCharactersByNovelId(novelId);
         List<CharacterResponse> responses = characters.stream()
             .map(this::convertToCharacterResponse)
             .collect(Collectors.toList());
+        if (size > 0) {
+            int from = Math.min(page * size, responses.size());
+            int to = Math.min(from + size, responses.size());
+            return ApiResponse.success(responses.subList(from, to));
+        }
         return ApiResponse.success(responses);
     }
     
@@ -153,7 +161,7 @@ public class CharacterController {
     }
     
     private String generateId() {
-        return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 32);
+        return java.util.UUID.randomUUID().toString().replace("-", "");
     }
     
     private CharacterResponse convertToCharacterResponse(CharacterState character) {

@@ -34,7 +34,7 @@ public class ClueController {
         log.info("创建伏笔，小说ID: {}", novelId);
         
         ClueBook clue = new ClueBook();
-        clue.setClueId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+        clue.setClueId(UUID.randomUUID().toString().replace("-", ""));
         clue.setNovelId(novelId);
         clue.setClueContent(request.getClueContent());
         clue.setPriority(request.getPriority() != null ? request.getPriority() : 2);
@@ -53,11 +53,19 @@ public class ClueController {
      * 获取小说所有伏笔
      */
     @GetMapping("/list")
-    public ApiResponse<List<ClueResponse>> getClues(@PathVariable String novelId) {
+    public ApiResponse<List<ClueResponse>> getClues(
+            @PathVariable String novelId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") int size) {
         List<ClueBook> clues = clueBookService.getCluesByNovelId(novelId);
         List<ClueResponse> responses = clues.stream()
             .map(this::convertToClueResponse)
             .collect(Collectors.toList());
+        if (size > 0) {
+            int from = Math.min(page * size, responses.size());
+            int to = Math.min(from + size, responses.size());
+            return ApiResponse.success(responses.subList(from, to));
+        }
         return ApiResponse.success(responses);
     }
     

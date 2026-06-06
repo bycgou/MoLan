@@ -77,7 +77,7 @@ public class EventExtractionService {
             for (Map<String, Object> data : extracted) {
                 try {
                     EventNode node = new EventNode();
-                    node.setEventId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                    node.setEventId(UUID.randomUUID().toString().replace("-", ""));
                     node.setNovelId(novelId);
                     node.setChapter(chapterNum);
                     node.setType(getStringOrDefault(data, "type", "action"));

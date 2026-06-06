@@ -197,7 +197,7 @@ public class ChapterPostProcessService {
                 if (isNew && !existingNames.contains(name)) {
                     try {
                         CharacterState character = new CharacterState();
-                        character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                        character.setCharacterId(UUID.randomUUID().toString().replace("-", ""));
                         character.setNovelId(novelId);
                         character.setCharacterName(name);
                         character.setRole("龙套");
@@ -311,7 +311,7 @@ public class ChapterPostProcessService {
                 if (isNew && !existingNames.contains(name)) {
                     try {
                         CharacterState character = new CharacterState();
-                        character.setCharacterId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                        character.setCharacterId(UUID.randomUUID().toString().replace("-", ""));
                         character.setNovelId(novelId);
                         character.setCharacterName(name);
                         character.setRole("龙套");
@@ -490,7 +490,7 @@ public class ChapterPostProcessService {
 
                 try {
                     ClueBook clue = new ClueBook();
-                    clue.setClueId(UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                    clue.setClueId(UUID.randomUUID().toString().replace("-", ""));
                     clue.setNovelId(novelId);
                     clue.setClueContent(clueContent);
                     clue.setPriority(clueData.get("priority") != null
@@ -620,7 +620,7 @@ public class ChapterPostProcessService {
             for (ContentExtractorService.DialogueEvent d : dialogues) {
                 com.novel.system.entity.mongo.EventNode node =
                     new com.novel.system.entity.mongo.EventNode();
-                node.setEventId(java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 32));
+                node.setEventId(java.util.UUID.randomUUID().toString().replace("-", ""));
                 node.setNovelId(novelId);
                 node.setChapter(chapterNum);
                 node.setType("dialogue");
