@@ -59,12 +59,20 @@ public class NovelController {
 
     @GetMapping("/list")
     public ApiResponse<List<NovelResponse>> getNovelList(HttpServletRequest httpRequest,
-                                                          @RequestParam(required = false) Boolean isDeleted) {
+                                                          @RequestParam(required = false) Boolean isDeleted,
+                                                          @RequestParam(defaultValue = "0") int page,
+                                                          @RequestParam(defaultValue = "0") int size) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (isDeleted == null) {
             isDeleted = false;
         }
-        return ApiResponse.success(novelService.getNovelList(userId, isDeleted));
+        List<NovelResponse> all = novelService.getNovelList(userId, isDeleted);
+        if (size > 0) {
+            int from = Math.min(page * size, all.size());
+            int to = Math.min(from + size, all.size());
+            return ApiResponse.success(all.subList(from, to));
+        }
+        return ApiResponse.success(all);
     }
 
     @GetMapping("/{novelId}")

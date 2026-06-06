@@ -2,6 +2,7 @@ package com.novel.system.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.ai.agent.SummaryAgentResponse;
+import com.novel.system.dto.request.ExtractSummaryRequest;
 import com.novel.system.dto.request.UpdateChapterRequest;
 import com.novel.system.dto.response.ApiResponse;
 import com.novel.system.dto.response.ChapterResponse;
@@ -30,10 +31,8 @@ public class ChapterController {
     @PostMapping("/extract-summary")
     public ApiResponse<SummaryAgentResponse> extractSummary(
             @PathVariable String novelId,
-            @RequestBody Map<String, Object> payload) {
-        Integer chapterNum = (Integer) payload.get("chapterNum");
-        String content = (String) payload.get("content");
-        return ApiResponse.success(chapterService.extractSummary(novelId, chapterNum, content));
+            @RequestBody ExtractSummaryRequest request) {
+        return ApiResponse.success(chapterService.extractSummary(novelId, request.getChapterNum(), request.getChapterContent()));
     }
 
     @PostMapping("/manual")
@@ -56,8 +55,17 @@ public class ChapterController {
     }
 
     @GetMapping("/list")
-    public ApiResponse<List<ChapterResponse>> getChapters(@PathVariable String novelId) {
-        return ApiResponse.success(chapterService.getChapters(novelId));
+    public ApiResponse<List<ChapterResponse>> getChapters(
+            @PathVariable String novelId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") int size) {
+        List<ChapterResponse> all = chapterService.getChapters(novelId);
+        if (size > 0) {
+            int from = Math.min(page * size, all.size());
+            int to = Math.min(from + size, all.size());
+            return ApiResponse.success(all.subList(from, to));
+        }
+        return ApiResponse.success(all);
     }
 
     @GetMapping("/{chapterNum}")
