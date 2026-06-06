@@ -60,6 +60,9 @@ public class StreamingChapterController {
     private final ObjectMapper objectMapper;
     private final Executor securityContextIoExecutor;
 
+    // 防重复提交：跟踪正在执行的流式生成任务
+    private final java.util.concurrent.ConcurrentHashMap<String, Boolean> activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * 流式写作请求
      */
@@ -79,6 +82,18 @@ public class StreamingChapterController {
      */
     @PostMapping(value = "/stream-write", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamWrite(@RequestBody StreamWriteRequest request) {
+        // 防重复提交：同一小说+章节同时只能有一个流式生成
+        String streamKey = request.getNovelId() + ":" + request.getChapterNum();
+        if (activeStreams.putIfAbsent(streamKey, Boolean.TRUE) != null) {
+            log.warn("重复的流式生成请求被拒绝: {}", streamKey);
+            SseEmitter rejectEmitter = new SseEmitter(1000L);
+            try {
+                rejectEmitter.send(SseEmitter.event().name("error").data("该章节正在生成中，请勿重复提交"));
+                rejectEmitter.complete();
+            } catch (Exception ignored) {}
+            return rejectEmitter;
+        }
+
         SseEmitter emitter = new SseEmitter(600_000L); // 10min 超时
 
         // 客户端断开取消标志：超时或连接异常时设置，GraphRunner 会在每个节点检查此标志
@@ -166,6 +181,8 @@ public class StreamingChapterController {
                     emitter.send(SseEmitter.event().name("error").data("生成失败: " + e.getMessage()));
                 } catch (Exception ignored) {}
                 try { emitter.complete(); } catch (Exception ignored) {}
+            } finally {
+                activeStreams.remove(streamKey);
             }
         }, securityContextIoExecutor);
 

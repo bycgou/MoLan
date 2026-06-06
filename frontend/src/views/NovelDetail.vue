@@ -743,6 +743,11 @@ async function handleGenerateChapter(form: GenerateForm & { ideaIndex: number })
 }
 
 async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: number }) {
+  // 防重复提交：如果已在生成中，先取消旧的
+  if (generating.value && streamAbortController) {
+    streamAbortController.abort()
+  }
+
   generating.value = true
   streamingContent.value = ''
   streamingStatus.value = 'generating'
