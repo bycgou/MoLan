@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Getter
 @Builder(toBuilder = true)
@@ -78,6 +79,10 @@ public class NovelAgentState {
     // === 新增：LLM 调用追踪 ===
     @Builder.Default
     private List<LlmCallRecord> llmCalls = new ArrayList<>();
+
+    // === 新增：客户端断开取消标志 ===
+    @Builder.Default
+    private AtomicBoolean cancelFlag = new AtomicBoolean(false);
 
     // ==================== 枚举 ====================
 

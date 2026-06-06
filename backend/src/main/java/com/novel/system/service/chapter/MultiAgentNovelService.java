@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -90,7 +91,7 @@ public class MultiAgentNovelService {
     public AgentExecutionResult writeChapter(String novelId, int chapterNum,
                                               String userIntent, String styleCardId,
                                               String llmConfigId) throws Exception {
-        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, null);
+        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, null, null);
     }
 
     /**
@@ -100,13 +101,25 @@ public class MultiAgentNovelService {
                                                        String userIntent, String styleCardId,
                                                        String llmConfigId,
                                                        SseEmitter sseEmitter) throws Exception {
-        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, sseEmitter);
+        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, sseEmitter, null);
+    }
+
+    /**
+     * 流式写章节（带取消标志）：客户端断开时通过 cancelFlag 终止 Graph 执行。
+     */
+    public AgentExecutionResult writeChapterStreaming(String novelId, int chapterNum,
+                                                       String userIntent, String styleCardId,
+                                                       String llmConfigId,
+                                                       SseEmitter sseEmitter,
+                                                       AtomicBoolean cancelFlag) throws Exception {
+        return doWriteChapter(novelId, chapterNum, userIntent, styleCardId, llmConfigId, sseEmitter, cancelFlag);
     }
 
     private AgentExecutionResult doWriteChapter(String novelId, int chapterNum,
                                                  String userIntent, String styleCardId,
                                                  String llmConfigId,
-                                                 SseEmitter sseEmitter) throws Exception {
+                                                 SseEmitter sseEmitter,
+                                                 AtomicBoolean cancelFlag) throws Exception {
         long startTime = System.currentTimeMillis();
 
         NovelAgentState.NovelAgentStateBuilder stateBuilder = NovelAgentState.builder()
@@ -117,6 +130,9 @@ public class MultiAgentNovelService {
                 .llmConfigId(llmConfigId);
         if (sseEmitter != null) {
             stateBuilder.sseEmitter(sseEmitter);
+        }
+        if (cancelFlag != null) {
+            stateBuilder.cancelFlag(cancelFlag);
         }
         NovelAgentState state = stateBuilder.build();
 

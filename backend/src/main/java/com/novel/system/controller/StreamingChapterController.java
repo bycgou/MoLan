@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * SSE 流式写作控制器
@@ -82,8 +83,12 @@ public class StreamingChapterController {
     public SseEmitter streamWrite(@RequestBody StreamWriteRequest request) {
         SseEmitter emitter = new SseEmitter(600_000L); // 10min 超时
 
+        // 客户端断开取消标志：超时或连接异常时设置，GraphRunner 会在每个节点检查此标志
+        AtomicBoolean cancelFlag = new AtomicBoolean(false);
+
         emitter.onTimeout(() -> {
             log.warn("SSE流式写作超时: novelId={}, chapter={}", request.getNovelId(), request.getChapterNum());
+            cancelFlag.set(true);
             try {
                 emitter.send(SseEmitter.event().name("error").data("生成超时，已生成的内容可能已保存，请刷新查看"));
             } catch (Exception ignored) {}
@@ -92,6 +97,7 @@ public class StreamingChapterController {
 
         emitter.onError(e -> {
             log.warn("SSE流式写作连接异常: novelId={}, error={}", request.getNovelId(), e.getMessage());
+            cancelFlag.set(true);
         });
 
         String cancelKey = "novel:cancel:" + request.getNovelId();
@@ -139,7 +145,8 @@ public class StreamingChapterController {
                         request.getUserInstruction(),
                         finalStyleCardId,
                         request.getLlmConfigId(),
-                        emitter);
+                        emitter,
+                        cancelFlag);
 
                 // Graph 执行完成（WritingNode 流式已结束），获取结果
                 // 注意：GraphRunner 是同步的，writeChapterStreaming 返回时流式已完成

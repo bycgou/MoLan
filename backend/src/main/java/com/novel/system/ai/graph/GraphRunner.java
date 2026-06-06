@@ -74,6 +74,12 @@ public class GraphRunner {
         int iterations = 0;
 
         while (currentNode != null && !currentNode.equals(GraphDefinition.END)) {
+            // 客户端断开检测：检查取消标志
+            if (state.getCancelFlag() != null && state.getCancelFlag().get()) {
+                log.info("[GraphRunner] Execution cancelled by client disconnect, stopping at node: {}", currentNode);
+                break;
+            }
+
             if (++iterations > MAX_ITERATIONS) {
                 log.error("[GraphRunner] Max iterations ({}) exceeded, terminating", MAX_ITERATIONS);
                 state = StateHelper.appendError(state, new StructuredError(
