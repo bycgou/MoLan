@@ -4,7 +4,7 @@ import com.novel.system.dto.response.ApiResponse;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.service.llm.LlmConfigService;
 import lombok.RequiredArgsConstructor;
-import HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
