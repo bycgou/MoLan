@@ -264,6 +264,11 @@ async function handleSaveCharacter() {
     let success: boolean
     if (editingChar.value) {
       success = await novelStore.updateCharacter(novelId, editingChar.value.characterId, {
+        name: charForm.name,
+        role: charForm.role,
+        description: charForm.description,
+        personality: charForm.personality,
+        background: charForm.background,
         currentStatus: {},
         relationshipMap: {},
       })
