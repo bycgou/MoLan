@@ -51,7 +51,7 @@
           <span>创作统计</span>
         </div>
       </template>
-      <el-row :gutter="20">
+      <el-row :gutter="20" v-loading="loadingStats">
         <el-col :span="6">
           <div class="stat-item">
             <div class="stat-value">{{ novelCount }}</div>
@@ -91,6 +91,7 @@ const novelCount = ref(0)
 const totalChapters = ref(0)
 const totalWords = ref(0)
 const activeNovels = ref(0)
+const loadingStats = ref(false)
 
 const formatWordCount = (count: number) => {
   if (count >= 10000) {
@@ -100,6 +101,7 @@ const formatWordCount = (count: number) => {
 }
 
 const loadStats = async () => {
+  loadingStats.value = true
   try {
     const response = await novelApi.getNovelList()
     if (response.code === 200) {
@@ -112,6 +114,8 @@ const loadStats = async () => {
   } catch (error) {
     console.error('加载统计数据失败:', error)
     ElMessage.error('加载统计数据失败')
+  } finally {
+    loadingStats.value = false
   }
 }
 

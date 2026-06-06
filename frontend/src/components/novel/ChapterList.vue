@@ -28,7 +28,7 @@
         </div>
       </div>
     </template>
-    <div class="chapter-list">
+    <div class="chapter-list" v-loading="loading">
       <div v-for="chapter in chapters" :key="chapter.chapterId" class="chapter-item">
         <div class="chapter-info">
           <span class="chapter-num">第{{ chapter.chapterNum }}章</span>
@@ -57,9 +57,12 @@ import { ElMessageBox } from 'element-plus'
 import type { ChapterListItem } from '@/types'
 import { getStrandType, formatStrand } from '@/utils/format'
 
-defineProps<{
+withDefaults(defineProps<{
   chapters: ChapterListItem[]
-}>()
+  loading?: boolean
+}>(), {
+  loading: false
+})
 
 const emit = defineEmits<{
   'recycle-bin': []
