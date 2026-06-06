@@ -120,8 +120,14 @@ router.beforeEach(async (to, _from, next) => {
       }
 
       next()
-    } catch {
-      next({ path: '/login', query: { redirect: to.fullPath } })
+    } catch (err: any) {
+      if (err?.response?.status === 401 || err?.message?.includes('401')) {
+        next({ path: '/login', query: { redirect: to.fullPath } })
+      } else {
+        const { ElMessage } = await import('element-plus')
+        ElMessage.error('网络异常，请检查网络后重试')
+        next(false) // abort navigation
+      }
     }
     return
   }

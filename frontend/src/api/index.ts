@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types'
 
 // 错误消息映射
@@ -14,9 +14,6 @@ const ERROR_MESSAGES: Record<number, string> = {
   502: '服务暂时不可用，请稍后重试',
   503: '服务暂时不可用，请稍后重试',
 }
-
-// 并发 401 全局锁
-let isHandling401 = false
 
 // 重试延迟工具函数
 function delay(ms: number): Promise<void> {
@@ -74,26 +71,9 @@ api.interceptors.response.use(
       return api(config)
     }
 
-    // 401 非破坏性处理（并发锁）
+    // 401 — just reject, let route guard handle redirect
     if (status === 401) {
-      if (!isHandling401) {
-        isHandling401 = true
-        localStorage.removeItem('token')
-        try {
-          await ElMessageBox.confirm(
-            '登录已过期，是否跳转到登录页重新登录？',
-            '登录过期',
-            { confirmButtonText: '去登录', cancelButtonText: '留在当前', type: 'warning' }
-          )
-          const { useAuthStore } = await import('@/stores/authStore')
-          useAuthStore().logout()
-          window.location.href = '/login'
-        } catch {
-          // 用户选择留在当前页
-        } finally {
-          isHandling401 = false
-        }
-      }
+      localStorage.removeItem('token')
       return Promise.reject(error)
     }
 
