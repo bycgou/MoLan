@@ -108,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, shallowRef, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { novelApi, chapterApi, characterApi, rhythmApi, hookApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -135,8 +135,8 @@ const loadingTrash = ref(false)
 // 图表引用
 const readPullChartRef = ref<HTMLElement>()
 const characterGraphRef = ref<HTMLElement>()
-let readPullChart: any = null
-let characterGraphChart: any = null
+const readPullChart = shallowRef<echarts.ECharts | null>(null)
+const characterGraphChart = shallowRef<echarts.ECharts | null>(null)
 
 // 加载小说列表
 const loadNovels = async () => {
@@ -262,11 +262,11 @@ const loadNovelData = async () => {
 const renderReadPullChart = () => {
   if (!readPullChartRef.value || !readPullTrend.value) return
   
-  if (readPullChart) {
-    readPullChart.dispose()
+  if (readPullChart.value) {
+    readPullChart.value.dispose()
   }
-  
-  readPullChart = echarts.init(readPullChartRef.value)
+
+  readPullChart.value = echarts.init(readPullChartRef.value)
   
   const option = {
     title: {
@@ -301,18 +301,18 @@ const renderReadPullChart = () => {
     }]
   }
   
-  readPullChart.setOption(option)
+  readPullChart.value?.setOption(option)
 }
 
 // 渲染人物关系图谱（使用真实数据）
 const renderCharacterGraph = (graphData: any) => {
   if (!characterGraphRef.value || !characters.value || characters.value.length === 0) return
   
-  if (characterGraphChart) {
-    characterGraphChart.dispose()
+  if (characterGraphChart.value) {
+    characterGraphChart.value.dispose()
   }
-  
-  characterGraphChart = echarts.init(characterGraphRef.value)
+
+  characterGraphChart.value = echarts.init(characterGraphRef.value)
   
   // 构建图谱数据
   const nodes = characters.value.map((char, index) => ({
@@ -362,7 +362,7 @@ const renderCharacterGraph = (graphData: any) => {
     }]
   }
   
-  characterGraphChart.setOption(option)
+  characterGraphChart.value?.setOption(option)
 }
 
 // 查看章节
@@ -389,8 +389,8 @@ const analyzeChapter = async (chapter: any) => {
 
 // 监听窗口大小变化
 const handleResize = () => {
-  readPullChart?.resize()
-  characterGraphChart?.resize()
+  readPullChart.value?.resize()
+  characterGraphChart.value?.resize()
 }
 
 // 生命周期
@@ -402,8 +402,8 @@ onMounted(() => {
 onUnmounted(() => {
   isUnmounted.value = true
   window.removeEventListener('resize', handleResize)
-  readPullChart?.dispose()
-  characterGraphChart?.dispose()
+  readPullChart.value?.dispose()
+  characterGraphChart.value?.dispose()
 })
 </script>
 
