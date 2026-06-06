@@ -56,9 +56,20 @@
       </el-col>
     </el-row>
     
-    <el-empty v-if="!loading && novels.length === 0" description="暂无小说，点击创建开始创作吧！">
-      <el-button type="primary" @click="$router.push('/create')">创建小说</el-button>
-    </el-empty>
+    <template v-if="!loading && novels.length === 0">
+      <div class="onboarding">
+        <el-card>
+          <h3>欢迎使用 AI 小说创作系统</h3>
+          <ul>
+            <li>📝 创建小说并自动生成章节大纲</li>
+            <li>🤖 AI 智能续写，保持风格一致</li>
+            <li>👥 管理角色关系和成长线</li>
+            <li>🔍 追踪伏笔和剧情线索</li>
+          </ul>
+          <el-button type="primary" @click="$router.push('/create')">开始创建</el-button>
+        </el-card>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -114,7 +125,6 @@ const loadNovels = async () => {
     }
   } catch (error) {
     console.error('加载小说列表失败:', error)
-    ElMessage.error('加载小说列表失败')
   } finally {
     loading.value = false
   }
@@ -144,7 +154,6 @@ const deleteNovel = async (novelId: string) => {
   } catch (error) {
     if (error !== 'cancel') {
       console.error('删除小说失败:', error)
-      ElMessage.error('删除失败')
     }
   }
 }
@@ -248,5 +257,35 @@ onMounted(() => {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.onboarding {
+  display: flex;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.onboarding .el-card {
+  max-width: 480px;
+  text-align: center;
+}
+
+.onboarding h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  color: #303133;
+}
+
+.onboarding ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  text-align: left;
+}
+
+.onboarding li {
+  padding: 6px 0;
+  font-size: 14px;
+  color: #606266;
 }
 </style>
