@@ -32,6 +32,9 @@ public class EmbeddingService {
     @Value("${embedding.max-input-chars:2000}")
     private int maxInputChars;
 
+    /** 每个 token 对应的字符数（中文文本估算） */
+    private static final double CHARS_PER_TOKEN = 1.5;
+
     @PostConstruct
     public void init() {
         log.info("EmbeddingService初始化: 向量维度={}, 最大输入字符数={}",
@@ -49,7 +52,9 @@ public class EmbeddingService {
         }
 
         // 截断超长文本（DashScope text-embedding-v2 上限 2048 tokens）
-        String truncated = text.length() > maxInputChars ? text.substring(0, maxInputChars) : text;
+        int maxTokens = 512;
+        int maxChars = (int) (maxTokens * CHARS_PER_TOKEN);
+        String truncated = text.length() > maxChars ? text.substring(0, maxChars) : text;
         long start = System.currentTimeMillis();
         Embedding embedding = model.embed(truncated).content();
         long elapsed = System.currentTimeMillis() - start;
@@ -63,6 +68,74 @@ public class EmbeddingService {
     }
     
     /**
+     * 对超长文本做分段嵌入 + 最大值池化（max pooling）
+     * 解决单向量截断丢失信息的问题
+     */
+    public float[] embedLongText(String text) {
+        if (text == null || text.isEmpty()) {
+            throw new IllegalArgumentException("文本为空");
+        }
+
+        // 短文本直接嵌入
+        if (text.length() <= maxInputChars) {
+            return embed(text);
+        }
+
+        // 按段落/句号分段
+        List<String> chunks = splitText(text, maxInputChars);
+        log.info("长文本分块嵌入: 总长度={}, 分{}块", text.length(), chunks.size());
+
+        // 批量嵌入
+        List<float[]> vectors = embedAll(chunks);
+
+        // 最大值池化：取所有 chunk 向量逐维最大值
+        int dim = vectors.get(0).length;
+        float[] pooled = new float[dim];
+        for (float[] vec : vectors) {
+            for (int i = 0; i < dim; i++) {
+                pooled[i] = Math.max(pooled[i], vec[i]);
+            }
+        }
+        validateVector(pooled);
+        return pooled;
+    }
+
+    /**
+     * 将长文本按段落/句号分割为不超过 maxLen 的块
+     */
+    private List<String> splitText(String text, int maxLen) {
+        List<String> chunks = new ArrayList<>();
+        String[] paragraphs = text.split("\n+");
+        StringBuilder current = new StringBuilder();
+        for (String para : paragraphs) {
+            if (current.length() + para.length() + 1 > maxLen && current.length() > 0) {
+                chunks.add(current.toString().trim());
+                current.setLength(0);
+            }
+            if (para.length() > maxLen) {
+                if (current.length() > 0) {
+                    chunks.add(current.toString().trim());
+                    current.setLength(0);
+                }
+                String[] sentences = para.split("(?<=[。！？.!?])");
+                for (String sent : sentences) {
+                    if (current.length() + sent.length() > maxLen && current.length() > 0) {
+                        chunks.add(current.toString().trim());
+                        current.setLength(0);
+                    }
+                    current.append(sent);
+                }
+            } else {
+                current.append(para).append("\n");
+            }
+        }
+        if (current.length() > 0) {
+            chunks.add(current.toString().trim());
+        }
+        return chunks;
+    }
+
+    /**
      * 批量将文本转为向量
      */
     public List<float[]> embedAll(List<String> texts) {
@@ -73,8 +146,10 @@ public class EmbeddingService {
         }
 
         List<TextSegment> segments = new ArrayList<>();
+        int maxTokens = 512;
+        int maxChars = (int) (maxTokens * CHARS_PER_TOKEN);
         for (String text : texts) {
-            String truncated = text.length() > maxInputChars ? text.substring(0, maxInputChars) : text;
+            String truncated = text.length() > maxChars ? text.substring(0, maxChars) : text;
             segments.add(TextSegment.from(truncated));
         }
 
