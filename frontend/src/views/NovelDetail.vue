@@ -461,7 +461,7 @@ const generationTaskId = ref('')
 const generationTimer = ref<number | null>(null)
 const pollCount = ref(0)
 const MAX_POLL_COUNT = 60 // 最多轮询60次（5分钟）
-let graphChartInstance: any = null
+let graphChartInstance: echarts.ECharts | null = null
 
 const hookLabels: Record<string, string> = {
   openingAttraction: '开头吸引力',
@@ -1109,7 +1109,8 @@ async function exportNovel() {
     const blob = new Blob([response as BlobPart], { type: 'text/plain;charset=utf-8' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `${novel.value?.novelName || 'novel'}.txt`
+    const safeName = (novel.value?.novelName || 'novel').replace(/[\\/:*?"<>|]/g, '_')
+    a.href = url; a.download = `${safeName}.txt`
     document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url); document.body.removeChild(a)
     ElMessage.success('导出成功')
   } catch { ElMessage.error('导出失败') }

@@ -85,7 +85,7 @@
 import { ref, onMounted } from 'vue'
 import { Edit, Document, Check } from '@element-plus/icons-vue'
 import { novelApi } from '@/api'
-import { ElMessage } from 'element-plus'
+import type { NovelVO } from '@/types'
 
 const novelCount = ref(0)
 const totalChapters = ref(0)
@@ -107,13 +107,12 @@ const loadStats = async () => {
     if (response.code === 200) {
       const novels = response.data
       novelCount.value = novels.length
-      totalChapters.value = novels.reduce((sum: number, n: any) => sum + (n.chapterCount || 0), 0)
-      totalWords.value = novels.reduce((sum: number, n: any) => sum + (n.wordCount || 0), 0)
-      activeNovels.value = novels.filter((n: any) => n.status === 1).length
+      totalChapters.value = novels.reduce((sum: number, n: NovelVO) => sum + (n.chapterCount || 0), 0)
+      totalWords.value = novels.reduce((sum: number, n: NovelVO) => sum + (n.wordCount || 0), 0)
+      activeNovels.value = novels.filter((n: NovelVO) => n.status === 1).length
     }
   } catch (error) {
     console.error('加载统计数据失败:', error)
-    ElMessage.error('加载统计数据失败')
   } finally {
     loadingStats.value = false
   }
