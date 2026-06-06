@@ -76,11 +76,20 @@ public class WritingNode implements NovelGraphNode {
         // 增强上下文
         String enhancedContext = enhanceContext(writingContext, plan, state);
 
-        // 统一使用6参数版本
-        String content = chain.executeWritingChain(
-                state.getNovelId(), state.getChapterNum(),
-                plan.getSummary(), enhancedContext,
-                state.getStyleCardId(), state.getLlmConfigId());
+        // 统一使用6参数版本，有 SseEmitter 时走流式
+        String content;
+        if (state.getSseEmitter() != null) {
+            content = chain.executeWritingChainStreaming(
+                    state.getNovelId(), state.getChapterNum(),
+                    plan.getSummary(), enhancedContext,
+                    state.getStyleCardId(), state.getLlmConfigId(),
+                    state.getSseEmitter());
+        } else {
+            content = chain.executeWritingChain(
+                    state.getNovelId(), state.getChapterNum(),
+                    plan.getSummary(), enhancedContext,
+                    state.getStyleCardId(), state.getLlmConfigId());
+        }
 
         NovelAgentState updated = state.toBuilder()
                 .writingContext(writingContext)

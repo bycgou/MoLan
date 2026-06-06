@@ -799,6 +799,15 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
       }
       if (line.startsWith('data:')) {
         const data = line.slice(5).trim()
+
+        // complete 事件的 data 可以为空，必须在空数据检查前处理
+        if (currentEventName === 'complete') {
+          if (data) streamValidationSummary.value = data
+          receivedComplete = true
+          currentEventName = ''
+          return
+        }
+
         if (!data) return
 
         if (currentEventName === 'checkpoint') {
@@ -806,11 +815,6 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
             const cp = JSON.parse(data)
             streamCheckpoints.value.push(cp)
           } catch { /* ignore */ }
-          currentEventName = ''
-        } else if (currentEventName === 'complete') {
-          // complete 事件的 data 是校验摘要
-          streamValidationSummary.value = data
-          receivedComplete = true
           currentEventName = ''
         } else if (currentEventName === 'validation_result') {
           // validation_result 事件：提取校验摘要（兼容 JSON 格式）

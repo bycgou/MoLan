@@ -359,7 +359,99 @@ public class ChapterGenerationChain {
 
         return writingAgent.generateChapter(userPromptBuilder.toString());
     }
-    
+
+    /**
+     * 流式执行写作生成链 — 通过 SseEmitter 逐 token 输出
+     */
+    public String executeWritingChainStreaming(String novelId, int chapterNum, String outline,
+                                               String contextPrompt, String styleCardId,
+                                               String llmConfigId,
+                                               org.springframework.web.servlet.mvc.method.annotation.SseEmitter sseEmitter) throws Exception {
+        log.info("执行流式写作生成链: novelId={}, chapter={}", novelId, chapterNum);
+
+        dev.langchain4j.model.chat.StreamingChatModel streamingModel = getStreamingModel(llmConfigId);
+
+        String systemStyleRules = "";
+        String userStyleSamples = "";
+        if (styleCardId != null && !styleCardId.isEmpty()) {
+            systemStyleRules = styleCardService.buildSystemStyleRules(styleCardId);
+            userStyleSamples = styleCardService.buildUserStyleSamples(styleCardId);
+        }
+
+        // 构建系统提示词
+        String systemPrompt = getBaseSystemMessage();
+        if (!systemStyleRules.isEmpty()) {
+            systemPrompt += "\n\n" + systemStyleRules;
+        }
+
+        // 构建用户提示词
+        StringBuilder userPromptBuilder = new StringBuilder();
+        userPromptBuilder.append(String.format("小说ID: %s\n章节号: 第%d章\n\n", novelId, chapterNum));
+        if (!userStyleSamples.isEmpty()) {
+            userPromptBuilder.append(userStyleSamples).append("\n\n");
+        }
+        userPromptBuilder.append(String.format("===章纲===\n%s\n\n===上下文信息===\n%s\n\n请根据章纲生成第%d章正文。",
+                outline, contextPrompt, chapterNum));
+
+        // 使用 StreamingChatModel 流式生成
+        StringBuilder contentBuilder = new StringBuilder();
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Exception> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+        dev.langchain4j.data.message.SystemMessage sysMsg = dev.langchain4j.data.message.SystemMessage.from(systemPrompt);
+        dev.langchain4j.data.message.UserMessage userMsg = dev.langchain4j.data.message.UserMessage.from(userPromptBuilder.toString());
+        dev.langchain4j.model.chat.request.ChatRequest chatRequest = dev.langchain4j.model.chat.request.ChatRequest.builder()
+                .messages(sysMsg, userMsg)
+                .build();
+
+        streamingModel.chat(chatRequest, new dev.langchain4j.model.chat.response.StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String token) {
+                contentBuilder.append(token);
+                try {
+                    sseEmitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                            .name("token").data(token));
+                } catch (Exception e) {
+                    log.warn("发送流式token失败: {}", e.getMessage());
+                }
+            }
+
+            @Override
+            public void onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse response) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                errorRef.set(new Exception(error));
+                latch.countDown();
+            }
+        });
+
+        // 等待流式完成（10分钟超时）
+        if (!latch.await(10, java.util.concurrent.TimeUnit.MINUTES)) {
+            throw new RuntimeException("流式写作生成超时");
+        }
+        if (errorRef.get() != null) {
+            throw errorRef.get();
+        }
+
+        return contentBuilder.toString();
+    }
+
+    private dev.langchain4j.model.chat.StreamingChatModel getStreamingModel(String llmConfigId) {
+        LlmConfig config;
+        if (llmConfigId != null && !llmConfigId.isEmpty()) {
+            config = llmConfigService.getConfigById(llmConfigId);
+        } else {
+            config = llmConfigService.getAnyActiveConfig("all");
+        }
+        if (config == null) {
+            throw new RuntimeException("未找到可用的模型配置");
+        }
+        return langChainConfig.createStreamingChatModel(config, LangChainConfig.TaskType.CREATIVE);
+    }
+
     /**
      * 获取ChatModel
      *
