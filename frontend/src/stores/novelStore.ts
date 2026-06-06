@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { NovelVO, ChapterListItem, CharacterVO, ClueVO } from '@/types'
 import { novelApi, chapterApi, characterApi, clueApi } from '@/api'
+import { ElMessage } from 'element-plus'
 
 export const useNovelStore = defineStore('novel', () => {
   // ---- 状态 ----
@@ -45,13 +46,23 @@ export const useNovelStore = defineStore('novel', () => {
   }
 
   async function restoreNovel(novelId: string) {
-    await novelApi.restoreNovel(novelId)
-    await fetchDeletedNovels()
+    try {
+      await novelApi.restoreNovel(novelId)
+      await fetchDeletedNovels()
+    } catch (e) {
+      console.error('恢复小说失败:', e)
+      ElMessage.error('恢复小说失败')
+    }
   }
 
   async function hardDeleteNovel(novelId: string) {
-    await novelApi.hardDeleteNovel(novelId)
-    await fetchDeletedNovels()
+    try {
+      await novelApi.hardDeleteNovel(novelId)
+      await fetchDeletedNovels()
+    } catch (e) {
+      console.error('彻底删除失败:', e)
+      ElMessage.error('彻底删除失败')
+    }
   }
 
   async function fetchNovel(novelId: string) {
@@ -82,17 +93,27 @@ export const useNovelStore = defineStore('novel', () => {
 
   // ---- 章节 ----
   async function fetchChapters(novelId: string) {
-    const res = await chapterApi.getChapterList(novelId)
-    if (res.code === 200) {
-      chapters.value = res.data
+    try {
+      const res = await chapterApi.getChapterList(novelId)
+      if (res.code === 200) {
+        chapters.value = res.data
+      }
+    } catch (e) {
+      console.error('加载章节列表失败:', e)
+      ElMessage.error('加载章节列表失败')
     }
   }
 
   // ---- 人物 ----
   async function fetchCharacters(novelId: string) {
-    const res = await characterApi.getCharacterList(novelId)
-    if (res.code === 200) {
-      characters.value = res.data
+    try {
+      const res = await characterApi.getCharacterList(novelId)
+      if (res.code === 200) {
+        characters.value = res.data
+      }
+    } catch (e) {
+      console.error('加载角色列表失败:', e)
+      ElMessage.error('加载角色列表失败')
     }
   }
 
@@ -134,9 +155,14 @@ export const useNovelStore = defineStore('novel', () => {
 
   // ---- 伏笔 ----
   async function fetchClues(novelId: string) {
-    const res = await clueApi.getClueList(novelId)
-    if (res.code === 200) {
-      clues.value = res.data
+    try {
+      const res = await clueApi.getClueList(novelId)
+      if (res.code === 200) {
+        clues.value = res.data
+      }
+    } catch (e) {
+      console.error('加载伏笔列表失败:', e)
+      ElMessage.error('加载伏笔列表失败')
     }
   }
 
