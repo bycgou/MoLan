@@ -1,5 +1,7 @@
 package com.novel.system.config;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
@@ -11,8 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * LangChain4j配置类
@@ -82,17 +82,23 @@ public class LangChainConfig {
     }
     
     /**
-     * 模型缓存
+     * 模型缓存 (Caffeine)
      * key: 配置ID
      * value: ChatModel实例
      */
-    private final Map<String, ChatModel> modelCache = new ConcurrentHashMap<>();
-    
+    private final Cache<String, ChatModel> modelCache = Caffeine.newBuilder()
+            .maximumSize(100)
+            .expireAfterAccess(Duration.ofHours(1))
+            .build();
+
     /**
-     * Embedding模型实例缓存
+     * Embedding模型实例缓存 (Caffeine)
      * key: configId, value: EmbeddingModel实例
      */
-    private final Map<String, EmbeddingModel> embeddingModelCache = new ConcurrentHashMap<>();
+    private final Cache<String, EmbeddingModel> embeddingModelCache = Caffeine.newBuilder()
+            .maximumSize(50)
+            .expireAfterAccess(Duration.ofHours(1))
+            .build();
     
     /**
      * 根据LlmConfig创建ChatModel
@@ -117,7 +123,7 @@ public class LangChainConfig {
      * @see #buildChatModel 实际创建模型的方法
      */
     public ChatModel createChatModel(LlmConfig config) {
-        return modelCache.computeIfAbsent(config.getConfigId(), id -> buildChatModel(config, null));
+        return modelCache.get(config.getConfigId(), id -> buildChatModel(config, null));
     }
     
     /**
@@ -128,10 +134,10 @@ public class LangChainConfig {
      */
     public ChatModel createChatModel(LlmConfig config, TaskType taskType) {
         // 如果任务类型指定了温度，使用任务类型的温度
-        Double temperature = taskType.getTemperature() != null 
-            ? taskType.getTemperature().doubleValue() 
+        Double temperature = taskType.getTemperature() != null
+            ? taskType.getTemperature().doubleValue()
             : config.getTemperature();
-        
+
         // 创建临时配置
         LlmConfig tempConfig = new LlmConfig();
         tempConfig.setConfigId(config.getConfigId() + "_" + taskType.name());
@@ -140,8 +146,8 @@ public class LangChainConfig {
         tempConfig.setModelName(config.getModelName());
         tempConfig.setTemperature(temperature);
         tempConfig.setMaxTokens(config.getMaxTokens());
-        
-        return modelCache.computeIfAbsent(tempConfig.getConfigId(), id -> buildChatModel(tempConfig, taskType));
+
+        return modelCache.get(tempConfig.getConfigId(), id -> buildChatModel(tempConfig, taskType));
     }
     
     /**
@@ -157,7 +163,7 @@ public class LangChainConfig {
      * @return EmbeddingModel实例
      */
     public EmbeddingModel createEmbeddingModel(LlmConfig config) {
-        return embeddingModelCache.computeIfAbsent(config.getConfigId(), id -> buildEmbeddingModel(config));
+        return embeddingModelCache.get(config.getConfigId(), id -> buildEmbeddingModel(config));
     }
     
     /**
@@ -169,8 +175,8 @@ public class LangChainConfig {
      * @param configId 配置ID
      */
     public void evictCache(String configId) {
-        modelCache.remove(configId);
-        embeddingModelCache.remove(configId);
+        modelCache.invalidate(configId);
+        embeddingModelCache.invalidate(configId);
         log.info("已清除模型缓存: configId={}", configId);
     }
     
