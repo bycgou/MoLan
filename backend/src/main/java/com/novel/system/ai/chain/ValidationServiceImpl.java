@@ -7,12 +7,14 @@ import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.llm.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -27,6 +29,8 @@ public class ValidationServiceImpl implements ValidationService {
     private final LlmService llmService;
     private final PromptTemplateService promptTemplateService;
     private final ObjectMapper objectMapper;
+    @Qualifier("ioTaskExecutor")
+    private final Executor ioTaskExecutor;
 
     private static final int MIN_SCORE_THRESHOLD = 70;
     
@@ -177,23 +181,23 @@ public class ValidationServiceImpl implements ValidationService {
             CompletableFuture<OOCResult> oocFuture = CompletableFuture.supplyAsync(() -> {
                 SecurityContextHolder.setContext(securityContext);
                 try { return validateOOC(request); } finally { SecurityContextHolder.clearContext(); }
-            });
+            }, ioTaskExecutor);
             CompletableFuture<LogicResult> logicFuture = CompletableFuture.supplyAsync(() -> {
                 SecurityContextHolder.setContext(securityContext);
                 try { return validateLogic(request); } finally { SecurityContextHolder.clearContext(); }
-            });
+            }, ioTaskExecutor);
             CompletableFuture<ClueResult> clueFuture = CompletableFuture.supplyAsync(() -> {
                 SecurityContextHolder.setContext(securityContext);
                 try { return validateClue(request); } finally { SecurityContextHolder.clearContext(); }
-            });
+            }, ioTaskExecutor);
             CompletableFuture<SettingResult> settingFuture = CompletableFuture.supplyAsync(() -> {
                 SecurityContextHolder.setContext(securityContext);
                 try { return validateSetting(request); } finally { SecurityContextHolder.clearContext(); }
-            });
+            }, ioTaskExecutor);
             CompletableFuture<RhythmResult> rhythmFuture = CompletableFuture.supplyAsync(() -> {
                 SecurityContextHolder.setContext(securityContext);
                 try { return validateRhythm(request); } finally { SecurityContextHolder.clearContext(); }
-            });
+            }, ioTaskExecutor);
             
             try {
                 CompletableFuture.allOf(oocFuture, logicFuture, clueFuture, settingFuture, rhythmFuture)
