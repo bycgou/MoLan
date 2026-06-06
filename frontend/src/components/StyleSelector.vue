@@ -211,7 +211,12 @@ const getSamples = (card: StyleCard) => {
 }
 
 watch(() => props.modelValue, (val) => {
-  selectedCardId.value = val || ''
+  if (val) {
+    selectedCardId.value = val
+  } else {
+    selectedCardId.value = ''
+    emit('change', null)
+  }
 })
 
 onMounted(() => {
