@@ -31,7 +31,7 @@ public class JwtConfig {
         if (secret == null || secret.trim().isEmpty()) {
             throw new IllegalStateException("jwt.secret 未配置！请在 application.yml 中设置高强度密钥（至少32字节）");
         }
-        if (secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
+        if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException("jwt.secret 长度不足32字节，安全性不够！请使用更长的密钥");
         }
         if (secret.contains("aibook") || secret.contains("default") || secret.contains("123456")) {
@@ -43,7 +43,7 @@ public class JwtConfig {
         if (secret.contains("dev-only")) {
             throw new IllegalStateException("jwt.secret 使用了开发环境默认值，请通过 JWT_SECRET 环境变量提供真实密钥（openssl rand -base64 48）");
         }
-        log.info("JWT密钥校验通过（长度: {} 字节）", secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        log.info("JWT密钥校验通过（长度: {} 字节）", secret.getBytes(StandardCharsets.UTF_8).length);
     }
     
     private SecretKey getSigningKey() {
