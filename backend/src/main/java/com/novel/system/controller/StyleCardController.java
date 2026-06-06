@@ -278,6 +278,7 @@ public class StyleCardController {
     }
     
     @PostMapping("/admin/fix-double-encoding")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Map<String, Object>> fixDoubleEncoding() {
         try {
             Map<String, Object> result = styleCardService.fixDoubleEncodedCards();
