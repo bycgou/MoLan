@@ -93,7 +93,7 @@
             <el-option label="龙套" value="龙套" />
           </el-select>
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item label="描述" prop="description">
           <el-input v-model="charForm.description" type="textarea" :rows="3" placeholder="外貌、身份等描述" />
         </el-form-item>
         <el-form-item label="性格">
@@ -138,7 +138,9 @@
     <!-- 角色关系图谱 -->
     <el-collapse style="margin-top: 20px;">
       <el-collapse-item title="角色关系图谱">
-        <CharacterGraph :graph="relationshipGraph" />
+        <div v-loading="loadingGraph">
+          <CharacterGraph :graph="relationshipGraph" />
+        </div>
       </el-collapse-item>
     </el-collapse>
   </div>
@@ -177,6 +179,9 @@ const charForm = reactive<CreateCharacterRequest>({
 const charRules: FormRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色类型', trigger: 'change' }],
+  description: [
+    { min: 5, message: '角色描述至少5个字符', trigger: 'blur' }
+  ],
 }
 
 // 成长节点对话框
@@ -199,6 +204,7 @@ const growthRules: FormRules = {
 const relTargetId = ref('')
 const relValue = ref(0)
 const relationshipGraph = ref<CharacterGraphType | null>(null)
+const loadingGraph = ref(false)
 
 const handleUpdateRelationship = async (characterId: string) => {
   if (!relTargetId.value) {
@@ -215,10 +221,13 @@ const handleUpdateRelationship = async (characterId: string) => {
 }
 
 const loadRelationshipGraph = async () => {
+  loadingGraph.value = true
   try {
     relationshipGraph.value = await novelStore.fetchRelationshipGraph(novelId)
   } catch {
     // 图谱加载失败不阻塞页面
+  } finally {
+    loadingGraph.value = false
   }
 }
 
