@@ -37,6 +37,7 @@ public class MultiAgentNovelService {
                 .edge("arc_check", "outline")
                 .edge("outline", "clue_planning", Mode.FULL)
                 .edge("outline", "writing", Mode.FAST)
+                .edge("outline", "writing", Mode.STREAMING)
                 .fanOut("outline", List.of("clue_planning", "character_planning"), Mode.FULL, MergeStrategy.chapterPlanMerge())
                 .fanIn(List.of("clue_planning", "character_planning"), "world_validate", Mode.FULL)
                 .edge("world_validate", "idea_select", Mode.FULL)
@@ -47,8 +48,9 @@ public class MultiAgentNovelService {
                                 && s.getDraftContent().getSeverity() == NovelAgentState.Severity.HIGH
                                 && s.getWriteRetryCount() < 2)
                 .conditionalEdge("self_review", "summary", s -> s.getMode() == Mode.FAST)
-                .conditionalEdge("self_review", "continuity_validation", s -> s.getMode() == Mode.FULL)
+                .conditionalEdge("self_review", "continuity_validation", s -> s.getMode() == Mode.FULL || s.getMode() == Mode.STREAMING)
                 .edge("continuity_validation", "validation", Mode.FULL)
+                .edge("continuity_validation", "summary", Mode.STREAMING)
                 .edge("validation", "quality_scoring", Mode.FULL)
                 .edge("quality_scoring", "audit_router", Mode.FULL)
                 .conditionalEdge("audit_router", "summary",
@@ -95,7 +97,7 @@ public class MultiAgentNovelService {
     }
 
     /**
-     * 流式写章节：通过 SseEmitter 逐token输出，使用 Mode.FAST 跳过 clue/character planning。
+     * 流式写章节：通过 SseEmitter 逐token输出，使用 Mode.STREAMING 跳过 planning 但保留轻量校验。
      */
     public AgentExecutionResult writeChapterStreaming(String novelId, int chapterNum,
                                                        String userIntent, String styleCardId,
@@ -136,9 +138,10 @@ public class MultiAgentNovelService {
         }
         NovelAgentState state = stateBuilder.build();
 
-        // FAST mode: arc_check -> outline -> writing -> self_review -> summary -> post_process
-        // FULL mode: adds clue_planning + character_planning + world_validate + idea_select + validation + quality_scoring + audit_router
-        Mode mode = sseEmitter != null ? Mode.FAST : Mode.FULL;
+        // FAST mode:   arc_check -> outline -> writing -> self_review -> summary -> post_process
+        // STREAMING:   arc_check -> outline -> writing -> self_review -> continuity_validation -> summary -> post_process
+        // FULL mode:   adds clue_planning + character_planning + world_validate + idea_select + validation + quality_scoring + audit_router
+        Mode mode = sseEmitter != null ? Mode.STREAMING : Mode.FULL;
         NovelAgentState finalState = runner.execute(state, mode);
 
         long elapsed = System.currentTimeMillis() - startTime;
