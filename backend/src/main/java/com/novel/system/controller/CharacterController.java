@@ -91,14 +91,35 @@ public class CharacterController {
             @RequestBody CharacterState request) {
         try {
             CharacterState character = characterStateService.getCharacter(novelId, characterId);
-            
+
+            // 静态字段合并
+            if (request.getCharacterName() != null) {
+                character.setCharacterName(request.getCharacterName());
+            }
+            if (request.getRole() != null) {
+                character.setRole(request.getRole());
+            }
+            if (request.getDescription() != null) {
+                character.setDescription(request.getDescription());
+            }
+            if (request.getCoreTraits() != null) {
+                character.setCoreTraits(request.getCoreTraits());
+            }
+            if (request.getVoiceStyle() != null) {
+                character.setVoiceStyle(request.getVoiceStyle());
+            }
+            if (request.getBackground() != null) {
+                character.setBackground(request.getBackground());
+            }
+
+            // 动态字段合并
             if (request.getCurrentStatus() != null) {
                 character.setCurrentStatus(request.getCurrentStatus());
             }
             if (request.getRelationshipMap() != null) {
                 character.setRelationshipMap(request.getRelationshipMap());
             }
-            
+
             character = characterStateService.updateCharacter(character);
             return ApiResponse.success("更新成功", convertToCharacterResponse(character));
         } catch (Exception e) {
@@ -141,7 +162,7 @@ public class CharacterController {
         response.setNovelId(character.getNovelId());
         response.setCharacterName(character.getCharacterName());
         response.setRole(character.getRole() != null ? character.getRole() : "龙套");
-        response.setDescription(character.getBackground());
+        response.setDescription(character.getDescription() != null ? character.getDescription() : character.getBackground());
         response.setCoreTraits(character.getCoreTraits());
         response.setVoiceStyle(character.getVoiceStyle());
         response.setBackground(character.getBackground());

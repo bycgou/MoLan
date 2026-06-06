@@ -1,5 +1,6 @@
 package com.novel.system.entity.mongo;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -9,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 人物状态文档 (MongoDB) — 五层记忆架构第三层：角色档案
@@ -33,6 +35,7 @@ public class CharacterState {
     private String novelId;
     
     /** 人物名称 */
+    @JsonAlias({"name"})
     private String characterName;
 
     /** 角色分类：主角/配角/反派/龙套 */
@@ -46,7 +49,28 @@ public class CharacterState {
     
     /** 人物背景故事 */
     private String background;
-    
+
+    /** 人物描述（前端显示用，可与background不同） */
+    private String description;
+
+    /**
+     * 前端发送 personality 为字符串时，自动按逗号分隔转为 coreTraits
+     * 支持中文逗号"，"和英文逗号","分隔
+     */
+    @JsonAlias({"personality"})
+    public void setPersonality(Object personality) {
+        if (personality instanceof String str) {
+            this.coreTraits = java.util.Arrays.stream(str.split("[，,]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toList());
+        } else if (personality instanceof List<?> list) {
+            this.coreTraits = list.stream()
+                    .map(Object::toString)
+                    .collect(Collectors.toList());
+        }
+    }
+
     /** 人物当前状态（健康、情绪、位置等） */
     private CurrentStatus currentStatus;
     

@@ -207,6 +207,11 @@ export interface CharacterCurrentStatus {
 }
 
 export interface CharacterUpdatePayload {
+  name?: string
+  role?: string
+  description?: string
+  personality?: string
+  background?: string
   currentStatus?: CharacterCurrentStatus
   relationshipMap?: Record<string, number>
 }
