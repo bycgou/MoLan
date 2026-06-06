@@ -6,6 +6,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 @Component
 @RequiredArgsConstructor
 public class McpServerAuthInterceptor implements HandlerInterceptor {
@@ -30,7 +33,9 @@ public class McpServerAuthInterceptor implements HandlerInterceptor {
         String token = authHeader.substring("Bearer ".length());
         boolean valid = config.getAuth().getKeys() != null &&
             config.getAuth().getKeys().stream()
-                .anyMatch(k -> k.getKey().equals(token));
+                .anyMatch(k -> MessageDigest.isEqual(
+                    k.getKey().getBytes(StandardCharsets.UTF_8),
+                    token.getBytes(StandardCharsets.UTF_8)));
 
         if (!valid) {
             response.setStatus(403);
