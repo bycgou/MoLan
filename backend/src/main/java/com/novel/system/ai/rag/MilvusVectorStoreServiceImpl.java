@@ -32,6 +32,9 @@ import java.util.*;
 @Service
 public class MilvusVectorStoreServiceImpl implements VectorStoreService {
 
+    private static final java.util.regex.Pattern SAFE_ID_PATTERN =
+        java.util.regex.Pattern.compile("^[a-zA-Z0-9\\-]+$");
+
     private final MilvusVectorConfig config;
     private final ChapterSummaryRepository chapterSummaryRepository;
     private final MongoTemplate mongoTemplate;
@@ -341,7 +344,10 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         }
         if (filter.startsWith("@novelId:{")) {
             String novelId = filter.substring(10, filter.length() - 1);
-            return "novelId == \"" + novelId.replace("\"", "\\\"") + "\"";
+            if (!SAFE_ID_PATTERN.matcher(novelId).matches()) {
+                throw new IllegalArgumentException("非法 novelId 格式: " + novelId);
+            }
+            return "novelId == \"" + novelId + "\"";
         }
         return filter;
     }
