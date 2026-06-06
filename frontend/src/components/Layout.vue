@@ -4,12 +4,13 @@
 
   <div v-else class="layout">
     <!-- 左侧导航 -->
-    <div class="sidebar">
+    <div class="sidebar" :style="{ width: sidebarWidth }">
       <div class="logo">
-        <h2>AI小说系统</h2>
+        <h2 v-show="!isCollapsed">AI小说系统</h2>
       </div>
       <el-menu
         :default-active="activeMenu"
+        :collapse="isCollapsed"
         class="sidebar-menu"
         router
         background-color="#001529"
@@ -44,13 +45,17 @@
 
       <!-- 底部用户信息 -->
       <div class="sidebar-footer">
+        <el-button text style="color: #fff; width: 100%; margin-bottom: 8px;" @click="toggleSidebar">
+          <el-icon><DArrowLeft v-if="!isCollapsed" /><DArrowRight v-else /></el-icon>
+          <span v-show="!isCollapsed">收起侧栏</span>
+        </el-button>
         <div class="user-info" v-if="authStore.isLoggedIn">
           <el-icon><User /></el-icon>
-          <span>{{ authStore.username }}</span>
+          <span v-show="!isCollapsed">{{ authStore.username }}</span>
         </div>
         <el-button text style="color: #fff; width: 100%;" @click="handleLogout">
           <el-icon><SwitchButton /></el-icon>
-          <span>退出登录</span>
+          <span v-show="!isCollapsed">退出登录</span>
         </el-button>
       </div>
     </div>
@@ -63,9 +68,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { HomeFilled, DataAnalysis, Document, Edit, Setting, User, SwitchButton, Brush } from '@element-plus/icons-vue'
+import { HomeFilled, DataAnalysis, Document, Edit, Setting, User, SwitchButton, Brush, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores'
 
 const route = useRoute()
@@ -75,10 +80,29 @@ const authStore = useAuthStore()
 const activeMenu = computed(() => route.path)
 const isGuestRoute = computed(() => route.meta.guest || route.path === '/login')
 
+const isCollapsed = ref(false)
+const isMobile = ref(window.innerWidth < 768)
+
+const sidebarWidth = computed(() => isCollapsed.value ? '64px' : '200px')
+
+function handleResize() {
+  isMobile.value = window.innerWidth < 768
+  if (isMobile.value) isCollapsed.value = true
+}
+
+function toggleSidebar() {
+  isCollapsed.value = !isCollapsed.value
+}
+
 onMounted(() => {
+  window.addEventListener('resize', handleResize)
   if (authStore.isLoggedIn) {
     authStore.fetchUser()
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 
 function handleLogout() {
@@ -99,6 +123,9 @@ function handleLogout() {
   color: white;
   display: flex;
   flex-direction: column;
+  transition: width 0.3s;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .logo {
@@ -133,6 +160,7 @@ function handleLogout() {
 
 .main-content {
   flex: 1;
+  min-width: 0;
   padding: 20px;
   background-color: #f5f7fa;
 }
