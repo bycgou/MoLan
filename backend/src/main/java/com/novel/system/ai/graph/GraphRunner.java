@@ -13,7 +13,8 @@ public class GraphRunner {
 
     private final GraphDefinition definition;
     private final java.util.Map<String, NovelGraphNode> nodes = new ConcurrentHashMap<>();
-    private final ExecutorService parallelExecutor = Executors.newCachedThreadPool();
+    private final ExecutorService parallelExecutor = Executors.newFixedThreadPool(
+            Math.min(Runtime.getRuntime().availableProcessors(), 8));
     private NodeExecutor nodeExecutor;
     private StateCheckpointService checkpointService;
 
