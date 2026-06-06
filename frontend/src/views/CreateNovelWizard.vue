@@ -377,6 +377,7 @@ const llmConfigList = ref<{ configId: string; configName: string }[]>([])
 const novelId = ref('')
 const arcs = ref<ArcOutlineDTO[]>([])
 const hasEditedArcs = ref(false)
+const isStreaming = ref(false)
 const currentArcIndex = ref(0)
 const currentChapterOutlines = ref<ArcChapterOutlineDTO[]>([])
 const outlineGenerationProgress = ref(0)
@@ -434,15 +435,19 @@ const batchStatusText = computed(() => {
 })
 
 // 向导状态持久化
-const wizardDraft = computed(() => ({
-  currentStep: currentStep.value,
-  form: { ...form },
-  arcs: arcs.value,
-  novelId: novelId.value,
-  currentArcIndex: currentArcIndex.value,
-  currentChapterOutlines: currentChapterOutlines.value,
-  hasEditedArcs: hasEditedArcs.value,
-}))
+const wizardDraft = computed(() => {
+  // 流式生成期间暂停自动保存，避免频繁写入 localStorage
+  if (isStreaming.value) return undefined
+  return {
+    currentStep: currentStep.value,
+    form: { ...form },
+    arcs: arcs.value,
+    novelId: novelId.value,
+    currentArcIndex: currentArcIndex.value,
+    currentChapterOutlines: currentChapterOutlines.value,
+    hasEditedArcs: hasEditedArcs.value,
+  }
+})
 
 const autoSave = useAutoSave({
   key: 'wizard_draft',
@@ -592,6 +597,7 @@ const generateCurrentArcOutlines = async () => {
 
   generationFailed.value = false
   generatingChapterOutlines.value = true
+  isStreaming.value = true
   currentChapterOutlines.value = []
   outlineGenerationProgress.value = 0
   outlineGenerationTotal.value = 0
@@ -620,9 +626,13 @@ const generateCurrentArcOutlines = async () => {
       ElMessage.error(err.message || '章纲生成失败')
       generationFailed.value = true
       generatingChapterOutlines.value = false
+      isStreaming.value = false
+      autoSave.save()
     },
     onDone: () => {
       generatingChapterOutlines.value = false
+      isStreaming.value = false
+      autoSave.save()
       ElMessage.success(`第 ${currentArcIndex.value + 1} 卷章纲生成完成`)
     },
     maxRetries: 2,
