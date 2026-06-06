@@ -9,7 +9,7 @@
     </div>
     
     <el-row :gutter="20" v-loading="loading">
-      <el-col :span="8" v-for="novel in novels" :key="novel.novelId">
+      <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="novel in novels" :key="novel.novelId">
         <el-card class="novel-card" shadow="hover">
           <div class="novel-header">
             <h3 class="novel-title">{{ novel.novelName }}</h3>
