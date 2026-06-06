@@ -123,6 +123,7 @@
       <el-col :span="16">
         <ChapterList
           :chapters="chapters"
+          :loading="loadingChapters"
           @recycle-bin="showRecycleBinDialog"
           @export="exportNovel"
           @geek-mode="geekDialogVisible = true"
@@ -378,12 +379,12 @@
           <el-button @click="handleStreamEdit">编辑</el-button>
           <el-button type="danger" plain @click="handleStreamDelete">删除</el-button>
           <el-button @click="handleStreamRegenerate">重新生成</el-button>
-          <el-button @click="streamDialogVisible = false">关闭</el-button>
+          <el-button @click="handleCloseStreamDialog">关闭</el-button>
         </template>
         <template v-else>
           <el-button v-if="streamingContent" type="primary" @click="handleStreamSaveContent">保存已生成内容</el-button>
           <el-button @click="handleStreamRegenerate">重新生成</el-button>
-          <el-button @click="streamDialogVisible = false">关闭</el-button>
+          <el-button @click="handleCloseStreamDialog">关闭</el-button>
         </template>
       </template>
     </el-dialog>
@@ -415,6 +416,7 @@ const novelId = route.params.novelId as string
 
 // ---- 状态 ----
 const loading = ref(false)
+const loadingChapters = ref(false)
 const novel = ref<NovelVO | null>(null)
 const chapters = ref<ChapterListItem[]>([])
 const characters = ref<CharacterVO[]>([])
@@ -551,8 +553,13 @@ async function loadNovel() {
 }
 
 async function loadChapters() {
-  const res = await chapterApi.getChapterList(novelId)
-  if (res.code === 200) chapters.value = res.data
+  loadingChapters.value = true
+  try {
+    const res = await chapterApi.getChapterList(novelId)
+    if (res.code === 200) chapters.value = res.data
+  } finally {
+    loadingChapters.value = false
+  }
 }
 
 async function loadCharacters() {
@@ -972,6 +979,22 @@ async function handleStreamDelete() {
 function handleStreamRegenerate() {
   streamDialogVisible.value = false
   showGenerateDialog()
+}
+
+/** 关闭流式对话框（有内容时需确认） */
+async function handleCloseStreamDialog() {
+  if (streamingContent.value && streamingStatus.value === 'completed') {
+    try {
+      await ElMessageBox.confirm(
+        '当前生成的内容尚未保存，确定关闭吗？',
+        '确认关闭',
+        { confirmButtonText: '确定关闭', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch {
+      return // 用户取消
+    }
+  }
+  streamDialogVisible.value = false
 }
 
 function startPollingStatus() {
