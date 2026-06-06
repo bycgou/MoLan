@@ -4,6 +4,7 @@ import com.novel.system.dto.response.ApiResponse;
 import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.service.llm.LlmConfigService;
 import lombok.RequiredArgsConstructor;
+import HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -24,7 +25,7 @@ public class LlmConfigController {
      */
     @PostMapping
     public ApiResponse<LlmConfig> createConfig(@RequestBody LlmConfig config,
-                                                jakarta.servlet.http.HttpServletRequest httpRequest) {
+                                                HttpServletRequest httpRequest) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (userId == null) {
             return ApiResponse.error(401, "未登录或Token已过期");
@@ -40,7 +41,7 @@ public class LlmConfigController {
      */
     @PutMapping("/{configId}")
     public ApiResponse<LlmConfig> updateConfig(@PathVariable String configId, @RequestBody LlmConfig config,
-                                                jakarta.servlet.http.HttpServletRequest httpRequest) {
+                                                HttpServletRequest httpRequest) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (userId == null) {
             return ApiResponse.error(401, "未登录或Token已过期");
@@ -64,7 +65,7 @@ public class LlmConfigController {
      */
     @DeleteMapping("/{configId}")
     public ApiResponse<Void> deleteConfig(@PathVariable String configId,
-                                          jakarta.servlet.http.HttpServletRequest httpRequest) {
+                                          HttpServletRequest httpRequest) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (userId == null) {
             return ApiResponse.error(401, "未登录或Token已过期");
@@ -85,7 +86,7 @@ public class LlmConfigController {
      * 获取用户所有模型配置
      */
     @GetMapping("/list")
-    public ApiResponse<List<LlmConfig>> getConfigList(jakarta.servlet.http.HttpServletRequest httpRequest) {
+    public ApiResponse<List<LlmConfig>> getConfigList(HttpServletRequest httpRequest) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (userId == null) {
             return ApiResponse.error(401, "未登录或Token已过期");
@@ -145,7 +146,7 @@ public class LlmConfigController {
      */
     @GetMapping("/active")
     public ApiResponse<LlmConfig> getActiveConfig(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
+            HttpServletRequest httpRequest,
             @RequestParam(required = false, defaultValue = "all") String usageType) {
         String userId = (String) httpRequest.getAttribute("userId");
         if (userId == null) {
