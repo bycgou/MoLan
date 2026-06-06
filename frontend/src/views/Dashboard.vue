@@ -210,44 +210,49 @@ const loadNovelData = async () => {
   loading.value = true
   
   try {
-    // 并行加载数据
-    const [novelRes, trendRes, chaptersRes, charactersRes, graphRes] = await Promise.all([
+    // 并行加载数据（容错：单个请求失败不影响其余数据）
+    const results = await Promise.allSettled([
       novelApi.getNovel(selectedNovelId.value),
       rhythmApi.getReadPullTrend(selectedNovelId.value),
       chapterApi.getRecentChapters(selectedNovelId.value, 10),
       characterApi.getCharacterList(selectedNovelId.value),
       novelApi.getNovelGraph(selectedNovelId.value)
     ])
-    
+
     if (isUnmounted.value) return
-    
-    if (novelRes.code === 200) {
-      novelData.value = novelRes.data
+
+    const [novelRes, trendRes, chaptersRes, charactersRes, graphRes] = results
+
+    if (novelRes.status === 'fulfilled' && novelRes.value.code === 200) {
+      novelData.value = novelRes.value.data
     }
-    
-    if (trendRes.code === 200) {
-      readPullTrend.value = trendRes.data
+
+    if (trendRes.status === 'fulfilled' && trendRes.value.code === 200) {
+      readPullTrend.value = trendRes.value.data
       nextTick(() => {
         if (!isUnmounted.value) {
           renderReadPullChart()
         }
       })
     }
-    
-    if (chaptersRes.code === 200) {
-      recentChapters.value = chaptersRes.data
+
+    if (chaptersRes.status === 'fulfilled' && chaptersRes.value.code === 200) {
+      recentChapters.value = chaptersRes.value.data
     }
-    
-    if (charactersRes.code === 200) {
-      characters.value = charactersRes.data
+
+    if (charactersRes.status === 'fulfilled' && charactersRes.value.code === 200) {
+      characters.value = charactersRes.value.data
+      const graphData = graphRes.status === 'fulfilled' && graphRes.value.code === 200
+        ? graphRes.value.data : null
       nextTick(() => {
         if (!isUnmounted.value) {
-          renderCharacterGraph(graphRes.code === 200 ? graphRes.data : null)
+          renderCharacterGraph(graphData)
         }
       })
     }
   } catch (error) {
     console.error('加载小说数据失败', error)
+    ElMessage.error('加载仪表盘数据失败')
   } finally {
     loading.value = false
   }
