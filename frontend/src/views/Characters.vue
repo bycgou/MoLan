@@ -51,7 +51,7 @@
             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #ebeef5;">
               <div style="font-size: 13px; color: #606266; margin-bottom: 8px;">关系管理</div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <el-select v-model="relTargetId" placeholder="选择目标角色" size="small" style="width: 120px;">
+                <el-select v-model="getRelState(char.characterId).targetId" placeholder="选择目标角色" size="small" style="width: 120px;">
                   <el-option
                     v-for="c in characters.filter(c => c.characterId !== char.characterId)"
                     :key="c.characterId"
@@ -59,7 +59,7 @@
                     :value="c.characterId"
                   />
                 </el-select>
-                <el-input-number v-model="relValue" :min="-100" :max="100" size="small" style="width: 120px;" />
+                <el-input-number v-model="getRelState(char.characterId).value" :min="-100" :max="100" size="small" style="width: 120px;" />
                 <el-button size="small" type="primary" @click="handleUpdateRelationship(char.characterId)">更新关系</el-button>
               </div>
             </div>
@@ -200,19 +200,27 @@ const growthRules: FormRules = {
   description: [{ required: true, message: '请输入描述', trigger: 'blur' }],
 }
 
-// 关系管理
-const relTargetId = ref('')
-const relValue = ref(0)
+// 关系管理 — 每个角色独立状态
+const relState = ref<Map<string, { targetId: string; value: number }>>(new Map())
+
+function getRelState(characterId: string) {
+  if (!relState.value.has(characterId)) {
+    relState.value.set(characterId, { targetId: '', value: 0 })
+  }
+  return relState.value.get(characterId)!
+}
+
 const relationshipGraph = ref<CharacterGraphType | null>(null)
 const loadingGraph = ref(false)
 
 const handleUpdateRelationship = async (characterId: string) => {
-  if (!relTargetId.value) {
+  const state = getRelState(characterId)
+  if (!state.targetId) {
     ElMessage.warning('请选择目标角色')
     return
   }
   try {
-    await novelStore.updateRelationship(novelId, characterId, relTargetId.value, relValue.value)
+    await novelStore.updateRelationship(novelId, characterId, state.targetId, state.value)
     ElMessage.success('关系已更新')
     loadRelationshipGraph()
   } catch {
