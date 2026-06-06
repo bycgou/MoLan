@@ -7,19 +7,17 @@ import com.novel.system.service.llm.LlmService;
 import com.novel.system.service.story.StoryStateService;
 import com.novel.system.ai.rag.RagService;
 import com.novel.system.ai.rag.VectorStoreService;
-import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.core.query.TextCriteria;
-import org.springframework.data.mongodb.core.query.TextQuery;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -29,8 +27,8 @@ import java.util.stream.Collectors;
  * 支持Rerank和混合检索（向量 + BM25 + RRF融合）。
  * 当前仍为Push模式（自动注入），待改为Agent @Tool Pull模式。
  */
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class RagServiceImpl implements RagService {
 
     private final ChapterSummaryRepository chapterSummaryRepository;
@@ -38,10 +36,29 @@ public class RagServiceImpl implements RagService {
     private final LlmService llmService;
     private final VectorStoreService vectorStoreService;
     private final StoryStateService storyStateService;
+    private final EmbeddingService embeddingService;
+    private final Executor ioTaskExecutor;
 
     // RRF融合参数
     private static final double RRF_K = 60.0;
-    private static final Logger log = LoggerFactory.getLogger(RagServiceImpl.class);
+    // 向量相似度最低阈值（cosine similarity 范围 [-1, 1]）
+    private static final double SIMILARITY_THRESHOLD = 0.3;
+
+    public RagServiceImpl(ChapterSummaryRepository chapterSummaryRepository,
+                          MongoTemplate mongoTemplate,
+                          LlmService llmService,
+                          VectorStoreService vectorStoreService,
+                          StoryStateService storyStateService,
+                          EmbeddingService embeddingService,
+                          @Qualifier("ioTaskExecutor") Executor ioTaskExecutor) {
+        this.chapterSummaryRepository = chapterSummaryRepository;
+        this.mongoTemplate = mongoTemplate;
+        this.llmService = llmService;
+        this.vectorStoreService = vectorStoreService;
+        this.storyStateService = storyStateService;
+        this.embeddingService = embeddingService;
+        this.ioTaskExecutor = ioTaskExecutor;
+    }
     
     @Override
     public List<ChapterSummary> retrieveContext(String novelId, int currentChapterNum, 
@@ -116,7 +133,7 @@ public class RagServiceImpl implements RagService {
     public List<ChapterSummary> vectorSearch(String novelId, String queryText, int topK) {
         try {
             // 生成查询向量
-            float[] queryVector = llmService.getEmbedding(queryText);
+            float[] queryVector = embeddingService.embed(queryText);
             if (queryVector == null || queryVector.length == 0) {
                 log.warn("无法获取有效的查询向量，跳过向量搜索");
                 return Collections.emptyList();
@@ -129,9 +146,13 @@ public class RagServiceImpl implements RagService {
             List<VectorStoreService.VectorSearchResult> results =
                 vectorStoreService.search(queryVector, topK, filter);
             
-            // 获取对应的ChapterSummary
+            // 过滤低相似度结果并获取对应的ChapterSummary
             List<ChapterSummary> summaries = new ArrayList<>();
             for (VectorStoreService.VectorSearchResult result : results) {
+                if (result.getScore() < SIMILARITY_THRESHOLD) {
+                    log.debug("跳过低相似度结果: score={}", result.getScore());
+                    continue;
+                }
                 Map<String, Object> metadata = result.getMetadata();
                 if (metadata != null && metadata.containsKey("chapterNum")) {
                     int chapterNum = ((Number) metadata.get("chapterNum")).intValue();
@@ -150,41 +171,79 @@ public class RagServiceImpl implements RagService {
     
     @Override
     public List<ChapterSummary> bm25Search(String novelId, String queryText, int topK) {
+        // 从查询文本中提取关键词（按标点/空格分词）
+        List<String> queryKeywords = extractKeywords(queryText);
+        if (queryKeywords.isEmpty()) {
+            queryKeywords = List.of(queryText.trim());
+        }
+
         try {
-            // 使用MongoDB全文索引（对中文使用整个查询文本，由MongoDB的zh locale处理分词）
-            TextCriteria criteria = TextCriteria.forDefaultLanguage()
-                .matching(queryText);
+            // 1. 优先用 keywords 字段精确匹配（MongoDB $in 查询，走索引）
+            List<ChapterSummary> keywordResults = chapterSummaryRepository
+                .findByNovelIdAndKeywordsIn(novelId, queryKeywords);
+            if (keywordResults.size() >= topK) {
+                return keywordResults.subList(0, topK);
+            }
 
-            Query query = TextQuery.queryText(criteria)
-                .sortByScore()
-                .addCriteria(Criteria.where("novelId").is(novelId))
-                .limit(topK);
+            // 2. 补充：用 content 子串匹配（取查询文本前30字符做前缀匹配，避免全表扫描）
+            Set<String> seenIds = new HashSet<>();
+            for (ChapterSummary s : keywordResults) {
+                seenIds.add(s.getId());
+            }
 
-            return mongoTemplate.find(query, ChapterSummary.class);
-
-        } catch (Exception e) {
-            log.warn("BM25搜索失败，回退到关键词搜索: {}", e.getMessage());
-
-            // 回退到基于摘要keywords字段的匹配
+            String prefix = queryText.length() > 30 ? queryText.substring(0, 30) : queryText;
             Query query = new Query();
             query.addCriteria(Criteria.where("novelId").is(novelId));
-            query.addCriteria(Criteria.where("content").regex(Pattern.quote(queryText.substring(0, Math.min(queryText.length(), 50)))));
+            query.addCriteria(Criteria.where("content").regex(".*" + Pattern.quote(prefix) + ".*"));
             query.with(Sort.by(Sort.Direction.DESC, "chapterNum"));
             query.limit(topK);
 
-            return mongoTemplate.find(query, ChapterSummary.class);
+            List<ChapterSummary> contentResults = mongoTemplate.find(query, ChapterSummary.class);
+            for (ChapterSummary s : contentResults) {
+                if (seenIds.add(s.getId())) {
+                    keywordResults.add(s);
+                }
+            }
+
+            return keywordResults.stream().limit(topK).collect(Collectors.toList());
+
+        } catch (Exception e) {
+            log.warn("BM25搜索失败，回退到关键词匹配: {}", e.getMessage());
+            // 最终回退：仅用 keywords 字段
+            try {
+                return chapterSummaryRepository.findByNovelIdAndKeywordsIn(novelId, queryKeywords)
+                    .stream().limit(topK).collect(Collectors.toList());
+            } catch (Exception e2) {
+                log.error("关键词匹配也失败: {}", e2.getMessage());
+                return Collections.emptyList();
+            }
         }
+    }
+
+    /**
+     * 从文本中提取关键词（按中文标点、英文标点、空格分词）
+     */
+    private List<String> extractKeywords(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        String[] parts = text.split("[，。！？、；：\\s\\p{Punct}]+");
+        return Arrays.stream(parts)
+            .map(String::trim)
+            .filter(s -> s.length() >= 2)
+            .distinct()
+            .collect(Collectors.toList());
     }
     
     @Override
     public List<ChapterSummary> hybridSearch(String novelId, String queryText, int topK) {
         log.info("执行混合检索，小说ID: {}, 查询: {}", novelId, queryText);
         
-        // 1. 向量检索 + BM25检索（并行执行）
+        // 1. 向量检索 + BM25检索（并行执行，使用专用IO线程池）
         CompletableFuture<List<ChapterSummary>> vectorFuture = CompletableFuture.supplyAsync(
-            () -> vectorSearch(novelId, queryText, topK * 2));
+            () -> vectorSearch(novelId, queryText, topK * 2), ioTaskExecutor);
         CompletableFuture<List<ChapterSummary>> bm25Future = CompletableFuture.supplyAsync(
-            () -> bm25Search(novelId, queryText, topK * 2));
+            () -> bm25Search(novelId, queryText, topK * 2), ioTaskExecutor);
         CompletableFuture.allOf(vectorFuture, bm25Future).join();
         List<ChapterSummary> vectorResults = vectorFuture.join();
         List<ChapterSummary> bm25Results = bm25Future.join();
@@ -238,40 +297,88 @@ public class RagServiceImpl implements RagService {
         if (summaries == null || summaries.isEmpty()) {
             return summaries;
         }
-        
-        try {
-            // 计算每个摘要与查询的相关性分数
-            Map<ChapterSummary, Double> scores = new HashMap<>();
-            
-            for (ChapterSummary summary : summaries) {
-                double score = calculateRelevanceScore(queryText, summary);
-                scores.put(summary, score);
-            }
-            
-            // 按分数排序
-            return scores.entrySet().stream()
-                .sorted(Map.Entry.<ChapterSummary, Double>comparingByValue().reversed())
-                .limit(topK)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-                
-        } catch (Exception e) {
-            log.warn("Rerank失败，返回原始顺序: {}", e.getMessage());
-            return summaries.stream().limit(topK).collect(Collectors.toList());
+
+        // 仅当候选数 > topK 时才需要 rerank
+        if (summaries.size() <= topK) {
+            return summaries;
         }
+
+        // 1. 尝试 LLM 语义重排序
+        try {
+            List<String> documents = summaries.stream()
+                .map(s -> "第" + s.getChapterNum() + "章: " +
+                    (s.getContent() != null ? s.getContent() : ""))
+                .collect(Collectors.toList());
+
+            List<Map.Entry<String, Double>> scoredDocs = llmService.rerank(queryText, documents);
+            if (scoredDocs != null && !scoredDocs.isEmpty()) {
+                // 根据 LLM 打分重排 summaries
+                Map<String, ChapterSummary> docToSummary = new LinkedHashMap<>();
+                for (int i = 0; i < documents.size(); i++) {
+                    docToSummary.put(documents.get(i), summaries.get(i));
+                }
+                List<ChapterSummary> reranked = new ArrayList<>();
+                for (Map.Entry<String, Double> entry : scoredDocs) {
+                    ChapterSummary s = docToSummary.get(entry.getKey());
+                    if (s != null) {
+                        reranked.add(s);
+                    }
+                    if (reranked.size() >= topK) break;
+                }
+                if (reranked.size() >= topK) {
+                    return reranked;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LLM Rerank失败，回退到bigram重排: {}", e.getMessage());
+        }
+
+        // 2. 回退：bigram 词法重排序
+        return fallbackRerank(queryText, summaries, topK);
+    }
+
+    /**
+     * 回退重排序：bigram 词法匹配 + 关键词加分 + 优先级加权
+     */
+    private List<ChapterSummary> fallbackRerank(String queryText, List<ChapterSummary> summaries, int topK) {
+        Map<ChapterSummary, Double> scores = new HashMap<>();
+        for (ChapterSummary summary : summaries) {
+            double score = calculateRelevanceScore(queryText, summary);
+            scores.put(summary, score);
+        }
+        return scores.entrySet().stream()
+            .sorted(Map.Entry.<ChapterSummary, Double>comparingByValue().reversed())
+            .limit(topK)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toList());
     }
     
     private String buildQueryFromRecentSummaries(int currentChapterNum, List<ChapterSummary> recentSummaries) {
         List<ChapterSummary> querySummaries = recentSummaries.size() > 3
             ? recentSummaries.subList(0, 3)
             : recentSummaries;
+
+        // 优先用关键词构建查询（更精准，噪声小）
+        Set<String> keywords = new LinkedHashSet<>();
+        for (ChapterSummary s : querySummaries) {
+            if (s.getKeywords() != null) {
+                keywords.addAll(s.getKeywords());
+            }
+        }
+
+        if (!keywords.isEmpty()) {
+            // 取前10个关键词拼接
+            return keywords.stream().limit(10).collect(Collectors.joining(" "));
+        }
+
+        // 回退：用 content 前100字
         StringBuilder sb = new StringBuilder();
         for (ChapterSummary s : querySummaries) {
             if (s.getContent() != null && !s.getContent().isEmpty()) {
-                String snippet = s.getContent().length() > 200
-                    ? s.getContent().substring(0, 200)
+                String snippet = s.getContent().length() > 100
+                    ? s.getContent().substring(0, 100)
                     : s.getContent();
-                sb.append(snippet).append("。");
+                sb.append(snippet).append(" ");
             }
         }
         return sb.length() > 0
@@ -361,34 +468,25 @@ public class RagServiceImpl implements RagService {
             return null;
         }
         
-        // 生成向量嵌入
+        // 生成向量嵌入（仅存 Milvus，不再冗余存 MongoDB）
         if (summary.getContent() != null) {
             try {
-                float[] embedding = llmService.getEmbedding(summary.getContent());
-                
-                // 保存到向量数据库
+                float[] embedding = embeddingService.embedLongText(summary.getContent());
+
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("novelId", summary.getNovelId());
                 metadata.put("chapterNum", summary.getChapterNum());
                 metadata.put("content", summary.getContent());
                 metadata.put("keywords", String.join(",", summary.getKeywords() != null ? summary.getKeywords() : List.of()));
                 metadata.put("priority", summary.getPriority() != null ? summary.getPriority() : 3);
-                
+
                 String key = summary.getNovelId() + ":ch" + summary.getChapterNum();
                 vectorStoreService.saveVector(key, embedding, metadata);
-                
-                // 同时保存到MongoDB
-                List<Float> embeddingList = new ArrayList<>();
-                for (float f : embedding) {
-                    embeddingList.add(f);
-                }
-                summary.setEmbedding(embeddingList);
-                
+
                 log.info("向量保存成功: {}", key);
-                
+
             } catch (Exception e) {
                 log.error("向量化失败，跳过向量保存（摘要仍会保存到MongoDB）: {}", e.getMessage());
-                summary.setEmbedding(null);
             }
         }
         
@@ -425,7 +523,7 @@ public class RagServiceImpl implements RagService {
         try {
             String newGlobalMemory = CompletableFuture.supplyAsync(() ->
                 llmService.generateWithUsage(systemPrompt, userMessage, "summary")
-            ).orTimeout(30, TimeUnit.SECONDS).exceptionally(ex -> {
+            ).orTimeout(120, TimeUnit.SECONDS).exceptionally(ex -> {
                 log.warn("compressMemory LLM call timed out or failed", ex);
                 return previousMemory;  // return original on failure
             }).join();
@@ -434,6 +532,22 @@ public class RagServiceImpl implements RagService {
             storyState.setCompressedBackstory(newGlobalMemory);
             storyState.setLastCompressChapter(endChapter);
             storyStateService.save(storyState);
+
+            // 将压缩记忆也存入向量索引，使其可参与语义检索
+            try {
+                float[] embedding = embeddingService.embedLongText(newGlobalMemory);
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("novelId", novelId);
+                metadata.put("chapterNum", 0);  // 0 表示全局压缩记忆
+                metadata.put("content", newGlobalMemory);
+                metadata.put("keywords", "全局背景,压缩记忆");
+                metadata.put("priority", 1);  // 最高优先级
+                String key = novelId + ":compressed";
+                vectorStoreService.saveVector(key, embedding, metadata);
+                log.info("压缩记忆向量保存成功: {}", key);
+            } catch (Exception e) {
+                log.warn("压缩记忆向量化失败（不影响功能）: {}", e.getMessage());
+            }
 
             log.info("记忆压缩完成，压缩后的全局记忆长度: {}", newGlobalMemory.length());
 
