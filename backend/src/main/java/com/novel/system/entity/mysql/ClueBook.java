@@ -1,5 +1,6 @@
 package com.novel.system.entity.mysql;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -8,6 +9,7 @@ import java.time.LocalDateTime;
  * 精确SQL查询，按条件注入（deadline临近/近期埋设/全局概览）。
  */
 @Data
+@TableName("clue_book")
 public class ClueBook {
     /** 伏笔ID，主键 */
     private String clueId;

@@ -1,5 +1,6 @@
 package com.novel.system.entity.mysql;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import java.time.LocalDateTime;
@@ -8,6 +9,7 @@ import java.time.LocalDateTime;
  * 模型配置实体
  */
 @Data
+@TableName("llm_config")
 public class LlmConfig {
     /** 配置ID，主键 */
     private String configId;

@@ -1,5 +1,6 @@
 package com.novel.system.entity.mysql;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
  * 小说基础信息实体
  */
 @Data
+@TableName("novel_base")
 public class NovelBase {
     /** 小说ID，主键 */
     private String novelId;

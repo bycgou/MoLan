@@ -1,5 +1,6 @@
 package com.novel.system.entity.mysql;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.List;
  * 章节实体
  */
 @Data
+@TableName("novel_chapter")
 public class NovelChapter {
     /** 章节ID，主键 */
     private String chapterId;
