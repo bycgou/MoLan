@@ -63,7 +63,20 @@ public class LlmConfigController {
      * 删除模型配置
      */
     @DeleteMapping("/{configId}")
-    public ApiResponse<Void> deleteConfig(@PathVariable String configId) {
+    public ApiResponse<Void> deleteConfig(@PathVariable String configId,
+                                          jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String userId = (String) httpRequest.getAttribute("userId");
+        if (userId == null) {
+            return ApiResponse.error(401, "未登录或Token已过期");
+        }
+        // 校验归属：只能删除自己的配置
+        LlmConfig existing = llmConfigService.getConfigById(configId);
+        if (existing == null) {
+            return ApiResponse.error(404, "配置不存在");
+        }
+        if (!userId.equals(existing.getUserId())) {
+            return ApiResponse.error(403, "无权删除该配置");
+        }
         llmConfigService.deleteConfig(configId);
         return ApiResponse.success("删除成功", null);
     }
