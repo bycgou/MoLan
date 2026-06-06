@@ -38,12 +38,21 @@ public class McpSseEndpoint {
         return emitter;
     }
 
+    /**
+     * @deprecated Stub implementation — returns a hard-coded JSON-RPC success response.
+     *   McpServerManager currently only supports Stdio transport and has no
+     *   {@code handleMessage} method. Implement real JSON-RPC dispatch when
+     *   the MCP SDK adds SSE transport support, or wire this to a future
+     *   {@code McpServerManager.handleMessage(String)} entry-point.
+     */
+    @Deprecated
     @PostMapping("/messages")
     public String handleMessage(@RequestBody String jsonRpcRequest) {
-        log.debug("收到 MCP 请求: {}", jsonRpcRequest);
+        log.debug("收到 MCP 请求 (stub): {}", jsonRpcRequest);
         if (serverManager.getServer() == null) {
             return "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"MCP Server 未初始化\"}}";
         }
+        // TODO: delegate to McpServerManager.handleMessage() once SSE transport is supported
         return "{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ok\"}}";
     }
 }
