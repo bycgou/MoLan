@@ -4,25 +4,25 @@
       <div class="card-header">
         <span>章节列表</span>
         <div class="header-actions">
-          <el-button type="warning" @click="$emit('recycle-bin')" plain size="small">
+          <el-button type="warning" @click="$emit('recycle-bin')" plain size="small" aria-label="打开章节回收站">
             <el-icon><Delete /></el-icon> 回收站
           </el-button>
-          <el-button type="info" @click="$emit('export')" plain size="small">
+          <el-button type="info" @click="$emit('export')" plain size="small" aria-label="导出小说为文本文件">
             <el-icon><Download /></el-icon> 导出
           </el-button>
-          <el-button type="info" @click="$emit('geek-mode')" size="small">
+          <el-button type="info" @click="$emit('geek-mode')" size="small" aria-label="打开极客模式，使用外部AI创作">
             <el-icon><Monitor /></el-icon> 极客模式
           </el-button>
-          <el-button type="success" @click="$emit('manual-write')" size="small">
+          <el-button type="success" @click="$emit('manual-write')" size="small" aria-label="手动撰写新章节">
             <el-icon><Edit /></el-icon> 手动撰写
           </el-button>
-          <el-button type="primary" @click="$emit('ai-generate')" size="small">
+          <el-button type="primary" @click="$emit('ai-generate')" size="small" aria-label="使用AI生成新章节">
             <el-icon><MagicStick /></el-icon> AI生成
           </el-button>
-          <el-button type="info" @click="$emit('show-graph')" plain size="small">
+          <el-button type="info" @click="$emit('show-graph')" plain size="small" aria-label="查看人物关系图谱">
             <el-icon><Connection /></el-icon> 图谱
           </el-button>
-          <el-button type="info" @click="$emit('show-timeline')" plain size="small">
+          <el-button type="info" @click="$emit('show-timeline')" plain size="small" aria-label="查看小说世界时间线">
             <el-icon><Calendar /></el-icon> 时间线
           </el-button>
         </div>
