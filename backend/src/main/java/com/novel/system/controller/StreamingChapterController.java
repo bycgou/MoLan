@@ -19,7 +19,7 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import com.novel.system.dto.response.ApiResponse;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -182,16 +182,16 @@ public class StreamingChapterController {
      * 取消写作
      */
     @PostMapping("/cancel")
-    public ResponseEntity<?> cancelWriting(@RequestParam String novelId) {
+    public ApiResponse<Void> cancelWriting(@RequestParam String novelId) {
         redisTemplate.opsForValue().set("novel:cancel:" + novelId, "1", 10, TimeUnit.MINUTES);
-        return ResponseEntity.ok().build();
+        return ApiResponse.success(null);
     }
 
     /**
      * 保存流式生成的内容（取消后或校验失败后手动保存）
      */
     @PostMapping("/stream-save")
-    public ResponseEntity<?> streamSave(@RequestBody Map<String, String> payload) {
+    public ApiResponse<Map<String, Object>> streamSave(@RequestBody Map<String, String> payload) {
         String novelId = payload.get("novelId");
         Integer chapterNum = Integer.parseInt(payload.get("chapterNum"));
         String content = payload.get("content");
@@ -199,7 +199,7 @@ public class StreamingChapterController {
         String llmConfigId = payload.get("llmConfigId");
 
         if (novelId == null || content == null || content.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "内容不能为空"));
+            return ApiResponse.error("内容不能为空");
         }
 
         // 生成摘要
@@ -223,6 +223,6 @@ public class StreamingChapterController {
                 "", summaryContent, null, "", "");
 
         log.info("流式内容手动保存成功, 小说ID: {}, 章节号: {}, 字数: {}", novelId, chapterNum, wordCount);
-        return ResponseEntity.ok(Map.of("success", true, "wordCount", wordCount));
+        return ApiResponse.success(Map.of("success", true, "wordCount", wordCount));
     }
 }
