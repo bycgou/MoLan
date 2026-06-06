@@ -4,6 +4,7 @@ import com.novel.system.dto.response.ApiResponse;
 import com.novel.system.service.genre.GenreService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -41,6 +42,7 @@ public class GenreController {
         return ApiResponse.success(content);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/reload")
     public ApiResponse<?> reloadGenres() {
         genreService.reload();
