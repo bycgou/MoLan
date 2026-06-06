@@ -1,11 +1,13 @@
 package com.novel.system.ai.graph;
 
 import com.novel.system.ai.chain.ChapterGenerationChain;
+import com.novel.system.entity.mysql.LlmConfig;
 import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.entity.mysql.NovelChapter;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.service.chapter.ContextBuilderService;
 import com.novel.system.service.chapter.TokenBudgetService;
+import com.novel.system.service.llm.LlmConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,6 +26,7 @@ public class WritingNode implements NovelGraphNode {
     private final ContextBuilderService contextBuilderService;
     private final TokenBudgetService tokenBudgetService;
     private final NovelBaseMapper novelBaseMapper;
+    private final LlmConfigService llmConfigService;
 
     @Override
     public String nodeName() { return "writing"; }
@@ -93,7 +96,16 @@ public class WritingNode implements NovelGraphNode {
 
     private String enhanceContext(String baseContext, NovelAgentState.ChapterPlan plan,
                                    NovelAgentState state) {
-        TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(8192);
+        int maxTokens = 8192;
+        try {
+            LlmConfig config = llmConfigService.getConfigById(state.getLlmConfigId());
+            if (config != null && config.getMaxTokens() != null && config.getMaxTokens() > 0) {
+                maxTokens = config.getMaxTokens();
+            }
+        } catch (Exception e) {
+            log.warn("[{}] 无法获取LLM配置, 使用默认maxTokens={}", nodeName(), maxTokens);
+        }
+        TokenBudgetService.TokenBudget budget = tokenBudgetService.calculateBudget(maxTokens);
         StringBuilder sb = new StringBuilder(baseContext);
 
         // 角色动线
