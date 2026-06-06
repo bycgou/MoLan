@@ -138,7 +138,7 @@ public class StreamingChapterController {
                 multiAgentNovelService.writeChapterStreaming(
                         request.getNovelId(),
                         request.getChapterNum(),
-                        request.getUserInstruction(),
+                        request.getOutline(),
                         finalStyleCardId,
                         request.getLlmConfigId(),
                         emitter,
