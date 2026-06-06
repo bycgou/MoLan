@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutor;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -26,6 +27,15 @@ public class AsyncConfig {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
+    }
+
+    /**
+     * 包装 ioTaskExecutor，自动传播 SecurityContext 到异步线程
+     * 用于 CompletableFuture.runAsync() 等手动提交异步任务的场景
+     */
+    @Bean("securityContextIoExecutor")
+    public Executor securityContextIoExecutor() {
+        return new DelegatingSecurityContextExecutor(ioTaskExecutor());
     }
 
     /**

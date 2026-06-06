@@ -20,8 +20,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import com.novel.system.dto.response.ApiResponse;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -60,7 +58,7 @@ public class StreamingChapterController {
     private final ChapterGenerationChain chapterGenerationChain;
     private final MultiAgentNovelService multiAgentNovelService;
     private final ObjectMapper objectMapper;
-    private final Executor ioTaskExecutor;
+    private final Executor securityContextIoExecutor;
 
     /**
      * 流式写作请求
@@ -101,10 +99,8 @@ public class StreamingChapterController {
         });
 
         String cancelKey = "novel:cancel:" + request.getNovelId();
-        SecurityContext securityContext = SecurityContextHolder.getContext();
 
         CompletableFuture.runAsync(() -> {
-            SecurityContextHolder.setContext(securityContext);
             try {
                 redisTemplate.delete(cancelKey);
 
@@ -170,10 +166,8 @@ public class StreamingChapterController {
                     emitter.send(SseEmitter.event().name("error").data("生成失败: " + e.getMessage()));
                 } catch (Exception ignored) {}
                 try { emitter.complete(); } catch (Exception ignored) {}
-            } finally {
-                SecurityContextHolder.clearContext();
             }
-        }, ioTaskExecutor);
+        }, securityContextIoExecutor);
 
         return emitter;
     }
