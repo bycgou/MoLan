@@ -154,20 +154,25 @@ public class LlmServiceImpl implements LlmService {
                     scoredDocs.add(new AbstractMap.SimpleEntry<>(documents.get(i), score));
                 }
             } else {
+                log.warn("LLM Rerank返回无scores数组，使用 bigram Jaccard 降级");
                 for (int i = 0; i < documents.size(); i++) {
-                    scoredDocs.add(new AbstractMap.SimpleEntry<>(documents.get(i), 10.0 - i * 0.1));
+                    double score = bigramJaccard(query, documents.get(i));
+                    scoredDocs.add(new AbstractMap.SimpleEntry<>(documents.get(i), score));
                 }
+                scoredDocs.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
             }
             
             scoredDocs.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
             return scoredDocs;
             
         } catch (Exception e) {
-            log.error("LLM Rerank失败: {}", e.getMessage());
+            log.error("LLM Rerank失败，使用 bigram Jaccard 降级: {}", e.getMessage());
             List<Map.Entry<String, Double>> scoredDocs = new ArrayList<>();
             for (int i = 0; i < documents.size(); i++) {
-                scoredDocs.add(new AbstractMap.SimpleEntry<>(documents.get(i), 10.0 - i * 0.1));
+                double score = bigramJaccard(query, documents.get(i));
+                scoredDocs.add(new AbstractMap.SimpleEntry<>(documents.get(i), score));
             }
+            scoredDocs.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
             return scoredDocs;
         }
     }
@@ -300,5 +305,24 @@ public class LlmServiceImpl implements LlmService {
             return langChainConfig.createChatModel(config, taskType);
         }
         return langChainConfig.createChatModel(config);
+    }
+
+    private double bigramJaccard(String a, String b) {
+        Set<String> aBigrams = getBigrams(a);
+        Set<String> bBigrams = getBigrams(b);
+        if (aBigrams.isEmpty() || bBigrams.isEmpty()) return 0;
+        Set<String> intersection = new HashSet<>(aBigrams);
+        intersection.retainAll(bBigrams);
+        Set<String> union = new HashSet<>(aBigrams);
+        union.addAll(bBigrams);
+        return (double) intersection.size() / union.size();
+    }
+
+    private Set<String> getBigrams(String s) {
+        Set<String> bigrams = new HashSet<>();
+        for (int i = 0; i < s.length() - 1; i++) {
+            bigrams.add(s.substring(i, i + 2));
+        }
+        return bigrams;
     }
 }
