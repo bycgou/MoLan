@@ -20,6 +20,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -36,6 +37,7 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     private final MongoTemplate mongoTemplate;
     private MilvusClientV2 client;
     private final Gson gson = new Gson();
+    private volatile boolean degraded = false;
 
     public MilvusVectorStoreServiceImpl(MilvusVectorConfig config,
                                          ChapterSummaryRepository chapterSummaryRepository,
@@ -54,9 +56,11 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
                 .keepAliveTimeMs(config.getKeepAliveTimeMs())
                 .build();
             this.client = new MilvusClientV2(connectConfig);
+            this.degraded = false;
             log.info("Milvus 客户端连接成功: {}", config.getUri());
             ensureCollection();
         } catch (Exception e) {
+            degraded = true;
             log.warn("Milvus 连接失败，向量检索将不可用: {}", e.getMessage());
         }
     }
@@ -70,6 +74,17 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
             } catch (Exception e) {
                 log.warn("关闭 Milvus 客户端失败: {}", e.getMessage());
             }
+        }
+    }
+
+    @Scheduled(fixedDelay = 300000)
+    public void tryReconnect() {
+        if (!degraded) return;
+        try {
+            init();
+            if (client != null) degraded = false;
+        } catch (Exception e) {
+            log.warn("Milvus 重连失败: {}", e.getMessage());
         }
     }
 
@@ -205,6 +220,9 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
         }
 
         try {
+            // 先删除同 key 旧向量（upsert 语义：存在则替换）
+            deleteVector(key);
+
             JsonObject data = new JsonObject();
             data.addProperty("id", key);
             data.addProperty("novelId", metadata.getOrDefault("novelId", "").toString());
@@ -237,6 +255,10 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     @Override
     public List<VectorSearchResult> search(float[] queryVector, int topK, String filter) {
         EmbeddingService.validateVector(queryVector);
+        if (degraded) {
+            log.warn("Milvus 处于降级状态，跳过向量搜索");
+            return Collections.emptyList();
+        }
         if (client == null) {
             log.warn("Milvus 客户端未初始化，返回空结果");
             return Collections.emptyList();
