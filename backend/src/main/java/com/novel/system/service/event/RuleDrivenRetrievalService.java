@@ -2,6 +2,8 @@ package com.novel.system.service.event;
 
 import com.novel.system.entity.mongo.EventNode;
 import com.novel.system.entity.mysql.ClueBook;
+import com.novel.system.service.character.CharacterStateService;
+import com.novel.system.service.memory.EchoRecallService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ import java.util.regex.Pattern;
  * 规则2：角色重逢触发 — 角色长期未出场后重新登场时，检索最后出场事件
  * 规则3：地点关联触发 — 场景切换到某地点时，检索该地点的重要历史事件
  * 规则4：重要事件触发 — 检索近10章的重要事件
+ * 规则5：经典台词召回 — 当前章纲提到角色时，召回该角色早期章节的经典台词
  */
 @Slf4j
 @Service
@@ -26,6 +29,8 @@ import java.util.regex.Pattern;
 public class RuleDrivenRetrievalService {
 
     private final EventGraphService eventGraphService;
+    private final CharacterStateService characterStateService;
+    private final EchoRecallService echoRecallService;
 
     /** 伏笔回收触发距离（deadline前N章开始触发） */
     private static final int CLUE_TRIGGER_DISTANCE = 5;
@@ -78,6 +83,12 @@ public class RuleDrivenRetrievalService {
         // 规则4：近期重要事件
         for (EventNode event : retrieveRecentImportant(novelId, chapterNum)) {
             if (seenIds.add(event.getEventId())) results.add(event);
+        }
+
+        // 规则5：经典台词召回（返回String，通过 buildEchoRecallContext() 单独获取）
+        String echoContext = buildEchoRecallContext(novelId, chapterNum, chapterOutline);
+        if (!echoContext.isEmpty()) {
+            log.info("规则5(经典台词召回)命中: novelId={}, chapter={}", novelId, chapterNum);
         }
 
         log.info("规则驱动检索完成: novelId={}, chapter={}, 共检索{}个事件", novelId, chapterNum, results.size());
@@ -171,6 +182,32 @@ public class RuleDrivenRetrievalService {
         int fromChapter = Math.max(1, chapterNum - RECENT_CHAPTER_RANGE);
         return eventGraphService.getImportantEventsInRange(
             novelId, fromChapter, chapterNum - 1, RECENT_MIN_IMPORTANCE);
+    }
+
+    /**
+     * 规则5：经典台词召回
+     * 当前章纲提到某角色时，召回该角色早期章节（>15章前）的经典台词。
+     * 返回格式化的字符串上下文，可直接注入prompt。
+     */
+    public String buildEchoRecallContext(String novelId, int chapterNum, String outline) {
+        if (outline == null || outline.isEmpty()) return "";
+        try {
+            // Get all character names from CharacterStateService
+            String allChars = characterStateService.formatForPrompt(novelId);
+            List<String> mentionedCharacters = new ArrayList<>();
+            for (String line : allChars.split("\n")) {
+                String name = line.replaceAll("^角色:\\s*", "").replaceAll("^-\\s*", "")
+                        .split("\\s+")[0].trim();
+                if (!name.isEmpty() && outline.contains(name)) {
+                    mentionedCharacters.add(name);
+                }
+            }
+            if (mentionedCharacters.isEmpty()) return "";
+            return echoRecallService.formatForPrompt(novelId, chapterNum, mentionedCharacters);
+        } catch (Exception e) {
+            log.debug("规则5(经典台词召回)失败", e);
+            return "";
+        }
     }
 
     /**

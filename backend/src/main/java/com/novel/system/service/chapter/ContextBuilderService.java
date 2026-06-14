@@ -164,6 +164,17 @@ public class ContextBuilderService {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
         }
 
+        // 规则5：经典台词召回 — 当前章纲提到角色时，召回早期经典台词
+        try {
+            String echoContext = ruleDrivenRetrievalService.buildEchoRecallContext(
+                novelId, chapterNum, arcOutline);
+            if (!echoContext.isEmpty()) {
+                sb.append(tokenBudgetService.truncateToBudget(echoContext, 800));
+            }
+        } catch (Exception e) {
+            log.warn("经典台词召回失败（不影响生成）: {}", e.getMessage());
+        }
+
         // === 第六层：RAG 向量检索 — 自动注入相关历史 ===
         try {
             String queryText = arcOutline;
@@ -460,6 +471,17 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.warn("事件图谱检索失败（不影响生成）: {}", e.getMessage());
+        }
+
+        // 规则5：经典台词召回 — 当前章纲提到角色时，召回早期经典台词
+        try {
+            String echoContext = ruleDrivenRetrievalService.buildEchoRecallContext(
+                novelId, chapterNum, chapter.getChapterOutline());
+            if (!echoContext.isEmpty()) {
+                sb.append(tokenBudgetService.truncateToBudget(echoContext, 800));
+            }
+        } catch (Exception e) {
+            log.warn("经典台词召回失败（不影响生成）: {}", e.getMessage());
         }
 
         // === 第六层：RAG 向量检索 — 自动注入相关历史 ===
