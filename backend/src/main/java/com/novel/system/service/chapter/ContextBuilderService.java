@@ -15,6 +15,7 @@ import com.novel.system.entity.mongo.StoryState;
 import com.novel.system.ai.rag.RagService;
 import com.novel.system.service.memory.EmotionLedgerService;
 import com.novel.system.service.memory.FactLockService;
+import com.novel.system.service.memory.CompletedBeatsService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +56,7 @@ public class ContextBuilderService {
     private final RagService ragService;
     private final FactLockService factLockService;
     private final EmotionLedgerService emotionLedgerService;
+    private final CompletedBeatsService completedBeatsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -217,6 +219,16 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.error("Failed to build FactLock section", e);
+        }
+
+        // CompletedBeats (T0 priority)
+        try {
+            String beatsSection = completedBeatsService.formatForPrompt(novelId);
+            if (!beatsSection.isEmpty()) {
+                sb.append(beatsSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build CompletedBeats section", e);
         }
 
         // === 第三层：角色档案 — 人物当前状态 ===
@@ -484,6 +496,16 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.error("Failed to build FactLock section", e);
+        }
+
+        // CompletedBeats (T0 priority)
+        try {
+            String beatsSection = completedBeatsService.formatForPrompt(novelId);
+            if (!beatsSection.isEmpty()) {
+                sb.append(beatsSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build CompletedBeats section", e);
         }
 
         // === 第二层：伏笔账本 — deadline紧急提示 ===

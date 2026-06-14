@@ -5,6 +5,7 @@ import com.novel.system.service.chapter.ChapterPostProcessService;
 import com.novel.system.service.chapter.ChapterSaveService;
 import com.novel.system.service.memory.FactLockService;
 import com.novel.system.service.memory.EmotionLedgerService;
+import com.novel.system.service.memory.CompletedBeatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,6 +28,7 @@ public class PostProcessNode implements NovelGraphNode {
     private final SummaryNode summaryNode;
     private final FactLockService factLockService;
     private final EmotionLedgerService emotionLedgerService;
+    private final CompletedBeatsService completedBeatsService;
 
     @Override
     public String nodeName() { return "post_process"; }
@@ -103,12 +105,13 @@ public class PostProcessNode implements NovelGraphNode {
                     try {
                         factLockService.updateAfterChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
                         emotionLedgerService.extractFromChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
+                        completedBeatsService.extractFromChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
                     } catch (Exception e) {
-                        log.error("Failed to update FactLock/EmotionLedger", e);
+                        log.error("Failed to update FactLock/EmotionLedger/CompletedBeats", e);
                     }
                 });
             } catch (Exception e) {
-                log.error("Failed to start FactLock/EmotionLedger update", e);
+                log.error("Failed to start FactLock/EmotionLedger/CompletedBeats update", e);
             }
         }
 
