@@ -2,6 +2,7 @@ package com.novel.system.ai.graph;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.service.memory.ConvergenceService;
 import com.novel.system.util.JsonExtractor;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -22,6 +23,7 @@ public class SelfReviewNode implements NovelGraphNode {
 
     private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
+    private final ConvergenceService convergenceService;
 
     @Override
     public String nodeName() { return "self_review"; }
@@ -39,6 +41,21 @@ public class SelfReviewNode implements NovelGraphNode {
         }
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
 
+        // Build convergence-specific review hint
+        String phase = convergenceService.getPhase(state.getNovelId());
+        String convergenceHint = "";
+        if ("CONVERGENCE".equals(phase)) {
+            convergenceHint = "\n\n【收束期特别检查】当前处于收束期，请特别注意：\n"
+                    + "1. 是否有支线可以合并或闭合？\n"
+                    + "2. 是否减少了新支线的引入？\n"
+                    + "3. 节奏是否在加速？";
+        } else if ("FINALE".equals(phase)) {
+            convergenceHint = "\n\n【终章期特别检查】当前处于终章期，请特别注意：\n"
+                    + "1. 所有伏笔是否已回收？\n"
+                    + "2. 角色弧线是否完整闭合？\n"
+                    + "3. 是否还有未解决的冲突？";
+        }
+
         String prompt = String.format("""
                 你是严格的文学编辑。审查以下章节初稿。
 
@@ -50,14 +67,15 @@ public class SelfReviewNode implements NovelGraphNode {
                 === 初稿内容 ===
                 %s
 
-                检查：情节推进、角色行为、情绪弧线、伏笔体现。
+                检查：情节推进、角色行为、情绪弧线、伏笔体现。%s
 
                 输出JSON：
                 {"severity":"LOW/MEDIUM/HIGH","overallScore":8,"passed":true,"notes":["意见"]}
                 severity: LOW=轻微可忽略, MEDIUM=建议修改, HIGH=必须重写
                 """,
                 plan.getSummary(), plan.getEmotionalArc(), plan.getClimaxPoint(),
-                StateHelper.truncate(draft.getContent(), 6000));
+                StateHelper.truncate(draft.getContent(), 6000),
+                convergenceHint);
 
         String response = chatModelProvider.getStructuredModel(state.getLlmConfigId()).chat(prompt);
         SelfReviewResult result = parseResult(response);

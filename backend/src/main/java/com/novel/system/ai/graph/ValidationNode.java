@@ -7,6 +7,7 @@ import com.novel.system.entity.mysql.NovelBase;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
+import com.novel.system.service.memory.ConvergenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ public class ValidationNode implements NovelGraphNode {
     private final NovelBaseMapper novelBaseMapper;
     private final CharacterStateService characterStateService;
     private final ClueBookService clueBookService;
+    private final ConvergenceService convergenceService;
 
     @Override
     public String nodeName() { return "validation"; }
@@ -111,6 +113,17 @@ public class ValidationNode implements NovelGraphNode {
         if (!result.getPassed() && result.getSummary() != null) {
             suggestions.add(result.getSummary());
         }
+
+        // Convergence-aware clue recovery check
+        String phase = convergenceService.getPhase(state.getNovelId());
+        if ("CONVERGENCE".equals(phase) || "FINALE".equals(phase)) {
+            String clueRecoveryCheck = buildClueRecoveryCheck(state);
+            if (!clueRecoveryCheck.isEmpty()) {
+                suggestions.add(clueRecoveryCheck);
+                log.info("Convergence phase clue recovery check: {}", clueRecoveryCheck);
+            }
+        }
+
         auditBuilder.suggestions(suggestions);
 
         NovelAgentState updated = state.toBuilder()
@@ -142,6 +155,20 @@ public class ValidationNode implements NovelGraphNode {
                     return sb.toString().trim();
                 })
                 .collect(Collectors.joining("\n"));
+    }
+
+    private String buildClueRecoveryCheck(NovelAgentState state) {
+        List<ClueBook> clues = clueBookService.getCluesByNovelId(state.getNovelId());
+        if (clues == null || clues.isEmpty()) return "";
+
+        long unresolvedCount = clues.stream()
+                .filter(c -> c.getStatus() == null || c.getStatus() != 1)
+                .count();
+
+        if (unresolvedCount >= 5) {
+            return String.format("收束期提醒：当前仍有 %d 条伏笔未回收，请在当前章节中加快伏笔回收节奏", unresolvedCount);
+        }
+        return "";
     }
 
     private String buildClueBookText(List<ClueBook> clues) {
