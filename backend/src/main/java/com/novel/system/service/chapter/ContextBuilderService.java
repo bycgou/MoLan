@@ -13,6 +13,8 @@ import com.novel.system.entity.mongo.ArcOrchestration;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.entity.mongo.StoryState;
 import com.novel.system.ai.rag.RagService;
+import com.novel.system.service.memory.EmotionLedgerService;
+import com.novel.system.service.memory.FactLockService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +53,8 @@ public class ContextBuilderService {
     private final com.novel.system.service.event.RuleDrivenRetrievalService ruleDrivenRetrievalService;
     private final com.novel.system.service.event.EventGraphService eventGraphService;
     private final RagService ragService;
+    private final FactLockService factLockService;
+    private final EmotionLedgerService emotionLedgerService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -127,6 +131,16 @@ public class ContextBuilderService {
             sb.append(prevChapter.getActualEndingHook()).append("\n\n");
         }
 
+        // EmotionLedger (T1 priority)
+        try {
+            String emotionSection = emotionLedgerService.formatForPrompt(novelId, chapterNum);
+            if (!emotionSection.isEmpty()) {
+                sb.append(emotionSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build EmotionLedger section", e);
+        }
+
         // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
             List<com.novel.system.entity.mysql.ClueBook> pendingClues =
@@ -193,6 +207,16 @@ public class ContextBuilderService {
                 sb.append("- ").append(warning).append("\n");
             }
             sb.append("\n");
+        }
+
+        // FactLock (T0 priority - injected early)
+        try {
+            String factLockSection = factLockService.buildFactLockSection(novelId);
+            if (!factLockSection.isEmpty()) {
+                sb.append(factLockSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build FactLock section", e);
         }
 
         // === 第三层：角色档案 — 人物当前状态 ===
@@ -374,6 +398,16 @@ public class ContextBuilderService {
             sb.append(prevChapter.getActualEndingHook()).append("\n\n");
         }
 
+        // EmotionLedger (T1 priority)
+        try {
+            String emotionSection = emotionLedgerService.formatForPrompt(novelId, chapterNum);
+            if (!emotionSection.isEmpty()) {
+                sb.append(emotionSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build EmotionLedger section", e);
+        }
+
         // === 第五层：事件图谱 — 规则驱动自动检索 ===
         try {
             List<com.novel.system.entity.mysql.ClueBook> pendingClues =
@@ -440,6 +474,16 @@ public class ContextBuilderService {
                 sb.append("- ").append(warning).append("\n");
             }
             sb.append("\n");
+        }
+
+        // FactLock (T0 priority - injected early)
+        try {
+            String factLockSection = factLockService.buildFactLockSection(novelId);
+            if (!factLockSection.isEmpty()) {
+                sb.append(factLockSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build FactLock section", e);
         }
 
         // === 第二层：伏笔账本 — deadline紧急提示 ===
