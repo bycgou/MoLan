@@ -3,6 +3,8 @@ package com.novel.system.ai.graph;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.service.chapter.ChapterPostProcessService;
 import com.novel.system.service.chapter.ChapterSaveService;
+import com.novel.system.service.memory.FactLockService;
+import com.novel.system.service.memory.EmotionLedgerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -23,6 +25,8 @@ public class PostProcessNode implements NovelGraphNode {
     private final ChapterPostProcessService postProcessService;
     private final StringRedisTemplate redisTemplate;
     private final SummaryNode summaryNode;
+    private final FactLockService factLockService;
+    private final EmotionLedgerService emotionLedgerService;
 
     @Override
     public String nodeName() { return "post_process"; }
@@ -90,6 +94,21 @@ public class PostProcessNode implements NovelGraphNode {
                 }
             } catch (Exception e) {
                 log.error("后处理失败: {}", e.getMessage());
+            }
+
+            // Update FactLock + EmotionLedger (async, non-blocking)
+            try {
+                String memoryContent = result.getFinalContent();
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        factLockService.updateAfterChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
+                        emotionLedgerService.extractFromChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
+                    } catch (Exception e) {
+                        log.error("Failed to update FactLock/EmotionLedger", e);
+                    }
+                });
+            } catch (Exception e) {
+                log.error("Failed to start FactLock/EmotionLedger update", e);
             }
         }
 
