@@ -14,6 +14,8 @@ import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.event.ContentExtractorService;
 import com.novel.system.service.llm.LlmService;
+import com.novel.system.service.memory.EchoRecallService;
+import com.novel.system.service.memory.ConvergenceService;
 import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +54,8 @@ public class ChapterPostProcessService {
     private final com.novel.system.service.event.EventExtractionService eventExtractionService;
     private final com.novel.system.service.event.EventGraphService eventGraphService;
     private final com.novel.system.service.event.ContentExtractorService contentExtractorService;
+    private final EchoRecallService echoRecallService;
+    private final ConvergenceService convergenceService;
 
     private final java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean> processedChapters =
         java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -130,6 +134,13 @@ public class ChapterPostProcessService {
 
             // 5. 提取事件到事件图谱
             extractEvents(novelId, chapterNum, contentForExtraction, existingCharNames);
+
+            // 6. 提取声音样本用于 Echo Recall
+            try {
+                echoRecallService.extractVoiceSamples(novelId, chapterNum, chapterContent);
+            } catch (Exception e) {
+                log.warn("EchoRecall声音样本提取失败（不影响后处理）: {}", e.getMessage());
+            }
 
             long elapsed = System.currentTimeMillis() - start;
             log.info("后处理完成: 小说ID={}, 章节号={}, 耗时={}ms", novelId, chapterNum, elapsed);

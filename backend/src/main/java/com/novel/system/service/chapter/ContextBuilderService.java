@@ -16,11 +16,14 @@ import com.novel.system.ai.rag.RagService;
 import com.novel.system.service.memory.EmotionLedgerService;
 import com.novel.system.service.memory.FactLockService;
 import com.novel.system.service.memory.CompletedBeatsService;
+import com.novel.system.service.memory.EchoRecallService;
+import com.novel.system.service.memory.ConvergenceService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -57,6 +60,8 @@ public class ContextBuilderService {
     private final FactLockService factLockService;
     private final EmotionLedgerService emotionLedgerService;
     private final CompletedBeatsService completedBeatsService;
+    private final EchoRecallService echoRecallService;
+    private final ConvergenceService convergenceService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -181,6 +186,17 @@ public class ContextBuilderService {
             log.warn("RAG 自动检索失败（不影响生成）: {}", e.getMessage());
         }
 
+        // EchoRecall (T3 priority - near the end)
+        try {
+            List<String> chapterCharacters = extractCharactersFromOutline(novelId, arcOutline);
+            String echoSection = echoRecallService.formatForPrompt(novelId, chapterNum, chapterCharacters);
+            if (!echoSection.isEmpty()) {
+                sb.append(echoSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build EchoRecall section", e);
+        }
+
         // === 第一层：故事状态（核心枢纽，第一优先级数据源）===
         StoryState storyState = null;
         try {
@@ -209,6 +225,16 @@ public class ContextBuilderService {
                 sb.append("- ").append(warning).append("\n");
             }
             sb.append("\n");
+        }
+
+        // Convergence state (T0 priority)
+        try {
+            String convergenceSection = convergenceService.formatForPrompt(novelId);
+            if (!convergenceSection.isEmpty()) {
+                sb.append(convergenceSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build Convergence section", e);
         }
 
         // FactLock (T0 priority - injected early)
@@ -458,6 +484,17 @@ public class ContextBuilderService {
             log.warn("RAG 自动检索失败（不影响生成）: {}", e.getMessage());
         }
 
+        // EchoRecall (T3 priority - near the end)
+        try {
+            List<String> chapterCharacters = extractCharactersFromOutline(novelId, chapter.getChapterOutline());
+            String echoSection = echoRecallService.formatForPrompt(novelId, chapterNum, chapterCharacters);
+            if (!echoSection.isEmpty()) {
+                sb.append(echoSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build EchoRecall section", e);
+        }
+
         // === 第一层：故事状态（核心枢纽）===
         StoryState storyState = null;
         try {
@@ -506,6 +543,16 @@ public class ContextBuilderService {
             }
         } catch (Exception e) {
             log.error("Failed to build CompletedBeats section", e);
+        }
+
+        // Convergence state (T0 priority)
+        try {
+            String convergenceSection = convergenceService.formatForPrompt(novelId);
+            if (!convergenceSection.isEmpty()) {
+                sb.append(convergenceSection).append("\n");
+            }
+        } catch (Exception e) {
+            log.error("Failed to build Convergence section", e);
         }
 
         // === 第二层：伏笔账本 — deadline紧急提示 ===
@@ -657,7 +704,33 @@ public class ContextBuilderService {
         int firstNewline = tail.indexOf('\n');
         return firstNewline > 0 ? tail.substring(firstNewline + 1) : tail;
     }
-    
+
+    /**
+     * 从大纲文本中提取本章出场角色名称（用于 EchoRecall 注入）
+     * 利用 CharacterStateService.formatForPrompt 获取所有角色名，然后与大纲文本匹配
+     */
+    private List<String> extractCharactersFromOutline(String novelId, String outline) {
+        if (outline == null || outline.isEmpty()) return List.of();
+        List<String> characters = new ArrayList<>();
+        try {
+            // Use existing formatForPrompt to get all characters, then match against outline
+            String allCharactersPrompt = characterStateService.formatForPrompt(novelId);
+            // Parse character names from the formatted string (lines starting with "角色:")
+            for (String line : allCharactersPrompt.split("\n")) {
+                if (line.startsWith("角色:") || line.startsWith("- ")) {
+                    String name = line.replaceAll("^角色:\\s*", "").replaceAll("^-\\s*", "")
+                            .split("\\s+")[0].trim();
+                    if (!name.isEmpty() && outline.contains(name)) {
+                        characters.add(name);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to extract characters from outline for EchoRecall", e);
+        }
+        return characters;
+    }
+
     /**
      * 构建文风参考片段（从已有章节抽取代表性段落）
      * 
