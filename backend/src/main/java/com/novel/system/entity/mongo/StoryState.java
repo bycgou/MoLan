@@ -7,6 +7,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -51,6 +52,9 @@ public class StoryState {
 
     /** 叙事标记 */
     private NarrativeFlagsState narrativeFlags;
+
+    /** 收束状态（叙事进度追踪） */
+    private ConvergenceState convergenceState;
 
     /** 压缩后的全局背景摘要（替代NovelMemory） */
     private String compressedBackstory;
@@ -178,5 +182,21 @@ public class StoryState {
         private List<String> recentReveals;
         /** 校验警告列表（下章生成时注入，避免重犯） */
         private List<String> warnings;
+    }
+
+    /**
+     * 收束状态（叙事进度追踪）
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConvergenceState {
+        private int currentChapter;
+        private int totalChapters;
+        private double progress;
+        /** OPENING / DEVELOPMENT / CONVERGENCE / FINALE */
+        private String phase;
+        private List<String> openHooks = new ArrayList<>();
+        private int chaptersRemaining;
     }
 }
