@@ -31,6 +31,7 @@ public class MultiAgentNovelService {
             SummaryNode summary,
             PostProcessNode postProcess,
             AuthorAgent authorAgent,
+            FactLockViolationNode factLockViolationNode,
             @org.springframework.beans.factory.annotation.Autowired(required = false) StateCheckpointService checkpointService) {
 
         GraphDefinition definition = GraphDefinition.builder()
@@ -53,8 +54,9 @@ public class MultiAgentNovelService {
                 .edge("continuity_validation", "summary", Mode.STREAMING)
                 .edge("validation", "quality_scoring", Mode.FULL)
                 .edge("quality_scoring", "audit_router", Mode.FULL)
-                .conditionalEdge("audit_router", "summary",
+                .conditionalEdge("audit_router", "fact_lock_violation",
                         s -> "PASS".equals(s.getAuditDecision()), Mode.FULL)
+                .edge("fact_lock_violation", "summary")
                 .conditionalEdge("audit_router", "outline",
                         s -> "REPLAN".equals(s.getAuditDecision()), Mode.FULL)
                 .conditionalEdge("audit_router", "writing",
@@ -83,6 +85,7 @@ public class MultiAgentNovelService {
         runner.register(auditRouter);
         runner.register(summary);
         runner.register(postProcess);
+        runner.register(factLockViolationNode);
 
         // NodeExecutor 统一管理 AuthorAgent 拦截 + 检查点
         NodeExecutor nodeExecutor = new NodeExecutor(authorAgent, checkpointService, definition);
