@@ -168,7 +168,10 @@ def build_graph(mode: Mode = Mode.FAST) -> StateGraph:
         graph.add_conditional_edges("validation", route_after_validation)
         graph.add_edge("self_review", "quality_check")
         graph.add_conditional_edges("quality_check", route_after_quality)
-    else:
+    elif mode == Mode.STREAMING:
+        graph.add_edge("writing", "validation")  # 轻量校验：连续性+OOC
+        graph.add_conditional_edges("validation", route_after_validation)
+    else:  # FAST
         graph.add_edge("writing", "summary")
 
     graph.add_edge("summary", "post_process")
@@ -222,6 +225,13 @@ data: {"content": "完整内容", "word_count": 3000, "summary": "..."}
 event: error
 data: {"message": "错误信息"}
 ```
+
+### SSE 转发策略
+
+前端直连 Python 服务（`http://python:8000/api/generate`），不经过 Java 透传。原因：
+- 减少一跳延迟，流式体验更好
+- Java 不需要维护 SSE 连接状态
+- Nginx 统一代理，前端无需感知后端拆分
 
 ## 7. 工具系统
 
