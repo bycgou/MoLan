@@ -58,9 +58,23 @@ public class WritingNode implements NovelGraphNode {
 
     @Override
     public NovelAgentState apply(NovelAgentState state) throws Exception {
-        log.info("[{}] 生成正文, iterationCount={}", nodeName(), state.getIterationCount());
+        log.info("[{}] 生成正文, iterationCount={}, novelId={}, chapter={}",
+                nodeName(), state.getIterationCount(), state.getNovelId(), state.getChapterNum());
 
         NovelAgentState.ChapterPlan plan = state.getChapterPlan();
+        if (plan == null) {
+            log.error("[{}] chapterPlan 为 null，无法生成正文。novelId={}, chapter={}",
+                    nodeName(), state.getNovelId(), state.getChapterNum());
+            throw new RuntimeException("章纲数据缺失，无法生成正文");
+        }
+        if (plan.getSummary() == null || plan.getSummary().isEmpty()) {
+            log.error("[{}] chapterPlan.summary 为空，无法生成正文。novelId={}, chapter={}, plan.title={}",
+                    nodeName(), state.getNovelId(), state.getChapterNum(), plan.getTitle());
+            throw new RuntimeException("章纲摘要为空，无法生成正文");
+        }
+
+        log.info("[{}] 章纲摘要长度={}, styleCardId={}, llmConfigId={}",
+                nodeName(), plan.getSummary().length(), state.getStyleCardId(), state.getLlmConfigId());
 
         // 复用 state 中的 outlineContext，构建 writingContext
         String writingContext = state.getWritingContext();
@@ -72,24 +86,29 @@ public class WritingNode implements NovelGraphNode {
                     state.getNovelId(), state.getChapterNum(),
                     tempChapter, novel, state.getSelectedIdea());
         }
+        log.info("[{}] writingContext 构建完成, 长度={}", nodeName(), writingContext != null ? writingContext.length() : 0);
 
         // 增强上下文
         String enhancedContext = enhanceContext(writingContext, plan, state);
+        log.info("[{}] enhancedContext 构建完成, 长度={}", nodeName(), enhancedContext.length());
 
         // 统一使用6参数版本，有 SseEmitter 时走流式
         String content;
         if (state.getSseEmitter() != null) {
+            log.info("[{}] 开始流式写作生成...", nodeName());
             content = chain.executeWritingChainStreaming(
                     state.getNovelId(), state.getChapterNum(),
                     plan.getSummary(), enhancedContext,
                     state.getStyleCardId(), state.getLlmConfigId(),
                     state.getSseEmitter());
         } else {
+            log.info("[{}] 开始非流式写作生成...", nodeName());
             content = chain.executeWritingChain(
                     state.getNovelId(), state.getChapterNum(),
                     plan.getSummary(), enhancedContext,
                     state.getStyleCardId(), state.getLlmConfigId());
         }
+        log.info("[{}] 写作生成完成, 内容长度={}", nodeName(), content != null ? content.length() : 0);
 
         NovelAgentState updated = state.toBuilder()
                 .writingContext(writingContext)

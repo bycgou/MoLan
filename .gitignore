@@ -54,3 +54,12 @@ frontend/pnpm-debug.log*
 
 # Claude Code 开发计划/设计文档
 docs/superpowers/
+
+# ========================
+# 本地助手记忆与个人文档（不公开）
+# ========================
+.workbuddy/
+AI写小说工具.md
+Untitled.md
+代码分析报告.md
+毕业设计开题报告.md

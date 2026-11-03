@@ -101,11 +101,13 @@ public class PostProcessNode implements NovelGraphNode {
             // Update FactLock + EmotionLedger (async, non-blocking)
             try {
                 String memoryContent = result.getFinalContent();
+                final String novelId = state.getNovelId();
+                final int chapterNum = state.getChapterNum();
                 CompletableFuture.runAsync(() -> {
                     try {
-                        factLockService.updateAfterChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
-                        emotionLedgerService.extractFromChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
-                        completedBeatsService.extractFromChapter(state.getNovelId(), state.getChapterNum(), memoryContent);
+                        factLockService.updateAfterChapter(novelId, chapterNum, memoryContent);
+                        emotionLedgerService.extractFromChapter(novelId, chapterNum, memoryContent);
+                        completedBeatsService.extractFromChapter(novelId, chapterNum, memoryContent);
                     } catch (Exception e) {
                         log.error("Failed to update FactLock/EmotionLedger/CompletedBeats", e);
                     }

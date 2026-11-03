@@ -109,14 +109,26 @@ public class ChapterSaveService {
         chapter.setCreateTime(LocalDateTime.now());
         chapter.setUpdateTime(LocalDateTime.now());
 
-        // 检查章节是否已存在
+        // 检查章节是否已存在（先查后写 + DuplicateKeyException 兜底）
         NovelChapter existing = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
         if (existing != null) {
             chapter.setChapterId(existing.getChapterId());
             novelChapterMapper.updateById(chapter);
         } else {
             chapter.setChapterId(UUID.randomUUID().toString().replace("-", ""));
-            novelChapterMapper.insert(chapter);
+            try {
+                novelChapterMapper.insert(chapter);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // 并发场景：另一线程已插入，改为更新
+                log.warn("章节记录已存在（并发插入），改为更新: novelId={}, chapterNum={}", novelId, chapterNum);
+                NovelChapter raced = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
+                if (raced != null) {
+                    chapter.setChapterId(raced.getChapterId());
+                    novelChapterMapper.updateById(chapter);
+                } else {
+                    throw e; // 极端情况：查不到但又冲突，抛出异常
+                }
+            }
         }
 
         // 更新小说字数统计

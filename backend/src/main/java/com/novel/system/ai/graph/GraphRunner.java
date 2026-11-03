@@ -97,7 +97,7 @@ public class GraphRunner {
                 break;
             }
 
-            log.info("[GraphRunner] Executing node: {} (iter={})", currentNode, iterations);
+            log.info("[GraphRunner] Executing node: {} (iter={}, mode={})", currentNode, iterations, mode);
 
             if (nodeExecutor != null) {
                 state = nodeExecutor.execute(node, state, mode);
@@ -106,18 +106,26 @@ public class GraphRunner {
                 try {
                     state = node.apply(state);
                 } catch (Exception e) {
+                    log.error("[GraphRunner] Node {} failed: {}", currentNode, e.getMessage(), e);
                     state = StateHelper.appendError(state, new StructuredError(
                             currentNode, ErrorStrategy.SKIP, e.getMessage(),
                             e, Instant.now(), true));
                 }
             }
 
+            log.info("[GraphRunner] Node {} completed: hasChapterPlan={}, hasDraft={}, hasFinalResult={}, errors={}",
+                    currentNode,
+                    state.getChapterPlan() != null,
+                    state.getDraftContent() != null,
+                    state.getFinalResult() != null,
+                    state.getErrors().size());
+
             Instant now = Instant.now();
             state = StateHelper.appendTrace(state, NodeExecutionRecord.success(
                     currentNode, state.getMode(), now, now,
                     state.getAuthorDirective(), Map.of()));
 
-            if (definition.isFanOut(currentNode)) {
+            if (definition.isFanOut(currentNode, mode)) {
                 state = executeFanOut(currentNode, state, mode);
                 currentNode = definition.getFanInTarget(
                         definition.getFanOutTargets(currentNode, mode), mode);

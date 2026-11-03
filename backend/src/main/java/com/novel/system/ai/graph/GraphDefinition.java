@@ -52,6 +52,15 @@ public class GraphDefinition {
         return fanOutGroups.containsKey(nodeName);
     }
 
+    /**
+     * 检查指定节点在给定模式下是否有 fan-out 目标。
+     * 避免在不支持 fan-out 的模式下误入 fan-out 路径。
+     */
+    public boolean isFanOut(String nodeName, Mode mode) {
+        FanOutGroup group = fanOutGroups.get(nodeName);
+        return group != null && group.mode() == mode;
+    }
+
     public List<String> getFanOutTargets(String nodeName, Mode mode) {
         FanOutGroup group = fanOutGroups.get(nodeName);
         if (group != null && (group.mode() == null || group.mode() == mode)) {

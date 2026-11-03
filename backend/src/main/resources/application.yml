@@ -95,7 +95,7 @@ embedding:
 jwt:
   # 必须配置！至少32字节的随机密钥，不可使用默认值
   # 生成方式: openssl rand -base64 48
-  secret: ${JWT_SECRET:dev-only-jwt-secret-change-in-production-openssl-rand-base64-48}
+  secret: ${JWT_SECRET:moyun-local-dev-secret-2026-min32bytes-for-development-only}
   expiration: 86400000
 
 generation:

@@ -729,8 +729,22 @@ private List<String> getUnrecycledClues(String novelId) {
                 chapter.setGenerationStatus(0); // 待生成
                 chapter.setCreateTime(LocalDateTime.now());
                 chapter.setUpdateTime(LocalDateTime.now());
-                novelChapterMapper.insert(chapter);
-                log.info("创建章节记录并保存章纲: novelId={}, chapterNum={}", novelId, chapterNum);
+                try {
+                    novelChapterMapper.insert(chapter);
+                    log.info("创建章节记录并保存章纲: novelId={}, chapterNum={}", novelId, chapterNum);
+                } catch (org.springframework.dao.DuplicateKeyException e) {
+                    // 并发场景：另一线程已插入，改为更新
+                    log.warn("章节记录已存在（并发插入），改为更新: novelId={}, chapterNum={}", novelId, chapterNum);
+                    NovelChapter existing = novelChapterMapper.selectByNovelIdAndChapterNum(novelId, chapterNum);
+                    if (existing != null) {
+                        existing.setChapterOutline(outline);
+                        existing.setImplementationIdea(implementationIdeas != null && !implementationIdeas.isEmpty()
+                                ? implementationIdeas.get(0) : existing.getImplementationIdea());
+                        existing.setHook(hook);
+                        existing.setUpdateTime(LocalDateTime.now());
+                        novelChapterMapper.updateById(existing);
+                    }
+                }
             } else {
                 // 更新已有章节的章纲
                 chapter.setChapterOutline(outline);

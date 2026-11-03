@@ -436,7 +436,13 @@ public class ChapterGenerationChain {
             throw errorRef.get();
         }
 
-        return contentBuilder.toString();
+        String content = contentBuilder.toString();
+        if (content.isEmpty()) {
+            log.error("流式写作生成返回空内容! novelId={}, chapter={}, 模型可能返回了空响应", novelId, chapterNum);
+            throw new RuntimeException("流式写作生成返回空内容，模型未产生任何输出");
+        }
+        log.info("流式写作生成完成: novelId={}, chapter={}, 字数={}", novelId, chapterNum, content.length());
+        return content;
     }
 
     private dev.langchain4j.model.chat.StreamingChatModel getStreamingModel(String llmConfigId) {

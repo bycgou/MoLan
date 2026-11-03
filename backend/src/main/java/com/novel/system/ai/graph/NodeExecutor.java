@@ -25,6 +25,7 @@ public class NodeExecutor {
         String nodeName = node.nodeName();
 
         if (node.shouldSkip(state)) {
+            log.info("[NodeExecutor] Skipping node {} (shouldSkip=true)", nodeName);
             Instant now = Instant.now();
             return StateHelper.appendTrace(state, NodeExecutionRecord.skipped(
                     nodeName, mode, now, now));

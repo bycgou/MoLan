@@ -9,6 +9,7 @@ import com.novel.system.entity.mysql.NovelStyleBinding;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.mapper.NovelStyleBindingMapper;
+import com.novel.system.ai.graph.AgentExecutionResult;
 import com.novel.system.service.chapter.ChapterPostProcessService;
 import com.novel.system.service.chapter.ChapterSaveService;
 import com.novel.system.service.chapter.ChapterVersionService;
@@ -150,7 +151,7 @@ public class StreamingChapterController {
 
                 // 通过 GraphRunner(FAST) 执行，WritingNode 会流式输出到 emitter
                 String finalStyleCardId = effectiveStyleCardId;
-                multiAgentNovelService.writeChapterStreaming(
+                AgentExecutionResult result = multiAgentNovelService.writeChapterStreaming(
                         request.getNovelId(),
                         request.getChapterNum(),
                         request.getOutline(),
@@ -166,13 +167,36 @@ public class StreamingChapterController {
                 // 获取 novel 最新状态（GraphRunner 可能已更新）
                 novel = novelBaseMapper.selectById(request.getNovelId());
 
-                // 发送 complete 事件
-                try {
-                    emitter.send(SseEmitter.event().name("complete").data(""));
-                    emitter.complete();
-                } catch (Exception sendEx) {
-                    log.warn("发送complete事件失败: {}", sendEx.getMessage());
-                    try { emitter.complete(); } catch (Exception ignored) {}
+                // 检查是否实际生成了内容 — WritingNode 失败时 Graph 仍会走完，但内容为空
+                // 注意：errors 中可能包含非致命警告（如"卷级编排缺失"），不能仅凭 errors 判断失败
+                boolean hasContent = result != null && result.getContent() != null && !result.getContent().isEmpty();
+                if (hasContent) {
+                    // 有内容：发送 complete 事件（errors 只是非致命警告）
+                    if (result != null && !result.getErrors().isEmpty()) {
+                        log.warn("流式生成成功但有非致命警告: {}", result.getErrors());
+                    }
+                    try {
+                        emitter.send(SseEmitter.event().name("complete").data(""));
+                        emitter.complete();
+                    } catch (Exception sendEx) {
+                        log.warn("发送complete事件失败: {}", sendEx.getMessage());
+                        try { emitter.complete(); } catch (Exception ignored) {}
+                    }
+                } else {
+                    // 内容为空：说明 WritingNode 或后续节点失败，发送 error 事件
+                    String errorDetail = (result != null && !result.getErrors().isEmpty())
+                            ? String.join("; ", result.getErrors())
+                            : "正文生成失败，未产生任何内容";
+                    log.error("流式生成完成但内容为空: novelId={}, chapter={}, errors={}",
+                            request.getNovelId(), request.getChapterNum(), errorDetail);
+                    try {
+                        emitter.send(SseEmitter.event().name("error")
+                                .data("生成失败: " + errorDetail));
+                        emitter.complete();
+                    } catch (Exception sendEx) {
+                        log.warn("发送error事件失败: {}", sendEx.getMessage());
+                        try { emitter.complete(); } catch (Exception ignored) {}
+                    }
                 }
 
             } catch (Exception e) {

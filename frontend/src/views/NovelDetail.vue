@@ -793,6 +793,7 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
     streamDialogVisible.value = true
 
     let receivedComplete = false
+    let receivedError = false
     let currentEventName = ''  // 当前解析到的事件名
     let reachedCharactersMarker = false  // 是否到达人物JSON分隔符
 
@@ -810,6 +811,14 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
           if (data) streamValidationSummary.value = data
           receivedComplete = true
           currentEventName = ''
+          return
+        }
+
+        // error 事件：后端报告生成失败
+        if (currentEventName === 'error') {
+          receivedError = true
+          currentEventName = ''
+          if (data) ElMessage.error(data)
           return
         }
 
@@ -867,8 +876,11 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
 
     clearTimeout(timeoutId)
 
-    // 流结束：如果有内容就视为成功（后端可能因异常未发 complete 事件）
-    if (receivedComplete || streamingContent.value) {
+    // 流结束：根据事件类型判断状态
+    if (receivedError) {
+      streamingStatus.value = 'error'
+      generating.value = false
+    } else if (receivedComplete || streamingContent.value) {
       streamingStatus.value = 'completed'
       generating.value = false
       loadChapters()
