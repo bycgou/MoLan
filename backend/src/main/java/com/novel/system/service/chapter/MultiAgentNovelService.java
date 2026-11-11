@@ -24,6 +24,7 @@ public class MultiAgentNovelService {
             IdeaSelectionNode ideaSelect,
             WritingNode writing,
             SelfReviewNode selfReview,
+            DeslopCheckNode deslopCheck,
             ContinuityValidationNode continuityValidation,
             ValidationNode validation,
             QualityScoringNode qualityScoring,
@@ -43,7 +44,10 @@ public class MultiAgentNovelService {
                 .fanIn(List.of("clue_planning", "character_planning"), "world_validate", Mode.FULL)
                 .edge("world_validate", "idea_select", Mode.FULL)
                 .edge("idea_select", "writing", Mode.FULL)
-                .edge("writing", "self_review")
+                .edge("writing", "deslop_check")
+                .conditionalEdge("deslop_check", "writing",
+                        s -> "REWRITE".equals(s.getDeslopDecision()))
+                .edge("deslop_check", "self_review")
                 .conditionalEdge("self_review", "writing",
                         s -> s.getDraftContent() != null
                                 && s.getDraftContent().getSeverity() == NovelAgentState.Severity.HIGH
@@ -79,6 +83,7 @@ public class MultiAgentNovelService {
         runner.register(ideaSelect);
         runner.register(writing);
         runner.register(selfReview);
+        runner.register(deslopCheck);
         runner.register(continuityValidation);
         runner.register(validation);
         runner.register(qualityScoring);

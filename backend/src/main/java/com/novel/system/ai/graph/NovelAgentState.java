@@ -1,5 +1,6 @@
 package com.novel.system.ai.graph;
 
+import com.novel.system.ai.deslop.DeslopFinding;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -83,6 +84,21 @@ public class NovelAgentState {
     // === 新增：客户端断开取消标志 ===
     @Builder.Default
     private AtomicBoolean cancelFlag = new AtomicBoolean(false);
+
+    // ==================== 反 AI 味门禁（deslop）====================
+    /** 机械判据 + 统计指标的命中明细，ruleId 以 mech:deslop: / stat:deslop: 开头。 */
+    private List<DeslopFinding> deslopFindings;
+    /** deslop 触发的重写次数（独立预算，不占 writing 的重试配额）。 */
+    private int deslopRewriteCount;
+    /** PASS / REWRITE / REWRITE_EXHAUSTED。 */
+    private String deslopDecision;
+    /**
+     * 待修订问题（门禁与自审共用同一注入来源）。
+     *
+     * <p>不用 @Builder.Default：Lombok 会把初始值挪进 builder，Jackson 走无参构造器
+     * 反序列化时字段会是 null。所有访问点都做 null 安全处理。
+     */
+    private List<String> pendingRevisionNotes;
 
     // ==================== 枚举 ====================
 

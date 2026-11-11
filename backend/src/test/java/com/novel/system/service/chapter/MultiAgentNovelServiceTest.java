@@ -22,6 +22,7 @@ class MultiAgentNovelServiceTest {
     @Mock private IdeaSelectionNode ideaSelect;
     @Mock private WritingNode writing;
     @Mock private SelfReviewNode selfReview;
+    @Mock private DeslopCheckNode deslopCheck;
     @Mock private ValidationNode validation;
     @Mock private QualityScoringNode qualityScoring;
     @Mock private AuditRouterNode auditRouter;
@@ -42,6 +43,7 @@ class MultiAgentNovelServiceTest {
         when(ideaSelect.nodeName()).thenReturn("idea_select");
         when(writing.nodeName()).thenReturn("writing");
         when(selfReview.nodeName()).thenReturn("self_review");
+        when(deslopCheck.nodeName()).thenReturn("deslop_check");
         when(validation.nodeName()).thenReturn("validation");
         when(qualityScoring.nodeName()).thenReturn("quality_scoring");
         when(auditRouter.nodeName()).thenReturn("audit_router");
@@ -49,11 +51,13 @@ class MultiAgentNovelServiceTest {
         when(postProcess.nodeName()).thenReturn("post_process");
         ContinuityValidationNode continuityValidation = mock(ContinuityValidationNode.class);
         when(continuityValidation.nodeName()).thenReturn("continuity_validation");
+        FactLockViolationNode factLockViolation = mock(FactLockViolationNode.class);
+        when(factLockViolation.nodeName()).thenReturn("fact_lock_violation");
 
         service = new MultiAgentNovelService(
                 arcCheck, outline, cluePlan, charPlan, worldValidate,
-                ideaSelect, writing, selfReview, continuityValidation, validation,
-                qualityScoring, auditRouter, summary, postProcess, authorAgent, null);
+                ideaSelect, writing, selfReview, deslopCheck, continuityValidation, validation,
+                qualityScoring, auditRouter, summary, postProcess, authorAgent, factLockViolation, null);
     }
 
     @Test
@@ -88,6 +92,7 @@ class MultiAgentNovelServiceTest {
                     .build();
         });
         when(selfReview.apply(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(deslopCheck.apply(any())).thenAnswer(inv -> inv.getArgument(0));
         when(validation.apply(any())).thenAnswer(inv -> {
             NovelAgentState s = inv.getArgument(0);
             return s.toBuilder()

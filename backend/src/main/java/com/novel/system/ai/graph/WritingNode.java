@@ -8,7 +8,6 @@ import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.service.chapter.ContextBuilderService;
 import com.novel.system.service.chapter.TokenBudgetService;
 import com.novel.system.service.llm.LlmConfigService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -19,7 +18,6 @@ import java.util.List;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class WritingNode implements NovelGraphNode {
 
     private final ChapterGenerationChain chain;
@@ -27,6 +25,23 @@ public class WritingNode implements NovelGraphNode {
     private final TokenBudgetService tokenBudgetService;
     private final NovelBaseMapper novelBaseMapper;
     private final LlmConfigService llmConfigService;
+    /** 去标签化：把角色动线从「角色定位：X」改成叙述句，避免模型照抄成提纲腔。 */
+    private final boolean decontextualizePlan;
+
+    public WritingNode(ChapterGenerationChain chain,
+                       ContextBuilderService contextBuilderService,
+                       TokenBudgetService tokenBudgetService,
+                       NovelBaseMapper novelBaseMapper,
+                       LlmConfigService llmConfigService,
+                       @org.springframework.beans.factory.annotation.Value(
+                               "${writing.decontextualize-plan:false}") boolean decontextualizePlan) {
+        this.chain = chain;
+        this.contextBuilderService = contextBuilderService;
+        this.tokenBudgetService = tokenBudgetService;
+        this.novelBaseMapper = novelBaseMapper;
+        this.llmConfigService = llmConfigService;
+        this.decontextualizePlan = decontextualizePlan;
+    }
 
     @Override
     public String nodeName() { return "writing"; }
@@ -116,10 +131,64 @@ public class WritingNode implements NovelGraphNode {
                         .content(content)
                         .wordCount(content.replaceAll("\\s+", "").length())
                         .build())
+                // 建议消费一次即失效，避免下一轮重复注入同一批问题
+                .pendingRevisionNotes(null)
                 .currentPhase(NovelAgentState.GenerationPhase.WRITING.name())
                 .build();
 
         return updated;
+    }
+
+    /**
+     * 修订意见的来源：门禁与自审写进 {@code pendingRevisionNotes}，
+     * 老字段 {@code draftContent.revisionNotes} 作为回退。
+     */
+    private List<String> resolveRevisionNotes(NovelAgentState state) {
+        if (state.getPendingRevisionNotes() != null && !state.getPendingRevisionNotes().isEmpty()) {
+            return state.getPendingRevisionNotes();
+        }
+        if (state.getDraftContent() != null) {
+            return state.getDraftContent().getRevisionNotes();
+        }
+        return null;
+    }
+
+    private String taggedCharacterLine(NovelAgentState.CharacterAction action) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("【%s】\n", action.getCharacterName()));
+        sb.append(String.format("  角色定位：%s\n", action.getRole()));
+        sb.append(String.format("  本章目标：%s\n", action.getGoal()));
+        sb.append(String.format("  情绪变化：%s\n", action.getEmotionalState()));
+        sb.append(String.format("  关键行为：%s\n", action.getKeyAction()));
+        if (action.getInteractions() != null) {
+            sb.append(String.format("  互动：%s\n", String.join("、", action.getInteractions())));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 去标签化版本：把规划条目写成叙述句，模型不容易照抄成提纲腔。
+     */
+    private String narrativeCharacterLine(NovelAgentState.CharacterAction action) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(action.getCharacterName());
+        if (action.getRole() != null) {
+            sb.append("（").append(action.getRole()).append("）");
+        }
+        if (action.getGoal() != null) {
+            sb.append("这一章要做的是").append(action.getGoal());
+        }
+        if (action.getEmotionalState() != null) {
+            sb.append("，情绪变化是").append(action.getEmotionalState());
+        }
+        if (action.getKeyAction() != null) {
+            sb.append("，关键动作是").append(action.getKeyAction());
+        }
+        if (action.getInteractions() != null && !action.getInteractions().isEmpty()) {
+            sb.append("，和").append(String.join("、", action.getInteractions())).append("有交集");
+        }
+        sb.append("。\n");
+        return sb.toString();
     }
 
     private String enhanceContext(String baseContext, NovelAgentState.ChapterPlan plan,
@@ -141,14 +210,9 @@ public class WritingNode implements NovelGraphNode {
             StringBuilder charSb = new StringBuilder();
             charSb.append("\n\n=== 角色动线（写作时必须遵循）===\n");
             for (NovelAgentState.CharacterAction action : plan.getCharacterActions()) {
-                charSb.append(String.format("【%s】\n", action.getCharacterName()));
-                charSb.append(String.format("  角色定位：%s\n", action.getRole()));
-                charSb.append(String.format("  本章目标：%s\n", action.getGoal()));
-                charSb.append(String.format("  情绪变化：%s\n", action.getEmotionalState()));
-                charSb.append(String.format("  关键行为：%s\n", action.getKeyAction()));
-                if (action.getInteractions() != null) {
-                    charSb.append(String.format("  互动：%s\n", String.join("、", action.getInteractions())));
-                }
+                charSb.append(decontextualizePlan
+                        ? narrativeCharacterLine(action)
+                        : taggedCharacterLine(action));
             }
             sb.append(tokenBudgetService.truncateToBudget(charSb.toString(),
                     budget.getAllocated("characterState")));
@@ -167,12 +231,12 @@ public class WritingNode implements NovelGraphNode {
                     budget.getAllocated("clueBook")));
         }
 
-        // 修订意见（重写时注入）
-        if (state.getDraftContent() != null && state.getDraftContent().getRevisionNotes() != null
-                && !state.getDraftContent().getRevisionNotes().isEmpty()) {
+        // 修订意见（门禁 + 自审共用同一注入来源）
+        List<String> revisionNotes = resolveRevisionNotes(state);
+        if (revisionNotes != null && !revisionNotes.isEmpty()) {
             StringBuilder revSb = new StringBuilder();
-            revSb.append("\n\n=== 上次自审修订意见（请针对性修改）===\n");
-            for (String note : state.getDraftContent().getRevisionNotes()) {
+            revSb.append("\n\n=== 待修订问题（请针对性修改，逐条处理）===\n");
+            for (String note : revisionNotes) {
                 revSb.append("- ").append(note).append("\n");
             }
             sb.append(revSb.toString());

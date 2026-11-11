@@ -10,6 +10,9 @@ import java.util.Map;
  */
 public final class StateHelper {
 
+    /** 待修订问题最多保留多少条（多轮重写时按最近优先）。 */
+    public static final int MAX_REVISION_NOTES = 12;
+
     private StateHelper() {}
 
     @Deprecated
@@ -64,6 +67,27 @@ public final class StateHelper {
             builder.writeRetryCount(state.getWriteRetryCount() + 1);
         }
         return builder.build();
+    }
+
+    /**
+     * 合并待修订问题：去重 + 只保留最近若干条，避免多轮重写时无限叠加。
+     */
+    public static List<String> mergeRevisionNotes(List<String> existing, List<String> incoming) {
+        var merged = new ArrayList<String>();
+        if (existing != null) {
+            merged.addAll(existing);
+        }
+        if (incoming != null) {
+            for (String note : incoming) {
+                if (note != null && !note.isBlank() && !merged.contains(note)) {
+                    merged.add(note);
+                }
+            }
+        }
+        if (merged.size() > MAX_REVISION_NOTES) {
+            return new ArrayList<>(merged.subList(merged.size() - MAX_REVISION_NOTES, merged.size()));
+        }
+        return merged;
     }
 
     /**

@@ -1,0 +1,595 @@
+# 反 AI 味规则表 —— 机械层（零 LLM）。
+#
+# 这是**数据**不是硬编码：每条规则带证据，证据会过期
+# （模型换代会让某些「AI 特征」直接消失 —— 破折号频率从 GPT-4.1 的 10.62
+# 掉到 GPT-5.4 的 1.43 就是实证）。改规则 = 改这个文件，diff 可审查。
+#
+# 加载期校验（DeslopRulesetLoader，违反即加载失败）：
+#   1. blocking 只允许 review: mechanical —— 语义判断永远不能挡稿
+#   2. review: semantic 一律 advisory —— 需要语境判断的规则不能自动加重
+#   3. pattern / density / detector 恰好给一个；detector 只认已实现的
+#   4. autofix 只允许 density 规则、review: mechanical 且非 blocking
+#
+# autofix: delete 的含义：超出密度基线的命中可以被代码删掉（治疗闭环）。
+# 本项目当前只出提案、不自动改稿（与上游一致：落稿必须显式确认）。
+#
+# 数据来源（均 MIT，只取方法论与统计口径，不搬原文）：
+#   - oh-story-claudecode skills/story-deslop/references/banned-words.md
+#   - oh-story-claudecode skills/story-deslop/references/deslop-gates.md
+#   - ultimate-novel-creation-skill references/真人指纹实测.md（26 样本）
+#   - sepia skills/sepia/references/rubric.md（30 特征，语义层参照）
+#
+# 误报率是规则表的验收标准：新增规则默认 advisory / major，
+# blocking 只留给「强模板短语」与「模型自指」这类几乎不可能误伤的判据。
+# 每条规则上线后仍应在本书真实稿上复测，不能因为上游有证据就直接当成本书证据。
+version: 2
+whitelist_scopes:
+  - dialogue
+
+rules:
+  # ────────────────────────────────────────────────────────────────
+  # 一、既有核心判据（保留并补证据）
+  # ────────────────────────────────────────────────────────────────
+
+  # 2026-10-16 实测降级（P4gate 前 4 章）：「不是云，是烟」「不是看见的，是感觉到的」
+  # 都是成立的文学性否定定义 —— 模型确实高频复用这个句式，但它本身不是错误。
+  # 作 blocking 会把合法修辞卡死在门禁上；降为 advisory，只计数不挡稿。
+  # 若将来要恢复份量，应改成密度判据（相对本书基线），而不是逐处命中。
+  - id: not-is-comparison
+    severity: advisory
+    review: mechanical
+    pattern: '不是[^，。！？]{1,20}[，]?(而是|是)[^，。！？]{1,20}'
+    message: '「不是A，而是B」句式（AI 高频复用；单独出现可接受，成串出现是 AI 味）'
+    suggestion: '孤立一处可保留；成串出现时改为直接陈述或动作细节'
+    languages: [zh]
+    evidence: '人类 30% 文章出现（6.3 次/10万字），三个模型是人类的 2.9–7.5 倍；但合法修辞误报率高，故为 advisory'
+
+  - id: trailer-ending
+    severity: blocking
+    review: mechanical
+    pattern: '(他终于明白|这一刻[，,]|才刚刚开始|他不知道的是|命运的(齿轮|棋局|獠牙)|一个(更大|新)的(阴谋|局))'
+    scope: chapter_tail
+    message: '章末总结体/预告体 —— 用旁白替读者总结或剧透下文'
+    suggestion: '用动作、对话或未解决的问题收束'
+    languages: [zh]
+    evidence: 'oh-story banned-words ★★（章末预告）；强模板短语误伤率极低，30 章实验中 AI 稿高频出现'
+
+  # 2026-10-16 由 blocking 降为 major（P4gate 实测同批调整）：
+  # 神态模板词是「该改」而不是「不能发」——与 P3 对重复结构的取舍同源。
+  - id: cliche-face
+    severity: major
+    review: mechanical
+    pattern: '(眼中闪过|嘴角勾起|嘴角上扬|瞳孔(微缩|一缩|骤缩)|心中涌起一股|心头一震|嘴角勾起一抹)'
+    message: '神态模板词（AI 高频复现的人脸反应套话）'
+    suggestion: '删掉；写他当场说出的话或做出的决定'
+    languages: [zh]
+    evidence: 'oh-story banned-words 一级禁用词（表情类）；ultimate 26 样本显示模型该词频为人类的 2.9–7.5 倍'
+
+  - id: weak-adverb-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(缓缓|微微|轻轻|淡淡)'
+      per: 1000
+      limit: 3
+    message: '弱化副词密度超基线（每千字「缓缓/微微/轻轻/淡淡」过多）'
+    suggestion: '孤立自然使用可保留；成串出现才替换为具体动作'
+    languages: [zh]
+    evidence: 'oh-story 二级禁用词（密度控制，每千字合计 ≤3）；七猫 125 本长篇旁白统计'
+
+  - id: sentence-length-run
+    severity: advisory
+    review: mechanical
+    detector: sentence_length_run
+    message: '句长复读：连续 ≥3 句长度几乎相同（节奏平是 AI 叙述的结构特征）'
+    suggestion: '打断节奏：插入短句或拉长一句，让句长重新起伏'
+    languages: [zh]
+    evidence: 'ultimate 铁律三 / oh-story anti-ai-writing 模式 9（电报体）；moyun P3 实测 30 章中 18 章动作开头'
+
+  # ────────────────────────────────────────────────────────────────
+  # 二、万能句式与作者解释腔（pattern）
+  # ────────────────────────────────────────────────────────────────
+
+  - id: with-attitude
+    severity: major
+    review: mechanical
+    pattern: '，带着(一丝|一抹|几分|些许|一点|一种)[^，。！？]{1,12}'
+    message: '「，带着……」万能状语 —— 用抽象修饰替代具体动作'
+    suggestion: '删掉状语留主句，或换成一个可被看见的动作/结果'
+    languages: [zh]
+    evidence: 'oh-story banned-words ★★★★「，带着……」万能状语；moyun 未单独复测误报率'
+
+  - id: voice-flat
+    severity: major
+    review: mechanical
+    pattern: '(声音不大|声音很轻|语气(平静|平淡|冰冷|毫无波澜)|听不出(任何)?(情绪|喜怒))[，,](却|但)?带着'
+    message: '「声音不大，却带着……」公式化声线描写'
+    suggestion: '直接写台词内容、声音特征或动作，不要用旁白给声音加抽象定语'
+    languages: [zh]
+    evidence: 'oh-story banned-words ★★★★（无情绪声线）；模型常用抽象名词替代可听见的声音细节'
+
+  - id: god-view-spoiler
+    severity: major
+    review: mechanical
+    pattern: '(殊不知|可惜(他|她)并不知道|(他|她)不知道的是|仿佛预示着|冥冥之中)'
+    message: '上帝视角剧透/安排感 —— 叙述者跳出角色当下预告后文'
+    suggestion: '删掉；把信息留给角色此刻能看见的动作、物件、对话或后果'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G（去解释腔/上帝感）；sepia rubric 将叙述者主题评论列为 AI 偏高特征'
+
+  - id: future-flash
+    severity: major
+    review: mechanical
+    pattern: '(多年以后|很多年后|直到多年以后|后来(他|她)才明白)'
+    scope: chapter_tail
+    message: '章末未来闪回/多年以后式收束'
+    suggestion: '用当下未解决的行动或具体钩子收尾；除非全书就是回忆框架'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G（多年以后式上帝视角剧透）'
+
+  - id: summary-ending
+    severity: major
+    review: mechanical
+    pattern: '(从这一刻(起|开始)|从此以后|新的(篇章|一页)|故事的序幕)'
+    message: '章末升华/新篇章体 —— 替读者总结意义'
+    suggestion: '删掉总结句；用动作、场景或未解决的问题收束'
+    languages: [zh]
+    evidence: 'oh-story banned-words 总结句式；章末升华是 AI 收束腔的高频形态'
+
+  - id: fate-abstraction
+    severity: major
+    review: mechanical
+    pattern: '(宿命|命运)的(安排|改写|审判|馈赠|剧本)'
+    message: '抽象命运/宿命修辞 —— 用宏大名词替代具体因果'
+    suggestion: '落回角色当下撞见的人、事、物与后果'
+    languages: [zh]
+    evidence: 'oh-story banned-words（命运/宿命 + 抽象名词）；属作者总结而非角色感知'
+
+  - id: greater-conspiracy
+    severity: major
+    review: mechanical
+    pattern: '(更大的(危机|风暴|挑战|漩涡)|前所未有的(危机|挑战)|新的阴谋)'
+    message: '「更大的危机/新的阴谋」式空泛升级'
+    suggestion: '写清下一章具体要面对的人、地点、代价与倒计时'
+    languages: [zh]
+    evidence: 'oh-story banned-words（更大阴谋/新篇章式预告）；空泛升级不提供可验证信息'
+
+  - id: causal-explanation
+    severity: major
+    review: mechanical
+    pattern: '(之所以[^，。！？]{1,20}(是因为|就是因为)|这意味着|也就是说|换句话说|原来[^，。！？]{0,12}(是因为|是由于|是如此))'
+    message: '因果解释腔 —— 叙述者替读者把因果讲明白'
+    suggestion: '删掉解释；让因果从动作、对话和后果里自己显形'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G（删解释因果）；sepia 将主题显性度列为 AI 偏高特征'
+
+  - id: seemingly-actually
+    severity: major
+    review: mechanical
+    pattern: '(看似[^，。！？]{1,20}(实则|实际上|其实)|表面上[^，。！？]{1,20}(实际上|其实|却))'
+    message: '「看似…实则…」公式化反转'
+    suggestion: '直接写后项事实，或用一个可观察的细节让反转自己成立'
+    languages: [zh]
+    evidence: 'oh-story banned-words 句式模板（否定铺垫后接肯定翻转的变体）'
+
+  - id: not-only-but-also
+    severity: advisory
+    review: mechanical
+    pattern: '(不仅[^，。！？]{1,20}(而且|更是|还)|不但[^，。！？]{1,20}(而且|还))'
+    message: '「不仅…而且…」递进模板（成串出现时像说明文）'
+    suggestion: '拆成两个短句，或只保留信息量更大的一半'
+    languages: [zh]
+    evidence: 'oh-story 排比/递进句式清单；单次可接受，故 advisory'
+
+  - id: either-or-formula
+    severity: advisory
+    review: mechanical
+    pattern: '(与其[^，。！？]{1,20}不如|宁可[^，。！？]{1,20}也不|要么[^，。！？]{1,20}要么)'
+    message: '「与其…不如…」/「要么…要么…」选择模板'
+    suggestion: '让人物直接做选择，用行动替代权衡说明'
+    languages: [zh]
+    evidence: 'oh-story 排比/选择句式清单；口语中可能自然出现，故 advisory'
+
+  - id: parallel-parade
+    severity: advisory
+    review: mechanical
+    pattern: '(有的[^，。！？]{1,12}[，,](有的|还有的)[^，。！？]{1,12}|一边[^，。！？]{1,12}[，,]一边)'
+    message: '排比/并列模板（有的…有的…、一边…一边…）'
+    suggestion: '保留一到两项，其余改成具体动作或直接删'
+    languages: [zh]
+    evidence: 'oh-story banned-words 排比句式；连续 3 句以上同结构是 AI 节奏特征'
+
+  - id: enumerative-conclusion
+    severity: major
+    review: mechanical
+    pattern: '(综上所述|总而言之|总的来说|由此可见|不难看出|不得不说的是)'
+    message: '总结陈词/说明文腔'
+    suggestion: '删掉；小说正文不需要替读者做会议总结'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G；叙述者定性/总结是 AI 味的高置信形态'
+
+  - id: replace-with
+    severity: advisory
+    review: mechanical
+    pattern: '(取而代之的是|取而代之，)'
+    message: '「取而代之的是」AI 过渡模板'
+    suggestion: '直接写新状态，不要先否定再替换'
+    languages: [zh]
+    evidence: 'oh-story banned-words 句式模板（取而代之的是）'
+
+  - id: through-teeth
+    severity: major
+    review: mechanical
+    pattern: '(咬牙切齿|从牙缝里(挤|迸)出|一字一句地(说|道)|一字一顿地(说|道))'
+    message: '咬牙/挤字式对话标签模板'
+    suggestion: '直接写台词，或写一个能听见/看见的动作'
+    languages: [zh]
+    evidence: 'oh-story banned-words 动作/对话套话；模型高频复用愤怒表达'
+
+  - id: meaningful-gaze
+    severity: major
+    review: mechanical
+    pattern: '(意味深长地(看|笑|说|望)|若有所指|话里有话|别有深意)'
+    message: '「意味深长/话里有话」式旁白定性'
+    suggestion: '删掉定性；让角色说一句真正带信息的话，或做一个具体动作'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G（替读者定性）；读者应自己判断意味'
+
+  - id: smile-cliche
+    severity: major
+    review: mechanical
+    pattern: '(似笑非笑|皮笑肉不笑|笑而不语|不置可否)'
+    message: '笑容/态度模板词'
+    suggestion: '写具体表情或直接写台词；不要用成语替代观察'
+    languages: [zh]
+    evidence: 'oh-story banned-words 表情类套话；成语化表情是 AI 高频替代品'
+
+  # 正文里出现模型自指，几乎只可能是提示词泄漏或模型出戏。
+  # 这条是极少数可以 blocking 的新增规则：误伤概率接近零。
+  - id: ai-self-reference
+    severity: blocking
+    review: mechanical
+    pattern: '(作为(一个)?(AI|人工智能|语言模型)|我是一个(语言模型|AI)|我是AI助手)'
+    message: '模型自指/提示词泄漏 —— 正文里不应出现 AI 身份声明'
+    suggestion: '删掉整句；检查系统提示是否被模型复述进正文'
+    languages: [zh]
+    evidence: '正文中不应出现模型自指；误伤概率接近零，故可 blocking'
+
+  - id: meta-ending
+    severity: major
+    review: mechanical
+    pattern: '(本章完|未完待续|作者的话|求收藏|求推荐|感谢阅读)'
+    scope: chapter_tail
+    message: '章末作者话/求票语混入正文'
+    suggestion: '移到作品公告或删除；正文只保留故事内容'
+    languages: [zh]
+    evidence: '平台正文与作者话分离；moyun 导出会把作者话带进正文，故提示'
+
+  # ────────────────────────────────────────────────────────────────
+  # 三、身体反应与情绪模板（pattern）
+  # ────────────────────────────────────────────────────────────────
+
+  - id: heart-reaction
+    severity: major
+    review: mechanical
+    pattern: '(心中一凛|心中一动|心下了然|心底泛起|心中一沉|心中一紧|心头一暖|心头一凉|心头一沉|心头一紧)'
+    message: '心跳/心口反应模板（心中一凛、心头一沉…）'
+    suggestion: '写它改变了什么：选择、台词、物件或后果'
+    languages: [zh]
+    evidence: 'oh-story banned-words 心理类一级禁用词；情绪微动作是 AI 高频替代品'
+
+  - id: deep-breath
+    severity: major
+    review: mechanical
+    pattern: '(深吸一口气|缓缓吐出一口浊气|长长地(舒|吐)了一口气)'
+    message: '深呼吸模板动作'
+    suggestion: '删掉；若确有功能，改成角色当下把话咽回去/停手/转身等具体动作'
+    languages: [zh]
+    evidence: 'oh-story banned-words 动作类一级禁用词（深吸一口气）'
+
+  - id: fist-clench
+    severity: major
+    review: mechanical
+    pattern: '(握紧(了)?拳头|拳头(攥|握)得|指节(泛白|发白)|青筋暴起)'
+    message: '握拳/指节发白模板动作'
+    suggestion: '删掉；写他实际做了什么决定或造成了什么后果'
+    languages: [zh]
+    evidence: 'oh-story banned-words 动作类（指节泛白）与身体细节去重规则'
+
+  - id: face-change
+    severity: major
+    review: mechanical
+    pattern: '(脸色(一变|骤变|阴沉|铁青|苍白|难看)|面色(一沉|微变|凝重))'
+    message: '脸色骤变模板'
+    suggestion: '写一个能被看见的具体反应，或直接写台词与行动'
+    languages: [zh]
+    evidence: 'oh-story banned-words 表情/情绪模板；四字脸色词是 AI 高频替代'
+
+  - id: brow-furrow
+    severity: major
+    review: mechanical
+    pattern: '(眉头(一皱|微皱|紧锁|微蹙|拧起)|皱了皱?眉)'
+    message: '皱眉模板'
+    suggestion: '删掉；用一句带情绪的台词或一个决定替代'
+    languages: [zh]
+    evidence: 'oh-story banned-words 表情类（眉头微皱）'
+
+  - id: body-freeze
+    severity: major
+    review: mechanical
+    pattern: '(身体一僵|僵在原地|愣在原地|呆立当场|浑身一震|如遭雷击|如坠冰窟|如临大敌)'
+    message: '僵住/如遭雷击式反应模板'
+    suggestion: '写他接下来做了什么；身体反应不应替代情节推进'
+    languages: [zh]
+    evidence: 'oh-story banned-words 情绪/身体反应套话；成语化反应是 AI 高频特征'
+
+  - id: epiphany-cliche
+    severity: major
+    review: mechanical
+    pattern: '(恍然大悟|茅塞顿开|如梦初醒|灵光一闪|计上心头|心中有了计较)'
+    message: '顿悟/计上心头模板'
+    suggestion: '写他发现了什么具体线索、做了什么判断，不要用成语概括思考'
+    languages: [zh]
+    evidence: 'oh-story banned-words 心理类套话；认知应通过行动与推理展示'
+
+  - id: everyone-shocked
+    severity: major
+    review: mechanical
+    pattern: '(所有人(都)?(震惊|愣住|呆住|倒吸一口凉气)|全场(哗然|寂静|震惊)|众人(皆惊|哗然))'
+    message: '全场震惊/众人皆惊模板'
+    suggestion: '写一两个具体人物的具体反应，不要用群体概括代替观察'
+    languages: [zh]
+    evidence: 'oh-story banned-words 群体反应套话；群体反应是 AI 烘托爽点的常用捷径'
+
+  - id: cold-sweat
+    severity: major
+    review: mechanical
+    pattern: '(倒吸一口凉气|倒抽一口凉气|头皮发麻|脊背发凉|冷汗直流|汗毛倒竖)'
+    message: '冷汗/发麻/倒吸凉气模板'
+    suggestion: '删掉；写危险本身造成的可见后果'
+    languages: [zh]
+    evidence: 'oh-story banned-words 身体反应套话；恐惧应通过事件与选择呈现'
+
+  - id: facial-complex
+    severity: major
+    review: mechanical
+    pattern: '(眼神|神色|表情|面色)复杂'
+    message: '「眼神/神色复杂」旁白定性'
+    suggestion: '写具体表情或台词；复杂要由读者看出来'
+    languages: [zh]
+    evidence: 'oh-story deslop-gates 门禁 G（替读者定性）'
+
+  - id: flash-in-eyes
+    severity: major
+    review: mechanical
+    pattern: '((眼底|眸中)闪过|眼中(闪过|掠过)一丝)'
+    message: '眼底/眸中闪过模板'
+    suggestion: '删掉；写他当场说的话或做出的决定'
+    languages: [zh]
+    evidence: 'oh-story banned-words 表情类一级禁用词（眼中闪过）'
+
+  - id: abstract-wave
+    severity: major
+    review: mechanical
+    pattern: '(一股(暖流|寒意|无名火|力量|气息|压迫感)|五味杂陈|百感交集|思绪万千|万千思绪|一丝(暖意|寒意|苦涩|无奈|失落))'
+    message: '抽象情绪/气息/暖流模板'
+    suggestion: '写情绪的后果：选择、台词、物件或身体能看见的变化'
+    languages: [zh]
+    evidence: 'oh-story banned-words 心理类与抽象气味/气场套话；情绪抽象化是 AI 高频特征'
+
+  - id: indescribable
+    severity: advisory
+    review: mechanical
+    pattern: '(难以言喻|无法形容|说不出的[^，。！？]{1,10}|莫名(其妙)?地|不知为何)'
+    message: '「难以言喻/莫名地」式模糊表达'
+    suggestion: '能写清就写清；写不清就删，不要用不可名状替代观察'
+    languages: [zh]
+    evidence: 'oh-story banned-words 模糊表达清单；单次可接受，成串出现才明显，故 advisory'
+
+  - id: as-if-world
+    severity: major
+    review: mechanical
+    pattern: '(仿佛(整个)?(世界|天地|一切)[^，。！？]{0,12}|像是(整个)?世界[^，。！？]{0,12})'
+    message: '「仿佛整个世界……」宏大比喻'
+    suggestion: '落回一个具体的感官细节或动作'
+    languages: [zh]
+    evidence: 'oh-story 比喻分类（抽象类高风险）；宏大比喻常替代剧情推进'
+
+  - id: air-freeze
+    severity: major
+    review: mechanical
+    pattern: '(空气(仿佛|似乎|像是)?凝固|时间(仿佛|似乎)?静止|整个世界(都)?安静下来|落针可闻|死一般的寂静|鸦雀无声)'
+    message: '空气凝固/时间静止/落针可闻模板'
+    suggestion: '写在场的人具体做了什么、谁先开口，不要用环境概括气氛'
+    languages: [zh]
+    evidence: 'oh-story banned-words 环境/气氛套话；AI 常用环境反应替代人物反应'
+
+  # ────────────────────────────────────────────────────────────────
+  # 四、密度型判据（advisory；不逐处挡稿，只看是否成串）
+  # ────────────────────────────────────────────────────────────────
+
+  - id: weather-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(月光如水|夜色如水|阳光明媚|微风拂过|万里无云|乌云密布|大雨倾盆|雪花纷飞|落叶纷飞|秋风萧瑟|电闪雷鸣)'
+      per: 1000
+      limit: 1
+    message: '天气/环境套话密度超基线'
+    suggestion: '保留有功能的天气，其余删掉或改成角色能感到的具体细节'
+    languages: [zh]
+    evidence: 'oh-story 环境套话清单；单次可接受，密度才是判据'
+
+  - id: dialogue-tag-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(淡淡地(说|道|开口)|冷冷地(说|道)|缓缓(开口|说道)|沉声(道|说)|低声(道|说)|轻声(道|说)|轻描淡写地(说|道))'
+      per: 1000
+      limit: 2
+    message: '公式化对话标签密度超基线'
+    suggestion: '普通「说」可保留；高频时用动作或上下文替代标签'
+    languages: [zh]
+    evidence: 'oh-story banned-words（对话标签密度过高/公式化标签）'
+
+  - id: abstract-noun-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(一抹|一种|几分|些许|隐约|似是而非)'
+      per: 1000
+      limit: 5
+    message: '抽象量词/模糊修饰密度超基线'
+    suggestion: '能写具体就写具体；不能写具体就删'
+    languages: [zh]
+    evidence: 'oh-story banned-words 一级禁用词（一丝/一抹/些许/隐约）；密度控制而非逐处禁用'
+
+  - id: knowing-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '((他|她)(知道|明白|清楚|意识到))'
+      per: 1000
+      limit: 2
+    message: '「他知道/她明白」告诉式认知密度超基线'
+    suggestion: '用行为展示认知；保留真正承重的判断句'
+    languages: [zh]
+    evidence: 'oh-story banned-words ★★★★「他/她知道……」；density 判据避免误伤正常叙述'
+
+  - id: transition-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(与此同时|就在这(时|一刻)|恰在此时|正在这时|下一秒|下一刻|紧接着|旋即)'
+      per: 1000
+      limit: 3
+    message: '场景切换模板密度超基线'
+    suggestion: '用空行、动作或时间锚点切换；不要每段都用「就在这时」'
+    languages: [zh]
+    evidence: 'oh-story banned-words 过渡类；切换词本身可用，成串才是 AI 节奏'
+
+  - id: sudden-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(突然|忽然|猛然|骤然|猛地|瞬间|刹那间)'
+      per: 1000
+      limit: 4
+    message: '突发副词密度超基线'
+    suggestion: '真正突发才用；其余改成动作顺序或具体时间'
+    languages: [zh]
+    evidence: 'oh-story 二级禁用词（语境敏感，仅高频处理）；密度上限取人类常见区间上沿'
+
+  - id: hedge-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(仿佛|犹如|宛若|如同|似乎|好像)'
+      per: 1000
+      limit: 4
+    message: '比喻/推测虚词密度超基线'
+    suggestion: '保留有功能的比喻，其余改白描或直接写事实'
+    languages: [zh]
+    evidence: 'oh-story 一级禁用词（仿佛/犹如/宛若/如同）与二级（似乎/好像）；moyun style_metric 同源统计'
+
+  - id: filler-adverb-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(不禁|不由得|忍不住|下意识|本能地|情不自禁|鬼使神差)'
+      per: 1000
+      limit: 2
+    autofix: delete
+    message: '「不禁/忍不住/下意识」填充副词密度超基线'
+    suggestion: '删掉；若动作确有功能，直接写动作本身'
+    languages: [zh]
+    evidence: 'oh-story 一级禁用词（不禁/不由得）与过渡类；AI 常用填充副词制造情绪'
+
+  - id: translationese-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(在[^，。！？]{1,20}的同时|随着[^，。！？]{1,20}(的)?(到来|发展|变化)|对于[^，。！？]{1,20}来说|基于[^，。！？]{1,20})'
+      per: 1000
+      limit: 2
+    message: '翻译腔句式密度超基线'
+    suggestion: '改成中文口语语序：先发生什么，再怎么样'
+    languages: [zh]
+    evidence: 'oh-story 书面腔/口语化清单；翻译腔是模型中文的常见残留'
+
+  - id: em-dash-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(——|—)'
+      per: 1000
+      limit: 2
+    message: '破折号密度超基线'
+    suggestion: '改成句号、逗号、短句或动作断句；对话被打断用动作或换行'
+    languages: [zh]
+    evidence: 'oh-story 标点纪律（正文禁用破折号）；但人类稿也可能使用，故只做密度 advisory'
+
+  - id: ellipsis-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(……|…)'
+      per: 1000
+      limit: 6
+    message: '省略号密度超基线'
+    suggestion: '保留真正吞回去/没说完的地方；其余用动作停顿或短句'
+    languages: [zh]
+    evidence: 'oh-story 标点纪律（省略号停顿改为动作/短句）；网文常用，上限放宽到 6'
+
+  - id: sentence-initial-conjunction
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '[。！？\n]\s*(然而|但是|不过|只是|于是|因此|所以|而|可)'
+      per: 1000
+      limit: 4
+    message: '句首连词密度超基线（然而/但是/于是…）'
+    suggestion: '删掉不必要的连词，让动作顺序自己衔接'
+    languages: [zh]
+    evidence: 'moyun style_metric 连词密度（AI 约为人类 3 倍）；单次可接受，成串才是问题'
+
+  - id: emphasis-filler-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '(值得注意的是|值得一提的是|不得不说|毫无疑问|毋庸置疑|显而易见|众所周知|不可否认)'
+      per: 1000
+      limit: 1
+    autofix: delete
+    message: '强调/判断填充语密度超基线'
+    suggestion: '删掉；让事实自己成立'
+    languages: [zh]
+    evidence: 'oh-story 一级禁用词（判断类：不容置疑/显而易见/毫无疑问）'
+
+  - id: deep-gaze-density
+    severity: advisory
+    review: mechanical
+    density:
+      pattern: '((目光|眼神)(深邃|复杂|闪烁|微闪|一凝|一沉))'
+      per: 1000
+      limit: 2
+    message: '「目光深邃/眼神一凝」模板密度超基线'
+    suggestion: '写他看见了什么、做了什么决定，不要用眼神形容词代替动作'
+    languages: [zh]
+    evidence: 'oh-story banned-words 形容类（深邃/锐利）与表情套话；密度控制避免误伤'
+
+  # ────────────────────────────────────────────────────────────────
+  # 四、本项目自监测规则（MoLan 特有）
+  # ────────────────────────────────────────────────────────────────
+
+  # WritingAgent 的系统提示里有 3 组正例示范。模型有时会把示范句原样搬进正文，
+  # 那既是复读也是「示例污染」。示例刻意选了非本题材（日常生活场景），
+  # 命中即说明示范被复读了 —— advisory，只计数不挡稿。
+  - id: prompt-example-recitation
+    severity: advisory
+    review: mechanical
+    pattern: '(把勺子搁在碗沿上|指尖碰到缸壁|塞进鞋垫底下)'
+    message: '系统提示里的正例示范被复读进了正文'
+    suggestion: '换一句自己的动作，不要照抄提示里的示范'
+    languages: [zh]
+    evidence: 'MoLan 自监测规则（2026-11-11）：WritingAgent @SystemMessage 的 3 组正例；提示词污染是可观测的，命中即说明示范被复读'

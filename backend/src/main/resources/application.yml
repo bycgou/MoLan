@@ -105,6 +105,20 @@ generation:
   outline-word-count-max: 500
   summary-word-count-max: 300
 
+# ===== 反 AI 味门禁（deslop）=====
+deslop:
+  # 只让 mechanical + blocking 的规则挡稿；统计指标一律 advisory，只计数
+  enforce: true
+  # deslop 的重写预算，独立于 writing 的重试配额
+  max-rewrites: 1
+  # 「章末预告体」类规则看最后几段
+  tail-paragraphs: 3
+
+# ===== 写作上下文 =====
+writing:
+  # 去标签化：角色动线从「角色定位：X」改成叙述句（默认关，收益需朱雀数据验证）
+  decontextualize-plan: false
+
 logging:
   level:
     com.novel.system: INFO

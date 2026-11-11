@@ -85,8 +85,16 @@ public class SelfReviewNode implements NovelGraphNode {
                         .severity(result.severity)
                         .revisionNotes(result.notes)
                         .build())
+                .pendingRevisionNotes(StateHelper.mergeRevisionNotes(
+                        state.getPendingRevisionNotes(), result.notes))
                 .currentPhase(NovelAgentState.GenerationPhase.SELF_REVIEW.name())
                 .build();
+
+        if (result.severity == NovelAgentState.Severity.HIGH) {
+            // 自审判定重写时计数：writeRetryCount 此前从未自增，
+            // 导致 self_review → writing 的条件恒真、重写次数不可控。
+            updated = StateHelper.incrementIteration(updated, "write");
+        }
 
         return updated;
     }
