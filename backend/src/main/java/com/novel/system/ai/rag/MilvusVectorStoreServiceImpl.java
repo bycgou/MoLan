@@ -53,14 +53,21 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
     @PostConstruct
     public void init() {
         try {
-            ConnectConfig connectConfig = ConnectConfig.builder()
+            ConnectConfig.ConnectConfigBuilder<?, ?> builder = ConnectConfig.builder()
                 .uri(config.getUri())
                 .connectTimeoutMs(config.getConnectTimeoutMs())
-                .keepAliveTimeMs(config.getKeepAliveTimeMs())
-                .build();
+                .keepAliveTimeMs(config.getKeepAliveTimeMs());
+            if (config.getUsername() != null && !config.getUsername().isBlank()) {
+                builder.username(config.getUsername())
+                    .password(config.getPassword() == null ? "" : config.getPassword());
+            }
+            if (config.getDatabase() != null && !config.getDatabase().isBlank()) {
+                builder.dbName(config.getDatabase());
+            }
+            ConnectConfig connectConfig = builder.build();
             this.client = new MilvusClientV2(connectConfig);
             this.degraded = false;
-            log.info("Milvus 客户端连接成功: {}", config.getUri());
+            log.info("Milvus 客户端连接成功: {} (db={})", config.getUri(), config.getDatabase());
             ensureCollection();
         } catch (Exception e) {
             degraded = true;

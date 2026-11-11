@@ -38,6 +38,10 @@ spring:
       host: ${MONGODB_HOST:localhost}
       port: ${MONGODB_PORT:27017}
       database: ${MONGODB_DATABASE:moyun_novel_system}
+      # 开启鉴权的 MongoDB（账号需在 authentication-database 中创建）
+      username: ${MONGODB_USERNAME:}
+      password: ${MONGODB_PASSWORD:}
+      authentication-database: ${MONGODB_AUTH_DATABASE:}
       # MongoDB索引自动创建
       auto-index-creation: true
 
@@ -48,6 +52,8 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # Redis 6+ ACL 用户名（开启 ACL 时填写）
+      username: ${REDIS_USERNAME:}
       database: ${REDIS_DATABASE:0}
       timeout: 5000ms
       lettuce:
@@ -76,7 +82,12 @@ mybatis-plus:
 
 # Milvus 向量数据库配置
 milvus:
-  uri: http://localhost:19530
+  uri: ${MILVUS_URI:http://localhost:19530}
+  # 开启鉴权的 Milvus（账号在 Milvus 内创建）
+  username: ${MILVUS_USERNAME:}
+  password: ${MILVUS_PASSWORD:}
+  # 目标 database（不填则用 default）
+  database: ${MILVUS_DATABASE:}
   collection-name: novel_summary
   dimension: 1024
   metric-type: COSINE

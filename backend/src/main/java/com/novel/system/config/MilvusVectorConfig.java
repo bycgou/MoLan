@@ -15,6 +15,15 @@ public class MilvusVectorConfig {
     /** Milvus 服务地址 */
     private String uri = "http://localhost:19530";
 
+    /** Milvus 用户名（开启鉴权时必填） */
+    private String username;
+
+    /** Milvus 密码（开启鉴权时必填） */
+    private String password;
+
+    /** Milvus 数据库名（未指定则使用 default） */
+    private String database;
+
     /** Collection 名称 */
     private String collectionName = "novel_summary";
 
