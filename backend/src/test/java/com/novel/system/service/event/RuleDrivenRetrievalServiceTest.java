@@ -2,6 +2,8 @@ package com.novel.system.service.event;
 
 import com.novel.system.entity.mongo.EventNode;
 import com.novel.system.entity.mysql.ClueBook;
+import com.novel.system.service.character.CharacterStateService;
+import com.novel.system.service.memory.EchoRecallService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -19,12 +21,18 @@ class RuleDrivenRetrievalServiceTest {
     @Mock
     private EventGraphService eventGraphService;
 
+    @Mock
+    private CharacterStateService characterStateService;
+
+    @Mock
+    private EchoRecallService echoRecallService;
+
     private RuleDrivenRetrievalService service;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new RuleDrivenRetrievalService(eventGraphService);
+        service = new RuleDrivenRetrievalService(eventGraphService, characterStateService, echoRecallService);
     }
 
     @Test

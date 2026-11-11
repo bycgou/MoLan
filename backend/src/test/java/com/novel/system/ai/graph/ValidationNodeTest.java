@@ -4,6 +4,7 @@ import com.novel.system.ai.chain.*;
 import com.novel.system.mapper.NovelBaseMapper;
 import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
+import com.novel.system.service.memory.ConvergenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,11 +22,13 @@ class ValidationNodeTest {
     @Mock private NovelBaseMapper novelBaseMapper;
     @Mock private CharacterStateService characterStateService;
     @Mock private ClueBookService clueBookService;
+    @Mock private ConvergenceService convergenceService;
     private ValidationNode node;
 
     @BeforeEach
     void setUp() {
-        node = new ValidationNode(validationService, novelBaseMapper, characterStateService, clueBookService);
+        node = new ValidationNode(validationService, novelBaseMapper, characterStateService, clueBookService,
+                convergenceService);
     }
 
     @Test

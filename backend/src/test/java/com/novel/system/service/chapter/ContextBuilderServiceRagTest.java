@@ -12,6 +12,11 @@ import com.novel.system.service.character.CharacterStateService;
 import com.novel.system.service.clue.ClueBookService;
 import com.novel.system.service.event.EventGraphService;
 import com.novel.system.service.event.RuleDrivenRetrievalService;
+import com.novel.system.service.memory.CompletedBeatsService;
+import com.novel.system.service.memory.ConvergenceService;
+import com.novel.system.service.memory.EchoRecallService;
+import com.novel.system.service.memory.EmotionLedgerService;
+import com.novel.system.service.memory.FactLockService;
 import com.novel.system.service.orchestration.ArcOrchestrationService;
 import com.novel.system.service.story.StoryStateService;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +61,16 @@ class ContextBuilderServiceRagTest {
     private EventGraphService eventGraphService;
     @Mock
     private RagService ragService;
+    @Mock
+    private FactLockService factLockService;
+    @Mock
+    private EmotionLedgerService emotionLedgerService;
+    @Mock
+    private CompletedBeatsService completedBeatsService;
+    @Mock
+    private EchoRecallService echoRecallService;
+    @Mock
+    private ConvergenceService convergenceService;
 
     private ContextBuilderService contextBuilderService;
 
@@ -100,7 +115,12 @@ class ContextBuilderServiceRagTest {
             arcOrchestrationService,
             ruleDrivenRetrievalService,
             eventGraphService,
-            ragService
+            ragService,
+            factLockService,
+            emotionLedgerService,
+            completedBeatsService,
+            echoRecallService,
+            convergenceService
         );
     }
 

@@ -31,7 +31,8 @@ class ValidationServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        validationService = new ValidationServiceImpl(llmService, promptTemplateService, objectMapper);
+        validationService = new ValidationServiceImpl(llmService, promptTemplateService, objectMapper,
+                Runnable::run);
 
         request = new ValidationRequest();
         request.setNovelId("test-novel");
