@@ -298,10 +298,10 @@ public class MilvusVectorStoreServiceImpl implements VectorStoreService {
             if (searchResults != null && !searchResults.isEmpty()) {
                 for (SearchResp.SearchResult result : searchResults.get(0)) {
                     String id = result.getId() != null ? result.getId().toString() : "";
-                    // Milvus COSINE 距离: 0=完全相同, 2=完全相反
-                    // 转换为相似度: similarity = 1 - distance, 范围 [-1, 1]
-                    float score = result.getScore();
-                    double similarity = 1.0 - score;
+                    // Milvus 在 metricType=COSINE 下返回的 score 已是余弦相似度（范围 [-1, 1]，
+                    // 完全相同为 1.0、正交为 0.0、完全相反为 -1.0），不可再按距离做 1-score 换算，
+                    // 否则最相关的结果会被反向过滤。
+                    double similarity = result.getScore();
 
                     Map<String, Object> resultMetadata = new HashMap<>();
                     Map<String, Object> entity = result.getEntity();
