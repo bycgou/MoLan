@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:21160}
   servlet:
     context-path: /api
   tomcat:
@@ -155,7 +155,7 @@ moyun:
 # ===== 加权校验配置 =====
 novel:
   validation:
-    use-graded-audit: false  # 默认走老逻辑，验证后切换为 true
+    use-graded-audit: true  # 七维加权评分路由（关闭则退回 legacy 路由）
     pass-threshold: 60.0
     dimensions:
       ooc:         { weight: 0.20, severity: FATAL }
@@ -164,7 +164,7 @@ novel:
       clue:        { weight: 0.15, severity: WARNING }
       rhythm:      { weight: 0.10, severity: WARNING }
       quality:     { weight: 0.10, severity: WARNING }
-      clue-landing: { weight: 0.10, severity: WARNING }
+      clueLanding: { weight: 0.10, severity: WARNING }
   checkpoint:
     enabled: true
 

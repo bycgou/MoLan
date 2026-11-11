@@ -7,13 +7,13 @@
 ## 功能特性
 
 - **三档写作模式**：`FAST` 快速生成、`STREAMING` 流式生成（轻量校验）、`FULL` 多 Agent 完整流程，按场景自由切换
-- **写作图编排**：灵感筛选 → 大纲 → 角色/线索规划 → 写作 → 校验 → 审核路由 → 润色 → 摘要，节点化执行、全程可追踪
+- **写作图编排**：灵感筛选 → 大纲 → 角色/线索规划 → 写作 → 反 AI 味门禁 → 校验 → 审核路由 → 润色 → 摘要，节点化执行、全程可追踪
 - **AuthorAgent 人工干预**：在大纲、写作、审核等检查点暂停，接收作者指令后继续
 - **记忆与一致性**：事实锁定、情感账本、已完成桥段、收敛检测、回声召回、角色状态与关系图谱、文风记忆
 - **RAG 长上下文**：章节摘要向量化存入 Milvus，写作时按语义召回前文
 - **七维加权校验**：OOC、逻辑、设定、线索、节奏、质量、线索回收，加权评分不达标自动重写
 - **创作辅助**：文风卡片、套路检测、钩子分析、节奏分析、角色关系可视化
-- **向导式建书**：内置 10 种题材模板（玄幻、仙侠、都市、科幻、悬疑、现实等）
+- **向导式建书**：内置 11 种题材模板（玄幻、仙侠、都市、科幻、悬疑、现实等）
 - **多模型接入**：任意 OpenAI 兼容接口（DeepSeek / OpenAI / 智谱 GLM / Ollama 本地模型等）
 - **可选 MCP 集成**：MCP 客户端（memory、filesystem、brave-search 等）与服务端工具双支持
 - **可观测性**：Spring Actuator + Prometheus 指标
@@ -75,7 +75,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-后端运行在 `http://localhost:8080/api`。
+后端运行在 `http://localhost:21160/api`（端口由 `SERVER_PORT` 环境变量指定，默认 21160）。
 
 ### 3. 启动前端
 
@@ -85,7 +85,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`，Vite 已将 `/api` 代理到后端。
+打开 `http://localhost:21060`，Vite 已将 `/api` 代理到后端（`BACKEND_URL` 可覆盖，默认 `http://127.0.0.1:21160`）。
 
 ### 4. 初始化使用
 
@@ -105,12 +105,15 @@ npm run dev
 | `MYSQL_HOST` / `MYSQL_PORT` | MySQL 地址与端口 | `localhost` / `3306` |
 | `MYSQL_DATABASE` | 数据库名 | `moyun_novel_system` |
 | `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 数据库账号 | `root` / `123456` |
+| `SERVER_PORT` | 后端监听端口 | `21160` |
 | `MONGODB_HOST` / `MONGODB_PORT` | MongoDB 地址与端口 | `localhost` / `27017` |
 | `MONGODB_DATABASE` | 数据库名 | `moyun_novel_system` |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接 | `localhost` / `6379` / 空 |
 | `JWT_SECRET` | JWT 密钥（至少 32 字节，生产环境必须修改） | 本地开发默认值 |
 | `MCP_CLIENT_ENABLED` | 是否启用 MCP 客户端 | `false` |
 | `MCP_SERVER_ENABLED` | 是否启用 MCP 服务端 | `false` |
+
+前端侧：`FRONTEND_PORT` 指定 Vite 监听端口（默认 `21060`），`BACKEND_URL` 指定后端地址（默认 `http://127.0.0.1:21160`）。
 
 完整示例见 `backend/.env.example`。敏感配置请放入 `application-local.yml`（已被 `.gitignore` 忽略）。
 

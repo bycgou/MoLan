@@ -12,7 +12,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "novel.validation")
 public class ValidationConfig {
 
-    private boolean useGradedAudit = false;
+    private boolean useGradedAudit = true;
     private double passThreshold = 60.0;
 
     private Map<String, DimensionConfig> dimensions = Map.of(

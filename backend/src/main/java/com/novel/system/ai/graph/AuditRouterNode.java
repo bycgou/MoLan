@@ -60,10 +60,15 @@ public class AuditRouterNode implements NovelGraphNode {
             return manualReview(state);
         }
 
-        if (!graded.isAllPassed() && state.getRewriteCount() < MAX_REWRITES) {
-            log.info("[audit_router] 加权分 {} < {}，决策: REWRITE",
-                    graded.getWeightedScore(), validationConfig.getPassThreshold());
-            return rewrite(state);
+        if (!graded.isAllPassed()) {
+            if (state.getRewriteCount() < MAX_REWRITES) {
+                log.info("[audit_router] 加权分 {} < {}，决策: REWRITE",
+                        graded.getWeightedScore(), validationConfig.getPassThreshold());
+                return rewrite(state);
+            }
+            log.warn("[audit_router] 加权分 {} 未达标且重写次数达上限({})，决策: MANUAL_REVIEW",
+                    graded.getWeightedScore(), state.getRewriteCount());
+            return manualReview(state);
         }
 
         log.info("[audit_router] 通过（加权分={}），决策: PASS", graded.getWeightedScore());
