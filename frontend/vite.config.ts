@@ -46,6 +46,9 @@ function stripGatewayPrefix(): Plugin {
   }
 }
 
+// 后端的 context-path，部署时与 SERVER_CONTEXT_PATH 保持一致
+const BACKEND_CONTEXT_PATH = process.env.BACKEND_CONTEXT_PATH || '/api'
+
 export default defineConfig({
   plugins: [vue(), stripGatewayPrefix()],
   // 相对基址：打包产物用相对路径引用，挂在任意子路径下都能加载
@@ -64,7 +67,12 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: process.env.BACKEND_URL || 'http://127.0.0.1:21160',
-        changeOrigin: true
+        changeOrigin: true,
+        // 网关按前缀路由接口时，context-path 带前缀，这里补齐
+        rewrite: (path) =>
+          BACKEND_CONTEXT_PATH === '/api'
+            ? path
+            : BACKEND_CONTEXT_PATH + path.slice('/api'.length),
       }
     }
   }

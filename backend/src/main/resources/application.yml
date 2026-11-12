@@ -1,7 +1,9 @@
 server:
   port: ${SERVER_PORT:21160}
   servlet:
-    context-path: /api
+    # 网关把服务挂在 /<用户名>/ 下时，接口路径会以该前缀原样转发过来，
+    # context-path 必须与之一致，否则容器层直接 404（请求根本进不了应用）
+    context-path: ${SERVER_CONTEXT_PATH:/api}
   tomcat:
     max-http-form-post-size: 100MB
     max-swallow-size: 100MB
