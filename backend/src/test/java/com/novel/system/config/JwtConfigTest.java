@@ -3,7 +3,9 @@ package com.novel.system.config;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,6 +34,13 @@ class JwtConfigTest {
     @Test
     void validateSecret_rejectsAnySecretContainingDevOnly() throws Exception {
         setSecret("dev-only-my-custom-secret-that-is-long-enough-for-length-check!!!");
+        IllegalStateException ex = assertThrows(IllegalStateException.class, jwtConfig::validateSecret);
+        assertTrue(ex.getMessage().contains("开发环境默认值"));
+    }
+
+    @Test
+    void validateSecret_rejectsFormerRepoDefaultSecret() throws Exception {
+        setSecret("moyun-local-dev-secret-2026-min32bytes-for-development-only");
         IllegalStateException ex = assertThrows(IllegalStateException.class, jwtConfig::validateSecret);
         assertTrue(ex.getMessage().contains("开发环境默认值"));
     }
@@ -75,5 +84,16 @@ class JwtConfigTest {
         setSecret("aibook-default-secret-key-that-is-long-enough-for-validation");
         IllegalStateException ex = assertThrows(IllegalStateException.class, jwtConfig::validateSecret);
         assertTrue(ex.getMessage().contains("不安全的默认值"));
+    }
+
+    @Test
+    void applicationYml_hasNoJwtSecretFallback() throws Exception {
+        String yml;
+        try (InputStream in = getClass().getResourceAsStream("/application.yml")) {
+            assertNotNull(in);
+            yml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        assertTrue(yml.contains("secret: ${JWT_SECRET:}"),
+                "jwt.secret 必须没有默认值，缺少 JWT_SECRET 时应由 JwtConfig 启动期校验拦下");
     }
 }

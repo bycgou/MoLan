@@ -40,7 +40,7 @@ public class JwtConfig {
         if (secret.contains("changeme") || secret.contains("generate_with")) {
             throw new IllegalStateException("jwt.secret 使用了占位符默认值，请通过 JWT_SECRET 环境变量提供真实密钥（openssl rand -base64 48）");
         }
-        if (secret.contains("dev-only")) {
+        if (secret.contains("dev-only") || secret.contains("development-only")) {
             throw new IllegalStateException("jwt.secret 使用了开发环境默认值，请通过 JWT_SECRET 环境变量提供真实密钥（openssl rand -base64 48）");
         }
         log.info("JWT密钥校验通过（长度: {} 字节）", secret.getBytes(StandardCharsets.UTF_8).length);

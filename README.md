@@ -109,7 +109,7 @@ npm run dev
 | `MONGODB_HOST` / `MONGODB_PORT` | MongoDB 地址与端口 | `localhost` / `27017` |
 | `MONGODB_DATABASE` | 数据库名 | `moyun_novel_system` |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接 | `localhost` / `6379` / 空 |
-| `JWT_SECRET` | JWT 密钥（至少 32 字节，生产环境必须修改） | 本地开发默认值 |
+| `JWT_SECRET` | JWT 密钥（至少 32 字节，**必填**） | 无，未设置则启动失败 |
 | `MCP_CLIENT_ENABLED` | 是否启用 MCP 客户端 | `false` |
 | `MCP_SERVER_ENABLED` | 是否启用 MCP 服务端 | `false` |
 
