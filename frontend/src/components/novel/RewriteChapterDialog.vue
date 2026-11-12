@@ -73,6 +73,7 @@
 import { ref, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createSSEStream, type SSEError } from '@/utils/sse'
+import { apiUrl } from '@/utils/base'
 import { DocumentCopy } from '@element-plus/icons-vue'
 
 const props = defineProps<{
@@ -224,7 +225,7 @@ async function savePartial() {
   }
   try {
     const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/chapter/stream-save', {
+    const res = await fetch(apiUrl('/api/chapter/stream-save'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

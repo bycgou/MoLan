@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types'
+import { API_BASE } from '@/utils/base'
 
 // 错误消息映射
 const ERROR_MESSAGES: Record<number, string> = {
@@ -25,7 +26,7 @@ function isRetryableError(status?: number): boolean {
 }
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   timeout: 180000, // 增加到180秒（3分钟），LLM调用可能需要更长时间
   headers: {
     'Content-Type': 'application/json',

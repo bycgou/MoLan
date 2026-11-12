@@ -401,6 +401,7 @@ import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import type { IDomEditor, IToolbarConfig, IEditorConfig } from '@wangeditor/editor'
 import { novelApi, chapterApi, characterApi, llmConfigApi, rhythmApi, hookApi, wizardApi } from '@/api'
 import type { NovelVO, ChapterListItem, CharacterVO, LlmConfigVO, RhythmStatusVO } from '@/types'
+import { apiUrl } from '@/utils/base'
 
 // Sub-components
 import NovelInfoPanel from '@/components/novel/NovelInfoPanel.vue'
@@ -768,7 +769,7 @@ async function handleGenerateChapterStream(form: GenerateForm & { ideaIndex: num
       llmConfigId: form.configId,
     })
 
-    const response = await fetch('/api/chapter/stream-write', {
+    const response = await fetch(apiUrl('/api/chapter/stream-write'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -949,7 +950,7 @@ async function handleStreamSaveContent() {
   }
   try {
     const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/chapter/stream-save', {
+    const res = await fetch(apiUrl('/api/chapter/stream-save'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

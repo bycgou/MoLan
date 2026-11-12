@@ -3,6 +3,8 @@
  * 支持自动重连、错误友好化、cancel 取消
  */
 
+import { apiUrl } from '@/utils/base'
+
 export interface SSEError extends Error {
   status?: number
   retryable: boolean
@@ -54,7 +56,7 @@ function createSSEError(status: number | undefined, fallbackMsg: string): SSEErr
 
 export function createSSEStream(options: SSEOptions): { cancel: () => void } {
   const {
-    url,
+    url: rawUrl,
     token,
     body,
     onConnecting,
@@ -67,6 +69,7 @@ export function createSSEStream(options: SSEOptions): { cancel: () => void } {
     maxRetries = 2,
     retryDelay = 2000,
   } = options
+  const url = apiUrl(rawUrl)
 
   let cancelled = false
   let retryCount = 0

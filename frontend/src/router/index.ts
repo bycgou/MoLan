@@ -1,7 +1,9 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 const router = createRouter({
-  history: createWebHistory(),
+  // 用 hash 路由：网关把服务挂在子路径下时，location.pathname 始终是挂载目录，
+  // 路由跳转不会把子路径丢掉（history 模式会把 /<用户名>/novel/list 写成 /novel/list）
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/login',
