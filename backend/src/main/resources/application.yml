@@ -68,6 +68,7 @@ spring:
     redis:
       time-to-live: 3600000
       cache-null-values: false
+      key-prefix: "${REDIS_KEY_PREFIX:xpb:}::"
 
 # MyBatis-Plus配置（用于用户模块）
 mybatis-plus:
@@ -154,6 +155,9 @@ moyun:
 
 # ===== 加权校验配置 =====
 novel:
+  redis:
+    # 部署环境 Redis 开启 ACL，仅授权 xpb: 前缀下的键
+    key-prefix: ${REDIS_KEY_PREFIX:xpb:}
   validation:
     use-graded-audit: true  # 七维加权评分路由（关闭则退回 legacy 路由）
     pass-threshold: 60.0

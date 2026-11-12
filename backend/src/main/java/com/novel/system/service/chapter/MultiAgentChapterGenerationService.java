@@ -1,5 +1,6 @@
 package com.novel.system.service.chapter;
 
+import com.novel.system.config.RedisKeyProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.system.ai.agent.SummaryAgentResponse;
@@ -38,6 +39,7 @@ public class MultiAgentChapterGenerationService implements ChapterGenerationServ
     private final MultiAgentNovelService multiAgent;
     private final ChapterGenerationServiceImpl legacyService;
     private final StringRedisTemplate redisTemplate;
+    private final RedisKeyProvider redisKeys;
     private final ObjectMapper objectMapper;
     private final Executor ioTaskExecutor;
 
@@ -45,11 +47,13 @@ public class MultiAgentChapterGenerationService implements ChapterGenerationServ
             MultiAgentNovelService multiAgent,
             ChapterGenerationServiceImpl legacyService,
             StringRedisTemplate redisTemplate,
+            RedisKeyProvider redisKeys,
             ObjectMapper objectMapper,
             @Qualifier("ioTaskExecutor") Executor ioTaskExecutor) {
         this.multiAgent = multiAgent;
         this.legacyService = legacyService;
         this.redisTemplate = redisTemplate;
+        this.redisKeys = redisKeys;
         this.objectMapper = objectMapper;
         this.ioTaskExecutor = ioTaskExecutor;
     }
@@ -161,7 +165,7 @@ public class MultiAgentChapterGenerationService implements ChapterGenerationServ
 
     private void updateTaskStatus(String taskId, String status, String message) {
         try {
-            String statusKey = "novel:task:status:" + taskId;
+            String statusKey = redisKeys.taskStatus() + taskId;
             ChapterGenerationResponse response = new ChapterGenerationResponse();
             response.setSuccess("COMPLETED".equals(status));
             response.setStatus(ChapterGenerationResponse.GenerationStatus.valueOf(status));
@@ -174,7 +178,7 @@ public class MultiAgentChapterGenerationService implements ChapterGenerationServ
 
     private void updateTaskStatus(String taskId, ChapterGenerationResponse response) {
         try {
-            String statusKey = "novel:task:status:" + taskId;
+            String statusKey = redisKeys.taskStatus() + taskId;
             redisTemplate.opsForValue().set(statusKey, objectMapper.writeValueAsString(response), 24, TimeUnit.HOURS);
         } catch (JsonProcessingException e) {
             log.error("保存任务状态到Redis失败", e);

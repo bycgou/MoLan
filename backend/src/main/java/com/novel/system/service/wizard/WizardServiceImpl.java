@@ -1,5 +1,6 @@
 package com.novel.system.service.wizard;
 
+import com.novel.system.config.RedisKeyProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,10 +54,10 @@ public class WizardServiceImpl implements WizardService {
     private final ArcOrchestrationService arcOrchestrationService;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
+    private final RedisKeyProvider redisKeys;
     @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
 
-    private static final String BATCH_PROGRESS_PREFIX = "novel:wizard:batch:";
 
     @Override
     public List<ArcOutlineDTO> generateVolumeOutlines(WizardSettingsRequest request) {
@@ -415,7 +416,7 @@ public class WizardServiceImpl implements WizardService {
 
                 for (NovelChapter chapter : pendingChapters) {
                     // Check for cancellation
-                    String cancelKey = BATCH_PROGRESS_PREFIX + "cancel:" + taskId;
+                    String cancelKey = redisKeys.wizardBatch() + "cancel:" + taskId;
                     if (Boolean.TRUE.equals(redisTemplate.hasKey(cancelKey))) {
                         progress.setStatus("CANCELLED");
                         saveBatchProgress(taskId, progress);
@@ -479,14 +480,14 @@ public class WizardServiceImpl implements WizardService {
 
     @Override
     public void cancelBatchGeneration(String novelId, String taskId) {
-        String cancelKey = BATCH_PROGRESS_PREFIX + "cancel:" + taskId;
+        String cancelKey = redisKeys.wizardBatch() + "cancel:" + taskId;
         redisTemplate.opsForValue().set(cancelKey, "1", 24, TimeUnit.HOURS);
         log.info("已设置批量生成取消标志，taskId: {}", taskId);
     }
 
     @Override
     public BatchGenerationProgress getBatchProgress(String novelId, String taskId) {
-        String key = BATCH_PROGRESS_PREFIX + taskId;
+        String key = redisKeys.wizardBatch() + taskId;
         String json = redisTemplate.opsForValue().get(key);
         if (json != null) {
             try {
@@ -515,7 +516,7 @@ public class WizardServiceImpl implements WizardService {
 
     private void saveBatchProgress(String taskId, BatchGenerationProgress progress) {
         try {
-            String key = BATCH_PROGRESS_PREFIX + taskId;
+            String key = redisKeys.wizardBatch() + taskId;
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(progress), 24, TimeUnit.HOURS);
         } catch (Exception e) {
             log.error("保存批量进度失败", e);

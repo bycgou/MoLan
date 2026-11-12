@@ -3,6 +3,7 @@ package com.novel.system.service.chapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.config.RedisKeyProvider;
 import com.novel.system.entity.mysql.ClueBook;
 import com.novel.system.entity.mysql.NovelArc;
 import com.novel.system.entity.mysql.NovelBase;
@@ -71,6 +72,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     private final ClueBookService clueBookService;
     private final ValidationService validationService;
     private final StringRedisTemplate redisTemplate;
+    private final RedisKeyProvider redisKeys;
     private final ContextBuilderService contextBuilderService;
     private final ChapterVersionService chapterVersionService;
     private final com.novel.system.repository.mongo.NovelGraphRepository novelGraphRepository;
@@ -82,7 +84,6 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
 
-    private static final String CONTEXT_CACHE_PREFIX = "novel:context:";
     private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
     private static final long POST_PROCESS_TIMEOUT_SECONDS = 60;
 
@@ -160,7 +161,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             context.setLastChapterFingerprint(lastFingerprint);
             context.setChapterTitle(outlineResponse.getTitle());
 
-            String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());
+            String cacheKey = redisKeys.context() + generateCacheKey(request.getNovelId(), request.getChapterNum());
             String contextJson = objectMapper.writeValueAsString(context);
             redisTemplate.opsForValue().set(cacheKey, contextJson, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
 
@@ -195,7 +196,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         
         try {
             // 1. 从Redis获取缓存的上下文
-            String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());
+            String cacheKey = redisKeys.context() + generateCacheKey(request.getNovelId(), request.getChapterNum());
             String contextJson = redisTemplate.opsForValue().get(cacheKey);
             
             GenerationContext context = null;
@@ -417,7 +418,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
      */
     private void updateTaskStatus(String taskId, String status, String message) {
         try {
-            String statusKey = "novel:task:status:" + taskId;
+            String statusKey = redisKeys.taskStatus() + taskId;
             ChapterGenerationResponse response = new ChapterGenerationResponse();
             response.setSuccess("COMPLETED".equals(status));
             response.setStatus(ChapterGenerationResponse.GenerationStatus.valueOf(status));
@@ -430,7 +431,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     
     private void updateTaskStatus(String taskId, ChapterGenerationResponse response) {
         try {
-            String statusKey = "novel:task:status:" + taskId;
+            String statusKey = redisKeys.taskStatus() + taskId;
             redisTemplate.opsForValue().set(statusKey, objectMapper.writeValueAsString(response), 24, TimeUnit.HOURS);
         } catch (Exception e) {
             log.error("保存任务状态到Redis失败", e);
@@ -439,7 +440,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
     
     @Override
     public ChapterGenerationResponse getGenerationStatus(String taskId) {
-        String statusKey = "novel:task:status:" + taskId;
+        String statusKey = redisKeys.taskStatus() + taskId;
         String statusJson = redisTemplate.opsForValue().get(statusKey);
         
         if (statusJson != null) {
@@ -466,7 +467,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
         
         // 获取章纲（如果有）
         String outline = null;
-        String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());
+        String cacheKey = redisKeys.context() + generateCacheKey(request.getNovelId(), request.getChapterNum());
         String contextJson = redisTemplate.opsForValue().get(cacheKey);
         if (contextJson != null) {
             try {
@@ -529,7 +530,7 @@ public class ChapterGenerationServiceImpl implements ChapterGenerationService {
             fingerprint, summary, "", "");
         
         // 清除可能存在的缓存
-        String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(request.getNovelId(), request.getChapterNum());
+        String cacheKey = redisKeys.context() + generateCacheKey(request.getNovelId(), request.getChapterNum());
         redisTemplate.delete(cacheKey);
         
         ChapterGenerationResponse response = new ChapterGenerationResponse();
@@ -811,7 +812,7 @@ private List<String> getUnrecycledClues(String novelId) {
             context.setLastChapterFingerprint(lastFingerprint);
 
             // 同时更新Redis缓存
-            String cacheKey = CONTEXT_CACHE_PREFIX + generateCacheKey(novelId, chapterNum);
+            String cacheKey = redisKeys.context() + generateCacheKey(novelId, chapterNum);
             String contextJson = objectMapper.writeValueAsString(context);
             redisTemplate.opsForValue().set(cacheKey, contextJson, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
 

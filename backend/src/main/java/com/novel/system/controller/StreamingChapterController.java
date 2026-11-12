@@ -1,5 +1,6 @@
 package com.novel.system.controller;
 
+import com.novel.system.config.RedisKeyProvider;
 import com.novel.system.ai.chain.ValidationService;
 import com.novel.system.ai.chain.ValidationRequest;
 import com.novel.system.ai.chain.ValidationResult;
@@ -48,6 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class StreamingChapterController {
 
     private final StringRedisTemplate redisTemplate;
+    private final RedisKeyProvider redisKeys;
     private final NovelBaseMapper novelBaseMapper;
     private final NovelChapterMapper novelChapterMapper;
     private final NovelStyleBindingMapper novelStyleBindingMapper;
@@ -114,7 +116,7 @@ public class StreamingChapterController {
             cancelFlag.set(true);
         });
 
-        String cancelKey = "novel:cancel:" + request.getNovelId();
+        String cancelKey = redisKeys.cancel() + request.getNovelId();
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -218,7 +220,7 @@ public class StreamingChapterController {
      */
     @PostMapping("/cancel")
     public ApiResponse<Void> cancelWriting(@RequestParam String novelId) {
-        redisTemplate.opsForValue().set("novel:cancel:" + novelId, "1", 10, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set(redisKeys.cancel() + novelId, "1", 10, TimeUnit.MINUTES);
         return ApiResponse.success(null);
     }
 

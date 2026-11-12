@@ -1,5 +1,6 @@
 package com.novel.system.ai.graph;
 
+import com.novel.system.config.RedisKeyProvider;
 import com.novel.system.entity.mongo.ChapterSummary;
 import com.novel.system.service.chapter.ChapterPostProcessService;
 import com.novel.system.service.chapter.ChapterSaveService;
@@ -25,6 +26,7 @@ public class PostProcessNode implements NovelGraphNode {
     private final ChapterSaveService chapterSaveService;
     private final ChapterPostProcessService postProcessService;
     private final StringRedisTemplate redisTemplate;
+    private final RedisKeyProvider redisKeys;
     private final SummaryNode summaryNode;
     private final FactLockService factLockService;
     private final EmotionLedgerService emotionLedgerService;
@@ -118,7 +120,7 @@ public class PostProcessNode implements NovelGraphNode {
         }
 
         try {
-            String cacheKey = "novel:context:" + state.getNovelId() + ":" + state.getChapterNum();
+            String cacheKey = redisKeys.context() + state.getNovelId() + ":" + state.getChapterNum();
             redisTemplate.delete(cacheKey);
         } catch (Exception e) {
             log.warn("清除缓存失败（不影响结果）: {}", e.getMessage());

@@ -51,6 +51,17 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(500, "服务器内部错误");
     }
 
+    /**
+     * 请求路径不存在 — 返回 404 而非 500，避免前端把「接口写错」误判为「服务异常」
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNoResourceFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        log.warn("接口不存在: {}", e.getResourcePath());
+        return ApiResponse.error(404, "接口不存在: " + e.getResourcePath());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleException(Exception e) {

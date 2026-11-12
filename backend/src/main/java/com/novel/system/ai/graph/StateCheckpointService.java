@@ -1,6 +1,7 @@
 package com.novel.system.ai.graph;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.novel.system.config.RedisKeyProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -15,17 +16,20 @@ import java.util.*;
 @ConditionalOnProperty(prefix = "novel.checkpoint", name = "enabled", havingValue = "true")
 public class StateCheckpointService {
 
-    private static final String KEY_PREFIX = "novel:checkpoint:";
     private static final Duration TTL = Duration.ofHours(1);
     private static final List<String> CHECKPOINT_ORDER = List.of(
             "outline", "writing", "audit_router");
 
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final RedisKeyProvider redisKeys;
 
-    public StateCheckpointService(RedisTemplate<String, String> redisTemplate, ObjectMapper objectMapper) {
+    public StateCheckpointService(RedisTemplate<String, String> redisTemplate,
+                                  ObjectMapper objectMapper,
+                                  RedisKeyProvider redisKeys) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.redisKeys = redisKeys;
     }
 
     public void saveCheckpoint(String nodeName, NovelAgentState state) {
@@ -91,11 +95,11 @@ public class StateCheckpointService {
     }
 
     private String buildKey(String novelId, int chapterNum, String nodeName) {
-        return KEY_PREFIX + novelId + ":" + chapterNum + ":" + nodeName;
+        return redisKeys.checkpoint() + novelId + ":" + chapterNum + ":" + nodeName;
     }
 
     private String extractNodeName(String key) {
         String[] parts = key.split(":");
-        return parts.length >= 4 ? parts[3] : "";
+        return parts.length == 0 ? "" : parts[parts.length - 1];
     }
 }
