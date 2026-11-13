@@ -9,6 +9,7 @@ import com.novel.system.dto.request.LoginRequest;
 import com.novel.system.dto.request.RegisterRequest;
 import com.novel.system.dto.response.UserResponse;
 import com.novel.system.config.JwtConfig;
+import com.novel.system.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -76,17 +77,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 查找用户
         User user = baseMapper.findByUsername(request.getUsername());
         if (user == null) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
-        
+
         // 检查密码
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
-        
+
         // 检查用户状态
         if (user.getStatus() != 1) {
-            throw new RuntimeException("账号已被禁用");
+            throw new BusinessException(403, "账号已被禁用");
         }
         
         // 生成token
