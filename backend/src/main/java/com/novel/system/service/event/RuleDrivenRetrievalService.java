@@ -105,6 +105,8 @@ public class RuleDrivenRetrievalService {
 
         for (ClueBook clue : clues) {
             if (clue.getDeadline() == null) continue;
+            // 埋设章节是召回伏笔埋设事件的必需参数，为空时跳过，避免自动拆箱导致 NPE
+            if (clue.getBuryChapter() == null) continue;
             if (chapterNum < clue.getDeadline() - CLUE_TRIGGER_DISTANCE) continue;
 
             // 检索伏笔埋设时的事件

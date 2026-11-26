@@ -37,6 +37,20 @@ public interface NovelChapterMapper {
                                            @Param("limit") Integer limit);
     
     /**
+     * 查询指定章节区间内的章节（闭区间）— 用于弧段摘要聚合
+     * @param novelId 小说ID
+     * @param fromChapter 起始章节号（含）
+     * @param toChapter 结束章节号（含）
+     * @return 章节列表（按章节号升序）
+     */
+    @Select("SELECT * FROM novel_chapter " +
+            "WHERE novel_id = #{novelId} AND chapter_num >= #{fromChapter} AND chapter_num <= #{toChapter} AND is_deleted = 0 " +
+            "ORDER BY chapter_num ASC")
+    List<NovelChapter> selectChaptersInRange(@Param("novelId") String novelId,
+                                            @Param("fromChapter") Integer fromChapter,
+                                            @Param("toChapter") Integer toChapter);
+
+    /**
      * 查询小说的前N章（用于文风参考抽取）
      * @param novelId 小说ID
      * @param limit 查询数量限制

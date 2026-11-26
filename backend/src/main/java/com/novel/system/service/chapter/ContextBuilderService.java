@@ -300,8 +300,14 @@ public class ContextBuilderService {
                         ? " ⚠️【紧急】建议" + clue.getDeadline() + "章前回收（已临近）"
                         : "（建议" + clue.getDeadline() + "章前回收）";
                 }
-                clueSb.append(String.format("第%d章埋：%s%s\n",
-                    clue.getBuryChapter(), clue.getClueContent(), deadline));
+                // 埋设章节可能为空（手动创建的伏笔未填章节），此处做空值保护，避免自动拆箱导致 NPE
+                String bury = clue.getBuryChapter() != null
+                    ? ("第" + clue.getBuryChapter() + "章埋：")
+                    : "（埋设章节未知）：";
+                clueSb.append(bury)
+                    .append(clue.getClueContent() != null ? clue.getClueContent() : "")
+                    .append(deadline)
+                    .append("\n");
             }
             sb.append(tokenBudgetService.truncateToBudget(clueSb.toString(), budget.getAllocated("clueBook")));
         }
@@ -589,8 +595,14 @@ public class ContextBuilderService {
                         ? " ⚠️【紧急】建议本章回收（已临近deadline）"
                         : "（建议" + clue.getDeadline() + "章前回收）";
                 }
-                clueSb.append(String.format("第%d章埋：%s%s\n",
-                    clue.getBuryChapter(), clue.getClueContent(), deadline));
+                // 埋设章节可能为空（手动创建的伏笔未填章节），此处做空值保护，避免自动拆箱导致 NPE
+                String bury = clue.getBuryChapter() != null
+                    ? ("第" + clue.getBuryChapter() + "章埋：")
+                    : "（埋设章节未知）：";
+                clueSb.append(bury)
+                    .append(clue.getClueContent() != null ? clue.getClueContent() : "")
+                    .append(deadline)
+                    .append("\n");
             }
             sb.append(tokenBudgetService.truncateToBudget(clueSb.toString(), budget.getAllocated("clueBook")));
         }

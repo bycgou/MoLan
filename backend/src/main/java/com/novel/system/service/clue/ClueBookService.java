@@ -12,7 +12,21 @@ public interface ClueBookService {
      * 创建伏笔
      */
     ClueBook createClue(ClueBook clue);
-    
+
+    /**
+     * 根据埋设章节推导伏笔的默认回收截止章节（deadline）
+     *
+     * 默认策略：deadline = 埋设章节 + DEFAULT_DEADLINE_CHAPTERS（5章），
+     * 与读取侧的三个判定窗口自洽：
+     * - ContextBuilderService.buildOutlineContext：chapterNum >= deadline - 5 标记「紧急」
+     * - ContextBuilderService.buildWritingContext：chapterNum >= deadline - 3 标记「紧急」
+     * - RuleDrivenRetrievalService 规则1：chapterNum >= deadline - 5 触发事件图谱召回
+     *
+     * @param buryChapter 埋设章节号
+     * @return 回收截止章节；埋设章节为空时返回 null
+     */
+    Integer resolveDeadline(Integer buryChapter);
+
     /**
      * 获取小说所有伏笔
      */

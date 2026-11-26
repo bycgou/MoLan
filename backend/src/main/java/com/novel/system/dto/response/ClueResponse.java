@@ -23,6 +23,8 @@ public class ClueResponse {
     private Integer buryChapter;
     /** 回收章节号（null表示未回收） */
     private Integer recycleChapter;
+    /** 伏笔回收截止章节（null表示未设置期限） */
+    private Integer deadline;
     /** 状态：0-未回收，1-已回收 */
     private Integer status;
     /** 创建时间 */

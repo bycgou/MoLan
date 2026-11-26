@@ -8,6 +8,7 @@ import com.novel.system.mapper.NovelChapterMapper;
 import com.novel.system.ai.rag.RagService;
 import com.novel.system.repository.mongo.NovelGraphRepository;
 import com.novel.system.entity.mongo.NovelGraph;
+import com.novel.system.service.memory.ArcSummaryService;
 import com.novel.system.service.story.StoryStateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ public class ChapterSaveService {
     private final RagService ragService;
     private final NovelGraphRepository novelGraphRepository;
     private final StoryStateService storyStateService;
+    private final ArcSummaryService arcSummaryService;
     @Qualifier("ioTaskExecutor")
     private final Executor ioTaskExecutor;
 
@@ -138,6 +140,15 @@ public class ChapterSaveService {
             novel.setChapterCount(Math.max(novel.getChapterCount() != null ? novel.getChapterCount() : 0, chapterNum));
             novel.setUpdateTime(LocalDateTime.now());
             novelBaseMapper.updateById(novel);
+        }
+
+        // 弧段（卷）章节写完后生成/更新弧摘要 —— 第四层滑动窗口 子层4a
+        // 失败不影响章节保存本身
+        try {
+            arcSummaryService.refreshArcSummaryIfCompleted(novelId, chapterNum);
+        } catch (Exception e) {
+            log.warn("生成弧摘要失败（不影响章节保存）: novelId={}, chapter={}, 错误: {}",
+                    novelId, chapterNum, e.getMessage());
         }
 
         log.info("MySQL写入完成: novelId={}, chapter={}", novelId, chapterNum);

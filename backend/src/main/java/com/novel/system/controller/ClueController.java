@@ -39,6 +39,8 @@ public class ClueController {
         clue.setClueContent(request.getClueContent());
         clue.setPriority(request.getPriority() != null ? request.getPriority() : 2);
         clue.setBuryChapter(request.getBuryChapter());
+        // 手动创建时允许指定回收截止章节；未指定则由 ClueBookServiceImpl 按默认期限策略推导
+        clue.setDeadline(request.getDeadline());
         clue.setRelatedCharacters(request.getRelatedCharacters());
         clue.setRelatedLocations(request.getRelatedLocations());
         clue.setStatus(0); // 未回收
@@ -141,6 +143,7 @@ public class ClueController {
         response.setPriority(clue.getPriority());
         response.setBuryChapter(clue.getBuryChapter());
         response.setRecycleChapter(clue.getRecycleChapter());
+        response.setDeadline(clue.getDeadline());
         response.setStatus(clue.getStatus());
         response.setCreateTime(clue.getCreateTime());
         return response;

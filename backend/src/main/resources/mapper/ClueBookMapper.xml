@@ -14,6 +14,7 @@
         <result column="related_locations" property="relatedLocations"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
+        <result column="deadline" property="deadline"/>
     </resultMap>
 
     <select id="selectById" resultMap="ClueBookResult">
@@ -46,9 +47,9 @@
 
     <insert id="insert">
         INSERT INTO clue_book (clue_id, novel_id, clue_content, priority, bury_chapter, recycle_chapter,
-            status, related_characters, related_locations, create_time, update_time)
+            status, related_characters, related_locations, create_time, update_time, deadline)
         VALUES (#{clueId}, #{novelId}, #{clueContent}, #{priority}, #{buryChapter}, #{recycleChapter},
-            #{status}, #{relatedCharacters}, #{relatedLocations}, #{createTime}, #{updateTime})
+            #{status}, #{relatedCharacters}, #{relatedLocations}, #{createTime}, #{updateTime}, #{deadline})
     </insert>
 
     <update id="updateById">
@@ -61,6 +62,7 @@
             <if test="status != null">status = #{status},</if>
             <if test="relatedCharacters != null">related_characters = #{relatedCharacters},</if>
             <if test="relatedLocations != null">related_locations = #{relatedLocations},</if>
+            <if test="deadline != null">deadline = #{deadline},</if>
             update_time = #{updateTime}
         </set>
         WHERE clue_id = #{clueId}

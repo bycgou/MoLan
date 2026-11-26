@@ -17,7 +17,13 @@ public class CreateClueRequest {
     
     /** 埋设章节号 */
     private Integer buryChapter;
-    
+
+    /**
+     * 伏笔回收截止章节（deadline）
+     * 不传时由后端按默认期限策略自动推导：埋设章节 + DEFAULT_DEADLINE_CHAPTERS
+     */
+    private Integer deadline;
+
     /** 关联人物ID，逗号分隔 */
     private String relatedCharacters;
     
@@ -51,7 +57,13 @@ public class CreateClueRequest {
     public void setPlantedChapter(Integer chapter) {
         this.buryChapter = chapter;
     }
-    
+
+    /** 前端发送 deadlineChapter → 映射到 deadline */
+    @JsonAlias({"deadlineChapter"})
+    public void setDeadlineChapter(Integer chapter) {
+        this.deadline = chapter;
+    }
+
     // ========== 标准 getter/setter ==========
     
     public String getClueContent() { return clueContent; }
@@ -62,7 +74,10 @@ public class CreateClueRequest {
     
     public Integer getBuryChapter() { return buryChapter; }
     public void setBuryChapter(Integer buryChapter) { this.buryChapter = buryChapter; }
-    
+
+    public Integer getDeadline() { return deadline; }
+    public void setDeadline(Integer deadline) { this.deadline = deadline; }
+
     public String getRelatedCharacters() { return relatedCharacters; }
     public void setRelatedCharacters(String relatedCharacters) { this.relatedCharacters = relatedCharacters; }
     

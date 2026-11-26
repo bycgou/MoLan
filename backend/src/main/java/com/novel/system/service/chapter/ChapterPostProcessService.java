@@ -507,6 +507,9 @@ public class ChapterPostProcessService {
                     clue.setPriority(clueData.get("priority") != null
                             ? ((Number) clueData.get("priority")).intValue() : 2);
                     clue.setBuryChapter(chapterNum);
+                    // 回收截止章节：按默认期限策略自动推导（埋设章节 + 5章），
+                    // 保证自动抽取的伏笔同样带有 deadline，紧急提示与规则1召回才能生效
+                    clue.setDeadline(clueBookService.resolveDeadline(chapterNum));
                     clue.setRelatedCharacters((String) clueData.get("relatedCharacters"));
                     clue.setStatus(0); // 未回收
                     clue.setCreateTime(LocalDateTime.now());
