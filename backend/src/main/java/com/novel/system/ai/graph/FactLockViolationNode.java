@@ -36,7 +36,8 @@ public class FactLockViolationNode implements NovelGraphNode {
                 ? state.getFinalResult().getFinalContent()
                 : (state.getDraftContent() != null ? state.getDraftContent().getContent() : "");
 
-        if (content.isEmpty()) {
+        // 写作预算耗尽时本节点也会被走到（此时 finalResult 可能为 null，只有最后一稿）
+        if (content == null || content.isEmpty()) {
             log.warn("No content to check for FactLock violations");
             return state;
         }

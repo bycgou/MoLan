@@ -70,8 +70,13 @@ public class MultiAgentNovelService {
                 .checkpoint("writing")
                 .checkpoint("audit_router")
                 .retryPolicy("outline", 2, "summary")
-                .retryPolicy("writing", 3, "summary")
-                .retryPolicy("audit_router", 2, "summary")
+                // writing 预算耗尽时不能直接跳到 summary：那会绕过唯一的一致性校验
+                // （fact_lock_violation），导致本章被静默强制放行。改走 fact_lock_violation，
+                // 由它做完事实校验后再经既有 edge 收尾。
+                .retryPolicy("writing", 3, "fact_lock_violation")
+                // audit_router 与 writing 同类缺陷：第 3 次被进入时若兜底到 summary，
+                // 会跳过最后一次一致性校验（fact_lock_violation）。对称改为走 fact_lock_violation。
+                .retryPolicy("audit_router", 2, "fact_lock_violation")
                 .build();
 
         this.runner = new GraphRunner(definition);

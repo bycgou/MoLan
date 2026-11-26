@@ -63,9 +63,20 @@ public class NodeExecutor {
         return result;
     }
 
+    /**
+     * 执行节点，失败时按节点自身的错误策略重试。
+     *
+     * <p><b>预算语义</b>：{@code nodeRetryCounts} 记录的是「该节点被进入的次数」，
+     * 成功和失败都计一次。计数在 {@code apply} 之前完成，并把带计数的 state
+     * 传给 {@code apply}，这样节点内部（如 GraphRunner 的路由保护）看到的状态
+     * 已经包含本次进入。
+     */
     private NovelAgentState executeWithRetry(NovelGraphNode node, NovelAgentState state, Mode mode) {
         ErrorStrategy strategy = node.errorStrategy();
         int maxRetries = strategy == ErrorStrategy.RETRY ? node.maxRetries() : 0;
+
+        // 进入即计数：失败同样消耗图级重试预算，避免异常节点被无限重入
+        NovelAgentState countedState = StateHelper.incrementNodeRetry(state, node.nodeName());
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -73,25 +84,34 @@ public class NodeExecutor {
                     log.info("[NodeExecutor] Retrying node {} (attempt {}/{})",
                             node.nodeName(), attempt, maxRetries);
                 }
-                NovelAgentState result = node.apply(state);
-                result = StateHelper.incrementNodeRetry(result, node.nodeName());
+                NovelAgentState result = node.apply(countedState);
+                if (result == null) {
+                    // 节点返回 null 会让整条图状态失效：后续每个节点拿到的都是 null，
+                    // 第一个用状态的节点就会 NPE，报错还指不到真正的元凶。
+                    // 退回到进入本节点前的状态并记一条可恢复错误，让调用方看得出是哪个节点没产出。
+                    log.warn("[NodeExecutor] Node {} returned null state, keeping previous state",
+                            node.nodeName());
+                    return StateHelper.appendError(countedState, new StructuredError(
+                            node.nodeName(), ErrorStrategy.SKIP, "节点返回 null 状态，已保留进入前的状态",
+                            null, Instant.now(), true));
+                }
                 return result;
             } catch (Exception e) {
                 log.warn("[NodeExecutor] Node {} failed on attempt {}: {}",
                         node.nodeName(), attempt + 1, e.getMessage());
 
                 if (strategy == ErrorStrategy.FAIL) {
-                    return StateHelper.appendError(state, new StructuredError(
+                    return StateHelper.appendError(countedState, new StructuredError(
                             node.nodeName(), strategy, e.getMessage(), e, Instant.now(), false));
                 }
 
                 if (strategy == ErrorStrategy.SKIP || attempt == maxRetries) {
-                    return StateHelper.appendError(state, new StructuredError(
+                    return StateHelper.appendError(countedState, new StructuredError(
                             node.nodeName(), strategy, e.getMessage(), e, Instant.now(), true));
                 }
             }
         }
-        return state;
+        return countedState;
     }
 
     private NovelAgentState handleRedirect(NovelGraphNode node, NovelAgentState state,

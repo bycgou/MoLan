@@ -33,7 +33,7 @@ class MultiAgentNovelServiceTest {
     private MultiAgentNovelService service;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         // Stub nodeName() for all mocks — ConcurrentHashMap rejects null keys
         when(arcCheck.nodeName()).thenReturn("arc_check");
         when(outline.nodeName()).thenReturn("outline");
@@ -51,8 +51,10 @@ class MultiAgentNovelServiceTest {
         when(postProcess.nodeName()).thenReturn("post_process");
         ContinuityValidationNode continuityValidation = mock(ContinuityValidationNode.class);
         when(continuityValidation.nodeName()).thenReturn("continuity_validation");
+        when(continuityValidation.apply(any())).thenAnswer(inv -> inv.getArgument(0));
         FactLockViolationNode factLockViolation = mock(FactLockViolationNode.class);
         when(factLockViolation.nodeName()).thenReturn("fact_lock_violation");
+        when(factLockViolation.apply(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service = new MultiAgentNovelService(
                 arcCheck, outline, cluePlan, charPlan, worldValidate,

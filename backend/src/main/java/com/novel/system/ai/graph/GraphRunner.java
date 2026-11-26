@@ -58,8 +58,11 @@ public class GraphRunner {
                 try {
                     NovelAgentState restored = new com.fasterxml.jackson.databind.ObjectMapper()
                             .readValue(checkpoint.get().getStateJson(), NovelAgentState.class);
-                    String resumeNode = getNextNode(checkpoint.get().getNodeName(), restored, mode);
-                    return executeFrom(resumeNode, restored, mode);
+                    NextHop resumeHop = getNextNode(checkpoint.get().getNodeName(), restored, mode);
+                    if (resumeHop.budgetError() != null) {
+                        restored = StateHelper.appendError(restored, resumeHop.budgetError());
+                    }
+                    return executeFrom(resumeHop.node(), restored, mode);
                 } catch (Exception e) {
                     log.warn("[GraphRunner] 检查点恢复失败，从头执行: {}", e.getMessage());
                 }
@@ -135,7 +138,12 @@ public class GraphRunner {
                 continue;
             }
 
-            String nextNode = getNextNode(currentNode, state, mode);
+            NextHop hop = getNextNode(currentNode, state, mode);
+            // 预算耗尽导致的降级必须留痕，否则调用方无从知道本章是被强制放行的
+            if (hop.budgetError() != null) {
+                state = StateHelper.appendError(state, hop.budgetError());
+            }
+            String nextNode = hop.node();
             if (nextNode != null && !nextNode.equals(GraphDefinition.END)) {
                 NovelGraphNode nextGraphNode = nodes.get(nextNode);
                 if (nextGraphNode != null) {
@@ -204,15 +212,19 @@ public class GraphRunner {
 
     /**
      * Route to next node using GraphDefinition, with retry protection overlay.
+     *
+     * <p>返回 {@link NextHop}：除下一个节点名外，还可能携带一条「重试预算耗尽」的错误，
+     * 让降级在 {@code state.getErrors()} 里可见。用返回值传递而不是实例字段，
+     * 是因为 GraphRunner 是单例且可能被并发调用。
      */
-    private String getNextNode(String currentNode, NovelAgentState state, Mode mode) {
+    private NextHop getNextNode(String currentNode, NovelAgentState state, Mode mode) {
         // 1. Try conditional edges (first match wins, with retry protection)
         for (GraphDefinition.ConditionalEdge ce : definition.getConditionalEdges()) {
             if (ce.from().equals(currentNode) && definition.matchesMode(ce.modes(), mode)) {
                 if (ce.condition().test(state)) {
-                    String target = resolveWithRetryProtection(ce.to(), state, currentNode);
-                    if (target != null) {
-                        return target;
+                    NextHop hop = resolveWithRetryProtection(ce.to(), state, currentNode);
+                    if (hop.node() != null) {
+                        return hop;
                     }
                     // Target exceeded retries, try next conditional edge
                 }
@@ -222,9 +234,9 @@ public class GraphRunner {
         // 2. Try simple edges (with retry protection)
         for (GraphDefinition.Edge edge : definition.getSimpleEdges()) {
             if (edge.from().equals(currentNode) && definition.matchesMode(edge.modes(), mode)) {
-                String target = resolveWithRetryProtection(edge.to(), state, currentNode);
-                if (target != null) {
-                    return target;
+                NextHop hop = resolveWithRetryProtection(edge.to(), state, currentNode);
+                if (hop.node() != null) {
+                    return hop;
                 }
                 // Target exceeded retries, try next edge
             }
@@ -233,26 +245,40 @@ public class GraphRunner {
         // 3. No edge matched — use definition fallback or END
         String fallback = definition.getFallbackNode(currentNode);
         if (!GraphDefinition.END.equals(fallback)) {
-            return fallback;
+            return new NextHop(fallback, null);
         }
-        return GraphDefinition.END;
+        return new NextHop(GraphDefinition.END, null);
     }
 
     /**
      * Check if target node has exceeded retry limits. Returns target if OK, fallback if exceeded.
+     *
+     * <p>预算耗尽时同时产出一条 {@link StructuredError}，记录「是谁的预算耗尽了、放行到哪」，
+     * 调用方（{@code AgentExecutionResult.errors}）据此可以知道这一章是被强制放行的。
      */
-    private String resolveWithRetryProtection(String target, NovelAgentState state, String fromNode) {
+    private NextHop resolveWithRetryProtection(String target, NovelAgentState state, String fromNode) {
         int maxRetries = definition.getMaxRetries(target);
         if (maxRetries <= 0) {
-            return target;
+            return new NextHop(target, null);
         }
         int retryCount = StateHelper.getNodeRetryCount(state, target);
         if (retryCount >= maxRetries) {
-            log.warn("[GraphRunner] Node {} exceeded max retries ({}/{}) from {}, using fallback",
-                    target, retryCount, maxRetries, fromNode);
-            return definition.getFallbackNode(target);
+            String fallback = definition.getFallbackNode(target);
+            log.warn("[GraphRunner] Node {} exceeded max retries ({}/{}) from {}, using fallback {}",
+                    target, retryCount, maxRetries, fromNode, fallback);
+            StructuredError budgetError = new StructuredError(
+                    target,
+                    ErrorStrategy.SKIP,
+                    String.format("%s 重写预算耗尽(%d/%d)，已强制放行到 %s",
+                            target, retryCount, maxRetries, fallback),
+                    null, Instant.now(), true);
+            return new NextHop(fallback, budgetError);
         }
-        return target;
+        return new NextHop(target, null);
     }
 
+    /**
+     * 下一跳：节点名 + 可选的「预算耗尽」错误。
+     */
+    private record NextHop(String node, StructuredError budgetError) {}
 }
